@@ -88,6 +88,23 @@ docker compose build
 docker compose run --rm aag ./scripts/docker_bootstrap.sh
 ```
 
+By default this builds a **release** FlowDroid jar (v2.14.1) in a temp dir to avoid snapshot dependency issues.
+To build from the submodule instead:
+
+```bash
+docker compose run --rm \
+  -e FLOWDROID_BUILD_MODE=source \
+  aag ./scripts/docker_bootstrap.sh
+```
+
+To override the release tag used for the temp build:
+
+```bash
+docker compose run --rm \
+  -e FLOWDROID_TAG=v2.14.1 \
+  aag ./scripts/docker_bootstrap.sh
+```
+
 ### Run analysis (Docker)
 
 APK + Knox ID:
