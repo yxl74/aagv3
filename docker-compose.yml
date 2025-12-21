@@ -3,7 +3,8 @@ services:
     build:
       context: .
       args:
-        ANDROID_PLATFORM: android-35
+        ANDROID_API_MIN: 25
+        ANDROID_API_MAX: 36
     environment:
       KNOX_BASE_URL: "http://105.145.72.82:8081/api/v1"
       ANDROID_SDK_ROOT: "/opt/android-sdk"
