@@ -68,26 +68,69 @@ Artifacts are written under `artifacts/{analysis_id}/`.
 
 ## Docker Setup (Recommended for FlowDroid/Soot)
 
-Docker provides a consistent Ubuntu + JDK + Android SDK environment.
+Docker provides a consistent Ubuntu + JDK + Android SDK environment with Android platforms 25-36 preinstalled.
 
-Build and run:
+### First-time setup
+
+1) Initialize submodules (FlowDroid):
+
+```bash
+git submodule update --init --recursive
+```
+
+2) Build the Docker image:
 
 ```bash
 docker compose build
+```
+
+3) Bootstrap toolchain inside the container (Python deps + Soot extractor + FlowDroid jar):
+
+```bash
+docker compose run --rm aag ./scripts/docker_bootstrap.sh
+```
+
+### Run analysis (Docker)
+
+APK path:
+
+```bash
+docker compose run --rm aag \
+  python -m apk_analyzer.main --apk /workspace/path/to/app.apk
+```
+
+Knox APK ID:
+
+```bash
+docker compose run --rm aag \
+  python -m apk_analyzer.main --knox-id <apk_id>
+```
+
+Interactive shell:
+
+```bash
 docker compose run --rm aag
 ```
 
-Inside the container:
+### Rebuild after FlowDroid changes
 
 ```bash
-./scripts/docker_bootstrap.sh
-python -m apk_analyzer.main --apk /workspace/path/to/app.apk
+docker compose run --rm aag \
+  mvn -f FlowDroid/pom.xml -pl soot-infoflow-cmd -am package -DskipTests
+```
+
+### Rebuild after Soot extractor changes
+
+```bash
+docker compose run --rm aag \
+  gradle -p java/soot-extractor jar
 ```
 
 Notes:
 - The repo is mounted at `/workspace`.
-- `ANDROID_SDK_ROOT` is set to `/opt/android-sdk`.
-- `KNOX_BASE_URL` defaults to `http://105.145.72.82:8081/api/v1` in `docker-compose.yml`.
+- `ANDROID_SDK_ROOT` is set to `/opt/android-sdk`, and `analysis.android_platforms_dir` auto-resolves to `/opt/android-sdk/platforms` if unset.
+- `KNOX_BASE_URL` defaults to `http://105.145.72.82:8081/api/v1` in `docker-compose.yml` and can be overridden via env.
+- Artifacts are written to `/workspace/artifacts/{analysis_id}/` on the host.
 
 ## Configuration
 
