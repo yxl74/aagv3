@@ -28,6 +28,8 @@ class Orchestrator:
         self.prompt_dir = Path("src/apk_analyzer/prompts")
 
     def run(self, apk_path: str | None, knox_apk_id: str | None) -> Dict[str, Any]:
+        if not apk_path or not knox_apk_id:
+            raise ValueError("Both apk_path and knox_apk_id are required for analysis.")
         artifact_store = ArtifactStore.from_inputs(
             self.settings["analysis"]["artifacts_dir"],
             apk_path=apk_path,
@@ -51,11 +53,6 @@ class Orchestrator:
                 artifact_store=artifact_store,
             )
             full_knox = knox_client.get_full_analysis(knox_apk_id)
-
-        if knox_apk_id and not apk_path and knox_client:
-            apk_bytes = knox_client.download_apk(knox_apk_id)
-            apk_path = str(artifact_store.path("input/app.apk"))
-            artifact_store.write_bytes("input/app.apk", apk_bytes)
 
         static_outputs: Dict[str, Any] = {}
         manifest = {}
