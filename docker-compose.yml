@@ -1,0 +1,13 @@
+services:
+  aag:
+    build:
+      context: .
+      args:
+        ANDROID_PLATFORM: android-35
+    environment:
+      KNOX_BASE_URL: "http://105.145.72.82:8081/api/v1"
+      ANDROID_SDK_ROOT: "/opt/android-sdk"
+    volumes:
+      - .:/workspace
+    tty: true
+    stdin_open: true

@@ -1,0 +1,12 @@
+# Minimal sources and sinks for PoC
+<android.telephony.TelephonyManager: java.lang.String getDeviceId()> -> _SOURCE_
+<android.telephony.TelephonyManager: java.lang.String getSubscriberId()> -> _SOURCE_
+<android.location.Location: double getLatitude()> -> _SOURCE_
+<android.location.Location: double getLongitude()> -> _SOURCE_
+<android.provider.ContactsContract$Contacts: android.database.Cursor query(android.content.ContentResolver,android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String)> -> _SOURCE_
+<android.net.Uri: java.lang.String toString()> -> _SOURCE_
+<java.net.URL: java.net.URLConnection openConnection()> -> _SINK_
+<java.net.HttpURLConnection: void setRequestMethod(java.lang.String)> -> _SINK_
+<okhttp3.OkHttpClient: okhttp3.Call newCall(okhttp3.Request)> -> _SINK_
+<android.telephony.SmsManager: void sendTextMessage(java.lang.String,java.lang.String,java.lang.String,android.app.PendingIntent,android.app.PendingIntent)> -> _SINK_
+<java.net.Socket: void <init>(java.lang.String,int)> -> _SINK_

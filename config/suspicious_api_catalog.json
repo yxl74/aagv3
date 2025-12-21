@@ -1,0 +1,46 @@
+{
+  "version": "2025-12-21",
+  "categories": {
+    "SENSITIVE_DATA_ACCESS": {
+      "description": "APIs that read private or sensitive data",
+      "signatures": [
+        "<android.telephony.TelephonyManager: java.lang.String getDeviceId()>",
+        "<android.provider.Settings$Secure: java.lang.String getString(android.content.ContentResolver,java.lang.String)>",
+        "<android.accounts.AccountManager: android.accounts.Account[] getAccounts()>",
+        "<android.provider.ContactsContract$Contacts: android.database.Cursor query(android.content.ContentResolver,android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String)>",
+        "<android.provider.CallLog$Calls: android.database.Cursor query(android.content.ContentResolver,android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String)>"
+      ]
+    },
+    "DATA_TRANSMISSION": {
+      "description": "APIs commonly used to transmit data off-device",
+      "signatures": [
+        "<java.net.URL: java.net.URLConnection openConnection()>",
+        "<java.net.HttpURLConnection: void setRequestMethod(java.lang.String)>",
+        "<okhttp3.OkHttpClient: okhttp3.Call newCall(okhttp3.Request)>",
+        "<java.net.Socket: void <init>(java.lang.String,int)>"
+      ]
+    },
+    "DYNAMIC_CODE_LOADING": {
+      "description": "APIs enabling dynamic code loading or process execution",
+      "signatures": [
+        "<dalvik.system.DexClassLoader: void <init>(java.lang.String,java.lang.String,java.lang.String,java.lang.ClassLoader)>",
+        "<java.lang.Runtime: java.lang.Process exec(java.lang.String)>",
+        "<java.lang.ProcessBuilder: java.lang.Process start()>"
+      ]
+    },
+    "REFLECTION": {
+      "description": "Reflection APIs frequently used for obfuscation or dynamic dispatch",
+      "signatures": [
+        "<java.lang.Class: java.lang.reflect.Method getDeclaredMethod(java.lang.String,java.lang.Class[])>",
+        "<java.lang.reflect.Method: java.lang.Object invoke(java.lang.Object,java.lang.Object[])>"
+      ]
+    },
+    "ACCESSIBILITY_ABUSE": {
+      "description": "Accessibility service hooks",
+      "signatures": [
+        "<android.accessibilityservice.AccessibilityService: void onAccessibilityEvent(android.view.accessibility.AccessibilityEvent)>",
+        "<android.accessibilityservice.AccessibilityService: void onServiceConnected()>"
+      ]
+    }
+  }
+}

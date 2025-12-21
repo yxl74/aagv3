@@ -1,0 +1,4678 @@
+openapi: 3.0.3
+info:
+  title: Knox Vision API
+  description: 'High-Performance APK Analysis Platform API
+
+
+    Knox Vision provides comprehensive Android APK analysis including:
+
+    - Static code analysis and decompilation
+
+    - Dynamic runtime analysis via device grid
+
+    - Machine learning-powered threat detection
+
+    - Malware family classification
+
+    - Code similarity and dropper detection
+
+    - Accessibility and overlay abuse detection
+
+    - App impersonation detection
+
+    - VirusTotal integration
+
+
+    ## Authentication
+
+    Currently no authentication required for local deployment.
+
+
+    ## Base URL
+
+    All endpoints are prefixed with `/api/v1`
+
+    '
+  version: 1.0.0
+servers:
+- url: http://localhost:8080/api/v1
+  description: Local development server
+- url: http://192.168.1.197:8080/api/v1
+  description: Network accessible server
+tags:
+- name: APKs
+  description: APK metadata and analysis operations
+- name: Search
+  description: Search across APKs, code, and metadata
+- name: Device Grid
+  description: Android emulator management and orchestration
+- name: Runtime
+  description: Runtime analysis and dynamic behavior
+- name: Threat Detection
+  description: Threat indicators and malware detection
+- name: Accessibility
+  description: Accessibility service abuse detection
+- name: Overlay
+  description: Screen overlay abuse detection
+- name: Impersonation
+  description: Fake/impersonator app detection
+- name: Ad SDK
+  description: Advertising SDK detection
+- name: Packers
+  description: Packer detection and unpacking
+- name: Certificates
+  description: Certificate search and statistics
+- name: VirusTotal
+  description: VirusTotal integration
+- name: Dropper
+  description: Dropper and payload detection
+- name: Filesystem Monitor
+  description: Real-time filesystem monitoring
+- name: Permission Monitor
+  description: Runtime permission monitoring
+- name: ML
+  description: Machine learning predictions and classifications
+- name: Jobs
+  description: Background job management
+- name: Analyze
+  description: Batch APK analysis pipeline
+- name: System
+  description: System health and monitoring
+- name: Meta
+  description: Tags, settings, and analytics
+- name: Bytecode
+  description: DEX bytecode analysis (classes, methods, instructions)
+- name: Runtime Exec
+  description: Runtime execution detection (exec, ProcessBuilder, native loading)
+- name: Native
+  description: Native library analysis (.so files)
+- name: Developer
+  description: Developer/publisher analysis
+- name: Firmware
+  description: Firmware analysis and extraction
+- name: LLM
+  description: LLM-powered analysis and insights
+paths:
+  /apks:
+    get:
+      tags:
+      - APKs
+      summary: List APKs
+      description: Get paginated list of APKs
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 20
+        description: Maximum number of results to return
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          default: 0
+        description: Number of results to skip
+      responses:
+        '200':
+          description: APK list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  apks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/APK'
+  /apks/search:
+    post:
+      tags:
+      - APKs
+      summary: Search APKs
+      description: Full-text search across APK metadata using Elasticsearch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: object
+                  description: Elasticsearch query DSL
+                limit:
+                  type: integer
+                  default: 20
+                  description: Maximum number of results
+                offset:
+                  type: integer
+                  default: 0
+                  description: Number of results to skip
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  hits:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/APK'
+  /apk/{apk_id}:
+    get:
+      tags:
+      - APKs
+      summary: Get APK details
+      description: Retrieve metadata for a specific APK
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: APK metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APK'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /apk/{apk_id}/full:
+    get:
+      tags:
+      - APKs
+      summary: Get full APK details
+      description: Retrieve complete metadata including all analysis results
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Full APK metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APK'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /apk/{apk_id}/manifest:
+    get:
+      tags:
+      - APKs
+      summary: Get APK manifest
+      description: Retrieve parsed AndroidManifest.xml
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Parsed manifest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Manifest'
+  /manifest/{apk_id}:
+    get:
+      tags:
+      - APKs
+      summary: Get AndroidManifest.xml (alternate)
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Parsed manifest data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Manifest'
+  /apk/{apk_id}/download:
+    get:
+      tags:
+      - APKs
+      summary: Download APK file
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: APK file
+          content:
+            application/vnd.android.package-archive:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /apk/{apk_id}/source:
+    get:
+      tags:
+      - APKs
+      summary: Get source file tree
+      description: Get decompiled source file tree structure
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Source tree
+          content:
+            application/json:
+              schema:
+                type: object
+  /apk/{apk_id}/source/{file_path}:
+    get:
+      tags:
+      - APKs
+      summary: Get source file content
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      - name: file_path
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: File content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  path:
+                    type: string
+  /apk/{apk_id}/databases:
+    get:
+      tags:
+      - APKs
+      summary: Get database artifacts
+      description: Get SQLite databases found in APK
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Database artifacts
+          content:
+            application/json:
+              schema:
+                type: object
+  /apk/{apk_id}/shared-preferences:
+    get:
+      tags:
+      - APKs
+      summary: Get shared preferences
+      description: Get SharedPreferences XML files
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: SharedPreferences data
+          content:
+            application/json:
+              schema:
+                type: object
+  /apk/{apk_id}/device-farm:
+    get:
+      tags:
+      - APKs
+      summary: Get device farm results
+      description: Get dynamic analysis results from device farm
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Device farm results
+          content:
+            application/json:
+              schema:
+                type: object
+  /search:
+    get:
+      tags:
+      - Search
+      summary: General search
+      description: Search across all document types
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: type
+        in: query
+        schema:
+          type: string
+          enum:
+          - package
+          - content
+          - filename
+          - app
+      - name: doc_type
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 20
+        description: Maximum number of results to return
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+  /apk/{apk_id}/ad-sdks:
+    get:
+      tags:
+      - Ad SDK
+      summary: Detect Ad SDKs for APK
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Ad SDK detection results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apk_id:
+                    type: string
+                    description: APK identifier
+                  package_name:
+                    type: string
+                    description: Package name of the APK
+                  version_name:
+                    type: string
+                    description: Version name of the APK
+                  detected_sdks:
+                    type: array
+                    description: List of detected Ad SDKs
+                    items:
+                      type: object
+                      properties:
+                        sdk_name:
+                          type: string
+                        category:
+                          type: string
+                        confidence:
+                          type: number
+                        detection_methods:
+                          type: array
+                          items:
+                            type: string
+                  total_ad_sdks:
+                    type: integer
+                    description: Total number of detected Ad SDKs
+                  ad_behaviors:
+                    type: object
+                    description: Detected advertising behaviors
+                  ad_risk_score:
+                    type: number
+                    description: Risk score (0-100)
+                  ad_risk_level:
+                    type: string
+                    enum:
+                    - low
+                    - medium
+                    - high
+                    description: Risk level classification
+                  analysis_timestamp:
+                    type: string
+                    format: date-time
+                    description: When the analysis was performed
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /apk/{apk_id}/unpacking-info:
+    get:
+      tags:
+      - Packers
+      summary: Get unpacking info
+      description: Get packer detection and unpacking results for an APK
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Unpacking information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apk_id:
+                    type: string
+                    description: APK identifier
+                  package_name:
+                    type: string
+                    description: Package name
+                  was_unpacked:
+                    type: boolean
+                    description: Whether unpacking was successful
+                  unpacking_method:
+                    type: array
+                    items:
+                      type: string
+                    description: Packers detected during unpacking
+                  unpacked_files:
+                    type: object
+                    properties:
+                      packed_dex_count:
+                        type: integer
+                        description: Number of packed DEX files found
+                      unpacked_dex_count:
+                        type: integer
+                        description: Number of DEX files successfully unpacked
+                      unpacked_source_files_count:
+                        type: integer
+                        description: Number of source files extracted
+                      total_dex_files:
+                        type: integer
+                        description: Total DEX files in APK
+                  unpacker_registry:
+                    type: object
+                    description: Registry data from unpacking process
+                  apkid_packers:
+                    type: array
+                    items:
+                      type: string
+                    description: Packers detected by APKiD
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /packers/statistics:
+    get:
+      tags:
+      - Packers
+      summary: Get packer statistics
+      description: Get comprehensive packer statistics across the database
+      responses:
+        '200':
+          description: Packer statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_apks:
+                    type: integer
+                    description: Total APKs in database
+                  total_apks_analyzed:
+                    type: integer
+                    description: APKs analyzed for packers
+                  data_source_counts:
+                    type: object
+                    description: APK counts by data source
+                  unpacking_summary:
+                    type: object
+                    description: Summary of unpacking results
+                  packers:
+                    type: object
+                    description: Packer detection counts
+                  packers_by_data_source:
+                    type: object
+                    description: Packer counts per data source
+                  top_packers:
+                    type: array
+                    items:
+                      type: object
+                    description: Most common packers
+  /accessibility-detection:
+    get:
+      tags:
+      - Accessibility
+      summary: Detect accessibility service abuse
+      description: Analyzes APKs for potential accessibility service abuse indicators
+      parameters:
+      - name: data_source
+        in: query
+        schema:
+          type: string
+        description: Filter by data source
+      responses:
+        '200':
+          description: Accessibility abuse detection results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_apks:
+                    type: integer
+                    description: Total APKs in dataset
+                  total_accessibility_apps:
+                    type: integer
+                    description: Total apps using accessibility features
+                  total_accessibility_apps_pct:
+                    type: number
+                    description: Percentage of apps using accessibility
+                  bind_accessibility_count:
+                    type: integer
+                    description: Apps with BIND_ACCESSIBILITY_SERVICE permission
+                  bind_accessibility_pct:
+                    type: number
+                    description: Percentage with BIND_ACCESSIBILITY_SERVICE
+                  accessibility_service_count:
+                    type: integer
+                    description: Apps implementing AccessibilityService
+                  accessibility_service_pct:
+                    type: number
+                    description: Percentage implementing AccessibilityService
+                  event_types_count:
+                    type: integer
+                    description: Apps using accessibility event types
+                  event_types_pct:
+                    type: number
+                    description: Percentage using event types
+                  keylogging_indicators_count:
+                    type: integer
+                    description: Apps with keylogging indicators
+                  keylogging_indicators_pct:
+                    type: number
+                    description: Percentage with keylogging indicators
+                  screen_capture_indicators_count:
+                    type: integer
+                    description: Apps with screen capture indicators
+                  screen_capture_indicators_pct:
+                    type: number
+                    description: Percentage with screen capture indicators
+                  high_risk_permissions_count:
+                    type: integer
+                    description: Apps with high-risk permission combinations
+                  high_risk_permissions_pct:
+                    type: number
+                    description: Percentage with high-risk permissions
+                  data_source:
+                    type: string
+                    description: Data source filter (if applied)
+  /overlay-detection:
+    get:
+      tags:
+      - Overlay
+      summary: Detect screen overlay abuse
+      description: Analyzes APKs for potential screen overlay abuse indicators
+      parameters:
+      - name: data_source
+        in: query
+        schema:
+          type: string
+        description: Filter by data source
+      responses:
+        '200':
+          description: Overlay abuse detection results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_apks:
+                    type: integer
+                    description: Total APKs in dataset
+                  total_overlay_apps:
+                    type: integer
+                    description: Total apps using overlay techniques
+                  total_overlay_apps_pct:
+                    type: number
+                    description: Percentage of apps using overlay
+                  system_alert_window_count:
+                    type: integer
+                    description: Apps with SYSTEM_ALERT_WINDOW permission
+                  system_alert_window_pct:
+                    type: number
+                    description: Percentage with SYSTEM_ALERT_WINDOW
+                  window_manager_usage_count:
+                    type: integer
+                    description: Apps using WindowManager to add views
+                  window_manager_usage_pct:
+                    type: number
+                    description: Percentage using WindowManager
+                  overlay_api_usage_count:
+                    type: integer
+                    description: Apps using overlay permission APIs
+                  overlay_api_usage_pct:
+                    type: number
+                    description: Percentage using overlay APIs
+                  toast_overlay_count:
+                    type: integer
+                    description: Apps with potential toast overlay abuse
+                  toast_overlay_pct:
+                    type: number
+                    description: Percentage with toast overlay
+                  phishing_indicators_count:
+                    type: integer
+                    description: Apps with phishing overlay indicators
+                  phishing_indicators_pct:
+                    type: number
+                    description: Percentage with phishing indicators
+                  high_risk_combo_count:
+                    type: integer
+                    description: Apps with high-risk combinations (currently disabled for performance)
+                  high_risk_combo_pct:
+                    type: number
+                    description: Percentage with high-risk combinations
+                  data_source:
+                    type: string
+                    description: Data source filter (if applied)
+  /overlay-apps:
+    get:
+      tags:
+      - Overlay
+      summary: Get apps using overlay techniques
+      description: Returns paginated list of apps with overlay capabilities
+      parameters:
+      - name: data_source
+        in: query
+        schema:
+          type: string
+        description: Filter by data source
+      - name: page
+        in: query
+        schema:
+          type: integer
+          default: 1
+        description: Page number
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 20
+          maximum: 100
+        description: Maximum number of results per page
+      responses:
+        '200':
+          description: Paginated list of overlay apps
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        apk_id:
+                          type: string
+                        package_name:
+                          type: string
+                        app_name:
+                          type: string
+                        sha256:
+                          type: string
+                        data_source:
+                          type: string
+                        permissions_count:
+                          type: integer
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  total_pages:
+                    type: integer
+                  limit:
+                    type: integer
+  /impersonation/check:
+    post:
+      tags:
+      - Impersonation
+      summary: Check for app impersonation
+      description: Check if an APK is impersonating a legitimate app
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                apk_id:
+                  type: string
+                  description: APK ID to check
+                package_name:
+                  type: string
+                  description: Package name to check
+                app_name:
+                  type: string
+                  description: App name to check
+                sha256:
+                  type: string
+                  description: SHA256 hash of the APK
+                cert_sha256:
+                  type: string
+                  description: Certificate SHA256 fingerprint
+      responses:
+        '200':
+          description: Impersonation check results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  is_impersonator:
+                    type: boolean
+                    description: Whether app is likely an impersonator
+                  confidence:
+                    type: string
+                    enum:
+                    - high
+                    - medium
+                    - low
+                    description: Confidence level of detection
+                  match_type:
+                    type: string
+                    enum:
+                    - exact_match
+                    - same_developer
+                    - package_name_only
+                    - no_reference
+                    description: Type of match found
+                  legitimate_app:
+                    type: object
+                    description: Matched legitimate app details (if any)
+                  verdict:
+                    type: string
+                    description: Human-readable verdict with emoji indicators
+                  indicators:
+                    type: array
+                    items:
+                      type: string
+                    description: List of check indicators with status marks
+                  details:
+                    type: object
+                    description: Additional details for impersonation cases
+                    properties:
+                      expected_cert:
+                        type: string
+                      expected_org:
+                        type: string
+                      received_cert:
+                        type: string
+                      package_name_squatting:
+                        type: boolean
+                  total_legitimate_apps:
+                    type: integer
+                    description: Total number of registered legitimate apps
+  /impersonation/register:
+    post:
+      tags:
+      - Impersonation
+      summary: Register a legitimate app
+      description: Register an app as legitimate for impersonation detection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - package_name
+              properties:
+                package_name:
+                  type: string
+                  description: Package name of the legitimate app
+                app_name:
+                  type: string
+                  description: Official app name
+                developer:
+                  type: string
+                  description: Official developer name
+                sha256:
+                  type: string
+                  description: Known APK SHA256 hash
+                cert_sha256:
+                  type: string
+                  description: Known certificate SHA256 fingerprint
+                cert_organization:
+                  type: string
+                  description: Certificate organization name
+      responses:
+        '200':
+          description: App registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - registered
+                    description: Registration status
+                  package_name:
+                    type: string
+                    description: Registered package name
+                  app_name:
+                    type: string
+                    description: Registered app name
+  /impersonation/list:
+    get:
+      tags:
+      - Impersonation
+      summary: List registered legitimate apps
+      description: Get list of all registered legitimate apps
+      responses:
+        '200':
+          description: List of registered apps
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    description: Total number of registered apps
+                  apps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        package_name:
+                          type: string
+                        app_name:
+                          type: string
+                        developer:
+                          type: string
+                        sha256:
+                          type: string
+                        cert_sha256:
+                          type: string
+                        cert_organization:
+                          type: string
+  /impersonation/delete/{package_name}:
+    delete:
+      tags:
+      - Impersonation
+      summary: Delete a registered app
+      description: Remove an app from the legitimate apps registry
+      parameters:
+      - name: package_name
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Package name to delete
+      responses:
+        '200':
+          description: App deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - deleted
+                    description: Deletion status
+                  package_name:
+                    type: string
+                    description: Deleted package name
+        '404':
+          description: App not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /certificates/search:
+    post:
+      tags:
+      - Certificates
+      summary: Search by certificate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cert_fingerprint:
+                  type: string
+                cert_sha256:
+                  type: string
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+  /certificates/statistics:
+    get:
+      tags:
+      - Certificates
+      summary: Get certificate statistics
+      responses:
+        '200':
+          description: Certificate statistics
+          content:
+            application/json:
+              schema:
+                type: object
+  /virustotal/apk/{apk_id}:
+    get:
+      tags:
+      - VirusTotal
+      summary: Get VirusTotal report by APK ID
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: VirusTotal report
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /dropper-detection:
+    get:
+      tags:
+      - Dropper
+      summary: Detect potential droppers
+      description: 'Detect potential Android dropper apps based on technical indicators:
+
+        - INSTALL_PACKAGES / REQUEST_INSTALL_PACKAGES permissions
+
+        - Dynamic code loading (DexClassLoader, PathClassLoader)
+
+        - High-risk permission combinations
+
+        '
+      parameters:
+      - name: data_source
+        in: query
+        schema:
+          type: string
+        description: Filter by data source
+      responses:
+        '200':
+          description: Dropper detection statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_apks:
+                    type: integer
+                  total_potential_droppers:
+                    type: integer
+                  total_potential_droppers_pct:
+                    type: number
+                  install_packages_count:
+                    type: integer
+                  install_packages_pct:
+                    type: number
+                  request_install_packages_count:
+                    type: integer
+                  request_install_packages_pct:
+                    type: number
+                  install_permission_count:
+                    type: integer
+                  dynamic_loader_count:
+                    type: integer
+                  dynamic_loader_pct:
+                    type: number
+                  high_risk_combo_count:
+                    type: integer
+                  high_risk_combo_pct:
+                    type: number
+                  request_install_loader_count:
+                    type: integer
+                    description: Apps with REQUEST_INSTALL_PACKAGES + dynamic loaders
+  /dropper-apps:
+    get:
+      tags:
+      - Dropper
+      summary: List dropper apps
+      description: Get paginated list of apps detected as potential droppers
+      parameters:
+      - name: data_source
+        in: query
+        schema:
+          type: string
+      - name: detection_type
+        in: query
+        schema:
+          type: string
+          enum:
+          - all
+          - request_install
+          - install_packages
+          - dynamic_loaders
+          - combo
+          default: all
+        description: Type of dropper detection to filter by
+      - name: page
+        in: query
+        schema:
+          type: integer
+          default: 1
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 20
+          maximum: 100
+        description: Maximum number of results per page
+      responses:
+        '200':
+          description: Paginated dropper apps
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        apk_id:
+                          type: string
+                        package_name:
+                          type: string
+                        app_name:
+                          type: string
+                        sha256:
+                          type: string
+                        data_source:
+                          type: string
+                        permissions_count:
+                          type: integer
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  total_pages:
+                    type: integer
+                  detection_type:
+                    type: string
+                  limit:
+                    type: integer
+  /threat-indicators/{apk_id}:
+    get:
+      tags:
+      - Threat Detection
+      summary: Get threat indicators for APK
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Threat indicators
+          content:
+            application/json:
+              schema:
+                type: object
+  /filesystem-monitor/control:
+    post:
+      tags:
+      - Filesystem Monitor
+      summary: Filesystem monitor control (start, stop, clear)
+      description: Unified control endpoint for filesystem monitoring
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - start
+                  - stop
+                  - clear
+                device:
+                  type: string
+                  description: Required for start action
+                package:
+                  type: string
+                  description: Required for start action
+      responses:
+        '200':
+          description: Action completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+  /filesystem-monitor/files:
+    get:
+      tags:
+      - Filesystem Monitor
+      summary: Get dropped files
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 100
+      responses:
+        '200':
+          description: Dropped files
+          content:
+            application/json:
+              schema:
+                type: object
+  /filesystem-monitor/capture/{filepath}:
+    post:
+      tags:
+      - Filesystem Monitor
+      summary: Capture file from device
+      parameters:
+      - name: filepath
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: File captured
+          content:
+            application/json:
+              schema:
+                type: object
+  /permission-monitor/control:
+    post:
+      tags:
+      - Permission Monitor
+      summary: Permission monitor control (start, stop, clear)
+      description: Unified control endpoint for permission monitoring
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - start
+                  - stop
+                  - clear
+                device:
+                  type: string
+                  description: Required for start action
+                package:
+                  type: string
+                  description: Required for start action
+      responses:
+        '200':
+          description: Action completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+  /permission-monitor/accesses:
+    get:
+      tags:
+      - Permission Monitor
+      summary: Get permission accesses
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 100
+      responses:
+        '200':
+          description: Permission accesses
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/config:
+    get:
+      tags:
+      - Device Grid
+      summary: Get device grid configuration
+      responses:
+        '200':
+          description: Configuration
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/devices:
+    get:
+      tags:
+      - Device Grid
+      summary: List all devices
+      responses:
+        '200':
+          description: List of devices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  devices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Device'
+    post:
+      tags:
+      - Device Grid
+      summary: Create new device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum:
+                  - test
+                  - production
+                  - persistent
+                android_version:
+                  type: string
+                architecture:
+                  type: string
+                  enum:
+                  - x86_64
+                  - arm64-v8a
+      responses:
+        '201':
+          description: Device created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+  /device-grid/devices/{device_id}:
+    get:
+      tags:
+      - Device Grid
+      summary: Get device details
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      responses:
+        '200':
+          description: Device details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+    delete:
+      tags:
+      - Device Grid
+      summary: Delete device
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      responses:
+        '200':
+          description: Device deleted
+  /device-grid/devices/{device_id}/control:
+    post:
+      tags:
+      - Device Grid
+      summary: Control device (start, stop, stealth, zygote, revert)
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - start
+                  - stop
+                  - stealth_on
+                  - stealth_off
+                  - zygote
+                  - revert
+      responses:
+        '200':
+          description: Action completed
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/devices/{device_id}/screenshot:
+    get:
+      tags:
+      - Device Grid
+      summary: Get device screenshot
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      responses:
+        '200':
+          description: Screenshot image
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+  /device-grid/devices/{device_id}/input:
+    post:
+      tags:
+      - Device Grid
+      summary: Send input to device
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum:
+                  - tap
+                  - swipe
+                  - text
+                  - key
+                x:
+                  type: integer
+                y:
+                  type: integer
+                text:
+                  type: string
+                key:
+                  type: string
+      responses:
+        '200':
+          description: Input sent
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/devices/{device_id}/logcat:
+    get:
+      tags:
+      - Device Grid
+      summary: Get device logcat
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      - name: lines
+        in: query
+        schema:
+          type: integer
+          default: 100
+      responses:
+        '200':
+          description: Logcat output
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/devices/{device_id}/apps:
+    get:
+      tags:
+      - Device Grid
+      summary: Get package activities
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      - name: refresh
+        in: query
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: Activities list
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+      - Device Grid
+      summary: App management (install, uninstall, launch, deeplink, adb)
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - install
+                  - uninstall
+                  - launch
+                  - deeplink
+                  - adb
+                apk_id:
+                  type: string
+                package_name:
+                  type: string
+                activity:
+                  type: string
+                url:
+                  type: string
+                command:
+                  type: string
+      responses:
+        '200':
+          description: Action completed
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/devices/{device_id}/capture:
+    post:
+      tags:
+      - Device Grid
+      summary: Capture control (start, stop)
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - start
+                  - stop
+                package_name:
+                  type: string
+                session_id:
+                  type: string
+      responses:
+        '200':
+          description: Capture action completed
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/devices/{device_id}/capture/{type}:
+    get:
+      tags:
+      - Device Grid
+      summary: Get capture data by type
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      - name: type
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - files
+          - strace
+          - tcpdump
+          - pcap
+          - frida
+      - name: session_id
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Capture data
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/devices/{device_id}/isolation:
+    get:
+      tags:
+      - Device Grid
+      summary: Get isolation status
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      responses:
+        '200':
+          description: Isolation status
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+      - Device Grid
+      summary: Toggle network isolation
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      responses:
+        '200':
+          description: Isolation toggled
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/devices/{device_id}/hooks:
+    get:
+      tags:
+      - Device Grid
+      summary: Get hook calls and status
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      responses:
+        '200':
+          description: Hook data
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+      - Device Grid
+      summary: Hook control (start, stop, push)
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - start
+                  - stop
+                  - push
+                package_name:
+                  type: string
+                script:
+                  type: string
+      responses:
+        '200':
+          description: Hook action completed
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/devices/{device_id}/automation:
+    get:
+      tags:
+      - Device Grid
+      summary: Get automation status
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      responses:
+        '200':
+          description: Automation status
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+      - Device Grid
+      summary: Automation control (start, stop)
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - start
+                  - stop
+                package_name:
+                  type: string
+                backend:
+                  type: string
+                duration:
+                  type: integer
+      responses:
+        '200':
+          description: Automation action completed
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/devices/{device_id}/permissions:
+    get:
+      tags:
+      - Device Grid
+      summary: Get permission calls
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      responses:
+        '200':
+          description: Permission data
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+      - Device Grid
+      summary: Permission monitoring control (start, stop)
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - start
+                  - stop
+                package_name:
+                  type: string
+      responses:
+        '200':
+          description: Permission action completed
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/devices/{device_id}/testing:
+    post:
+      tags:
+      - Device Grid
+      summary: Testing state control (set, clear)
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - set
+                  - clear
+                package_name:
+                  type: string
+                apk_id:
+                  type: string
+      responses:
+        '200':
+          description: Testing action completed
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/device-status:
+    get:
+      tags:
+      - Device Grid
+      summary: Get device status summary
+      responses:
+        '200':
+          description: Device status
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/ports/status:
+    get:
+      tags:
+      - Device Grid
+      summary: Get port status
+      responses:
+        '200':
+          description: Port status
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/ports/control:
+    post:
+      tags:
+      - Device Grid
+      summary: Unified port control
+      description: Port management (reserve, release)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - reserve
+                  - release
+                  description: Action to perform
+                device_id:
+                  type: string
+                  description: Device ID (required for reserve/release)
+                port:
+                  type: integer
+                  description: Port number (optional for release)
+                preferred_port:
+                  type: integer
+                  description: Preferred port (optional for reserve)
+      responses:
+        '200':
+          description: Action completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  action:
+                    type: string
+                  port:
+                    type: integer
+  /device-grid/avds:
+    get:
+      tags:
+      - Device Grid
+      summary: List AVDs
+      responses:
+        '200':
+          description: AVD list
+          content:
+            application/json:
+              schema:
+                type: object
+  /device-grid/avds/control:
+    post:
+      tags:
+      - Device Grid
+      summary: Unified AVD control
+      description: AVD management (ensure-template, clone, delete)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - ensure-template
+                  - clone
+                  - delete
+                  description: Action to perform
+                source_avd:
+                  type: string
+                  description: Source AVD name (for clone)
+                new_avd:
+                  type: string
+                  description: New AVD name (for clone)
+                use_template:
+                  type: boolean
+                  description: Use template as source (for clone)
+                avd_name:
+                  type: string
+                  description: AVD name to delete (for delete)
+      responses:
+        '200':
+          description: Action completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  action:
+                    type: string
+                  message:
+                    type: string
+  /device-grid/devices/{device_id}/adb/command:
+    post:
+      tags:
+      - Device Grid
+      summary: Execute ADB command
+      description: Execute an arbitrary ADB shell command on the device
+      parameters:
+      - $ref: '#/components/parameters/device_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - command
+              properties:
+                command:
+                  type: string
+                  description: ADB shell command to execute
+      responses:
+        '200':
+          description: Command output
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  output:
+                    type: string
+                  error:
+                    type: string
+  /device-grid/captures/{session_id}/status:
+    get:
+      tags:
+      - Device Grid
+      summary: Get capture session status
+      description: Get the status of an active or completed capture session
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Capture session status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                    - active
+                    - stopped
+                    - error
+                  device_id:
+                    type: string
+                  package_name:
+                    type: string
+                  start_time:
+                    type: number
+                  duration:
+                    type: number
+                  files:
+                    type: object
+  /device-grid/captures/{session_id}/download:
+    get:
+      tags:
+      - Device Grid
+      summary: Download capture archive
+      description: Download all capture data as a ZIP archive
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: ZIP archive
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /device-grid/refresh:
+    post:
+      tags:
+      - Device Grid
+      summary: Refresh device grid state
+      description: Sync device state with running emulators and ADB
+      responses:
+        '200':
+          description: Refresh completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  devices_synced:
+                    type: integer
+  /device-grid/stop-all:
+    post:
+      tags:
+      - Device Grid
+      summary: Stop all devices
+      description: Emergency stop all running emulators
+      responses:
+        '200':
+          description: All devices stopped
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  stopped_count:
+                    type: integer
+  /device-grid/cleanup-orphaned-avds:
+    post:
+      tags:
+      - Device Grid
+      summary: Cleanup orphaned AVDs
+      description: Delete AVDs that have no associated device records
+      responses:
+        '200':
+          description: Cleanup completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  deleted:
+                    type: array
+                    items:
+                      type: string
+                  protected:
+                    type: array
+                    items:
+                      type: string
+  /ml/predict-malware:
+    post:
+      tags:
+      - ML
+      summary: Predict malware risk
+      description: 'Analyze an APK and predict malware risk using rule-based heuristics.
+
+        Returns a risk score (0-100), risk level, and detailed risk factors.
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - apk_id
+              properties:
+                apk_id:
+                  type: string
+                  description: APK identifier (SHA256 hash)
+      responses:
+        '200':
+          description: Malware prediction results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apk_id:
+                    type: string
+                  package_name:
+                    type: string
+                  ml_prediction:
+                    type: object
+                    properties:
+                      risk_score:
+                        type: integer
+                        minimum: 0
+                        maximum: 100
+                      risk_level:
+                        type: string
+                        enum:
+                        - MINIMAL
+                        - LOW
+                        - MEDIUM
+                        - HIGH
+                        - CRITICAL
+                      confidence:
+                        type: integer
+                      recommendation:
+                        type: string
+                  risk_factors:
+                    type: array
+                    items:
+                      type: string
+                  features_analyzed:
+                    type: object
+                  similar_apks:
+                    type: array
+                    items:
+                      type: object
+                  analysis_timestamp:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ml/batch-predict:
+    post:
+      tags:
+      - ML
+      summary: Batch predict malware
+      description: Predict malware risk for multiple APKs at once
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  default: 10
+                  maximum: 100
+                  description: Maximum number of APKs to analyze
+                tag:
+                  type: string
+                  description: Filter APKs by tag
+      responses:
+        '200':
+          description: Batch prediction results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_analyzed:
+                    type: integer
+                  high_risk_count:
+                    type: integer
+                  predictions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        apk_id:
+                          type: string
+                        package_name:
+                          type: string
+                        risk_score:
+                          type: integer
+                        risk_level:
+                          type: string
+                          enum:
+                          - LOW
+                          - MEDIUM
+                          - HIGH
+                  analysis_timestamp:
+                    type: string
+                    format: date-time
+  /model1a-analysis/{apk_id}:
+    get:
+      tags:
+      - ML
+      summary: Get Model1a analysis
+      description: 'Get Model1a binary classifier (malware/benign) analysis for an APK.
+
+        Proxies to standalone Model1a service on port 8082.
+
+        '
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Model1a analysis results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MLAnalysisResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: Model1a service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /model2a-analysis/{apk_id}:
+    get:
+      tags:
+      - ML
+      summary: Get Model2a analysis
+      description: 'Get Model2a 11-class malware family classifier analysis for an APK.
+
+        Proxies to standalone Model2a service on port 8083.
+
+        '
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Model2a analysis results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  apk_id:
+                    type: string
+                  prediction:
+                    type: string
+                    description: Predicted malware family/category
+                  probabilities:
+                    type: object
+                    description: Class probabilities for each category
+                  confidence:
+                    type: number
+                  analysis_timestamp:
+                    type: string
+                    format: date-time
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: Model2a service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /jobs:
+    get:
+      tags:
+      - Jobs
+      summary: List background jobs
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Job'
+    post:
+      tags:
+      - Jobs
+      summary: Create new job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_type:
+                  type: string
+                parameters:
+                  type: object
+      responses:
+        '201':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /jobs/{job_id}:
+    get:
+      tags:
+      - Jobs
+      summary: Get job status
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Job details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /jobs/{job_id}/control:
+    post:
+      tags:
+      - Jobs
+      summary: Job control (cancel, toggle, delete)
+      description: Unified control endpoint for job actions
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - cancel
+                  - toggle
+                  - delete
+                  description: '- cancel: Cancel a running or queued job
+
+                    - toggle: Toggle scheduled job active/paused state
+
+                    - delete: Delete a scheduled job
+
+                    '
+      responses:
+        '200':
+          description: Action completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  message:
+                    type: string
+  /jobs/{job_id}/logs:
+    get:
+      tags:
+      - Jobs
+      summary: Get job logs
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: start
+        in: query
+        schema:
+          type: integer
+          default: 0
+      responses:
+        '200':
+          description: Job logs
+          content:
+            application/json:
+              schema:
+                type: object
+  /jobs/control:
+    post:
+      tags:
+      - Jobs
+      summary: Jobs control (clear)
+      description: Unified control endpoint for global job actions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - clear
+                  description: clear - Clear all completed jobs
+      responses:
+        '200':
+          description: Action completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cleared:
+                    type: integer
+                  message:
+                    type: string
+  /analyze-metrics:
+    get:
+      tags:
+      - Analyze
+      summary: Get analysis metrics
+      description: Get analysis/processing metrics and statistics
+      responses:
+        '200':
+          description: Analysis metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_analyzed:
+                    type: integer
+                  processing_rate:
+                    type: number
+                  queue_size:
+                    type: integer
+  /tags:
+    get:
+      tags:
+      - Meta
+      summary: Get all tags
+      responses:
+        '200':
+          description: Tags list
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+      - Meta
+      summary: Create a new tag
+      description: Register a new tag for use with APK analysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - tag_name
+              properties:
+                tag_name:
+                  type: string
+                  description: Tag name (alphanumeric, hyphens, underscores only)
+                description:
+                  type: string
+                  description: Optional description for the tag
+      responses:
+        '201':
+          description: Tag created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  tag_name:
+                    type: string
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /tag-statistics:
+    get:
+      tags:
+      - Meta
+      summary: Get tag statistics
+      responses:
+        '200':
+          description: Tag statistics
+          content:
+            application/json:
+              schema:
+                type: object
+  /settings:
+    get:
+      tags:
+      - Meta
+      summary: Get settings
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema:
+                type: object
+  /system/metrics:
+    get:
+      tags:
+      - System
+      summary: Get all system metrics
+      responses:
+        '200':
+          description: System metrics
+          content:
+            application/json:
+              schema:
+                type: object
+  /service-health:
+    get:
+      tags:
+      - System
+      summary: Service health check
+      responses:
+        '200':
+          description: Service health
+          content:
+            application/json:
+              schema:
+                type: object
+  /dashboard-stats:
+    get:
+      tags:
+      - System
+      summary: Dashboard statistics
+      responses:
+        '200':
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                type: object
+  /system-health:
+    get:
+      tags:
+      - System
+      summary: Comprehensive system health check
+      description: Status of tools (jadx, frida, etc), services (ES, emulators), and ML models
+      responses:
+        '200':
+          description: System health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                    format: date-time
+                  tools:
+                    type: object
+                    description: Status of analysis tools
+                  services:
+                    type: object
+                    description: Status of backend services
+                  ml_models:
+                    type: object
+                    description: Status of ML model services
+                  summary:
+                    type: object
+                    properties:
+                      tools:
+                        type: string
+                      services:
+                        type: string
+                      ml_models:
+                        type: string
+                      overall:
+                        type: string
+                        enum:
+                        - healthy
+                        - degraded
+  /stats:
+    get:
+      tags:
+      - System
+      summary: General statistics
+      description: Get general system and APK statistics
+      responses:
+        '200':
+          description: General statistics
+          content:
+            application/json:
+              schema:
+                type: object
+  /stats/datasources:
+    get:
+      tags:
+      - System
+      summary: Statistics by data source
+      description: Get APK statistics grouped by data source
+      responses:
+        '200':
+          description: Data source statistics
+          content:
+            application/json:
+              schema:
+                type: object
+  /datasources:
+    get:
+      tags:
+      - Meta
+      summary: List data sources (alias)
+      description: Alias for /data-sources endpoint
+      responses:
+        '200':
+          description: List of data sources
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /analyze-analytics:
+    get:
+      tags:
+      - Analyze
+      summary: Processing analytics
+      description: Get analyze/processing performance analytics
+      responses:
+        '200':
+          description: Processing analytics
+          content:
+            application/json:
+              schema:
+                type: object
+  /system/stats:
+    get:
+      tags:
+      - System
+      summary: System performance statistics
+      description: Get CPU, memory, disk, and network statistics
+      parameters:
+      - name: lite
+        in: query
+        schema:
+          type: boolean
+        description: Return minimal stats for faster response
+      responses:
+        '200':
+          description: System statistics
+          content:
+            application/json:
+              schema:
+                type: object
+  /system/cluster-health:
+    get:
+      tags:
+      - System
+      summary: Elasticsearch cluster health
+      description: Get ES cluster health status
+      responses:
+        '200':
+          description: Cluster health
+          content:
+            application/json:
+              schema:
+                type: object
+  /system/resource-usage:
+    get:
+      tags:
+      - System
+      summary: Quick resource usage
+      description: Get quick summary of system resource usage
+      responses:
+        '200':
+          description: Resource usage summary
+          content:
+            application/json:
+              schema:
+                type: object
+  /system/top-processes:
+    get:
+      tags:
+      - System
+      summary: Top processes
+      description: Get top processes by resource usage
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 10
+        description: Number of processes to return
+      - name: sort
+        in: query
+        schema:
+          type: string
+          enum: [cpu, memory]
+          default: cpu
+        description: Sort by CPU or memory usage
+      responses:
+        '200':
+          description: Top processes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  processes:
+                    type: array
+                    items:
+                      type: object
+  /system/health:
+    get:
+      tags:
+      - System
+      summary: System health check
+      description: Simple health check for system monitoring service
+      responses:
+        '200':
+          description: Health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+  /system-fast/pulse:
+    get:
+      tags:
+      - System
+      summary: Ultra-fast health pulse
+      description: Minimal data for 60fps UI updates (<10ms response)
+      responses:
+        '200':
+          description: Fast pulse metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  c:
+                    type: number
+                    description: CPU percent
+                  m:
+                    type: number
+                    description: Memory percent
+                  t:
+                    type: integer
+                    description: Timestamp in milliseconds
+  /system-fast/stream:
+    get:
+      tags:
+      - System
+      summary: Streaming system metrics
+      description: Per-core CPU data with GPU metrics (<50ms response)
+      responses:
+        '200':
+          description: Streaming metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cpu:
+                    type: object
+                    properties:
+                      p:
+                        type: number
+                        description: CPU percent
+                      c:
+                        type: array
+                        items:
+                          type: number
+                        description: Per-core percentages
+                      count:
+                        type: integer
+                        description: Core count
+                      temp:
+                        type: number
+                        description: CPU temperature
+                  mem:
+                    type: object
+                    properties:
+                      p:
+                        type: number
+                        description: Memory percent
+                      u:
+                        type: number
+                        description: Used GB
+                      t:
+                        type: number
+                        description: Total GB
+                      a:
+                        type: number
+                        description: Available GB
+                  gpu:
+                    type: array
+                    items:
+                      type: object
+                  ts:
+                    type: integer
+                    description: Timestamp in milliseconds
+  /system-fast/detailed:
+    get:
+      tags:
+      - System
+      summary: Full system metrics
+      description: All CPU cores with memory details (<100ms response)
+      responses:
+        '200':
+          description: Detailed metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cpu:
+                    type: object
+                    properties:
+                      percent:
+                        type: number
+                      cores:
+                        type: array
+                        items:
+                          type: number
+                  memory:
+                    type: object
+                  timestamp:
+                    type: number
+  /config/paths:
+    get:
+      tags:
+      - Meta
+      summary: Get path configuration
+      description: Returns APK zoo paths and common directories for frontend
+      responses:
+        '200':
+          description: Path configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apkzoo_base:
+                    type: string
+                  project_base:
+                    type: string
+                  extraction_base:
+                    type: string
+                  output_pipeline:
+                    type: string
+                  temp_dir:
+                    type: string
+                  data_path:
+                    type: string
+                  common_paths:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        path:
+                          type: string
+  /bytecode/dex:
+    get:
+      tags:
+      - Bytecode
+      summary: Get DEX files
+      description: Query DEX file metadata for an APK
+      parameters:
+      - name: apk_id
+        in: query
+        schema:
+          type: string
+      - name: apk_tag
+        in: query
+        schema:
+          type: string
+      - name: quick_hash
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 50
+        description: Maximum number of results to return
+      responses:
+        '200':
+          description: DEX files
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  hits:
+                    type: array
+                    items:
+                      type: object
+  /bytecode/classes:
+    get:
+      tags:
+      - Bytecode
+      summary: Get classes
+      description: Query class definitions from DEX bytecode
+      parameters:
+      - name: apk_id
+        in: query
+        schema:
+          type: string
+      - name: apk_tag
+        in: query
+        schema:
+          type: string
+      - name: dex_index
+        in: query
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 100
+        description: Maximum number of results to return
+      responses:
+        '200':
+          description: Class definitions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  hits:
+                    type: array
+                    items:
+                      type: object
+  /bytecode/methods:
+    get:
+      tags:
+      - Bytecode
+      summary: Get methods
+      description: Query method definitions from DEX bytecode
+      parameters:
+      - name: apk_id
+        in: query
+        schema:
+          type: string
+      - name: apk_tag
+        in: query
+        schema:
+          type: string
+      - name: class
+        in: query
+        schema:
+          type: string
+        description: Class descriptor to filter by
+      - name: dex_index
+        in: query
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 100
+        description: Maximum number of results to return
+      responses:
+        '200':
+          description: Method definitions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  hits:
+                    type: array
+                    items:
+                      type: object
+  /runtime-exec-detection:
+    get:
+      tags:
+      - Runtime Exec
+      summary: Detect runtime execution
+      description: 'Detect apps using dangerous runtime execution patterns:
+
+        - Runtime.exec() usage
+
+        - ProcessBuilder usage
+
+        - Native library loading
+
+        - Shell command execution
+
+        - Root/su commands
+
+        '
+      parameters:
+      - name: data_source
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Runtime execution detection results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_apks:
+                    type: integer
+                  total_runtime_exec_apps:
+                    type: integer
+                  total_runtime_exec_apps_pct:
+                    type: number
+                  runtime_exec_count:
+                    type: integer
+                  runtime_exec_pct:
+                    type: number
+                  process_builder_count:
+                    type: integer
+                  process_builder_pct:
+                    type: number
+                  native_library_count:
+                    type: integer
+                  native_library_pct:
+                    type: number
+                  shell_commands_count:
+                    type: integer
+                  shell_commands_pct:
+                    type: number
+                  root_commands_count:
+                    type: integer
+                  root_commands_pct:
+                    type: number
+  /runtime-exec-apps:
+    get:
+      tags:
+      - Runtime Exec
+      summary: List runtime exec apps
+      description: Get paginated list of apps using runtime execution techniques
+      parameters:
+      - name: data_source
+        in: query
+        schema:
+          type: string
+      - name: page
+        in: query
+        schema:
+          type: integer
+          default: 1
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 20
+          maximum: 100
+        description: Maximum number of results per page
+      responses:
+        '200':
+          description: Paginated apps
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        apk_id:
+                          type: string
+                        package_name:
+                          type: string
+                        app_name:
+                          type: string
+                        sha256:
+                          type: string
+                        data_source:
+                          type: string
+                        permissions_count:
+                          type: integer
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  total_pages:
+                    type: integer
+                  limit:
+                    type: integer
+  /apk/{apk_id}/native-full:
+    get:
+      tags:
+      - Native
+      summary: Get full native analysis
+      description: Get comprehensive native library analysis with functions and strings
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      - name: include_functions
+        in: query
+        schema:
+          type: boolean
+          default: false
+      - name: function_limit
+        in: query
+        schema:
+          type: integer
+          default: 50
+      responses:
+        '200':
+          description: Full native analysis
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apk_id:
+                    type: string
+                  libraries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        arch:
+                          type: string
+                        size:
+                          type: integer
+                        functions:
+                          type: array
+                          items:
+                            type: object
+                        strings:
+                          type: array
+                          items:
+                            type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /accessibility-apps:
+    get:
+      tags:
+      - Accessibility
+      summary: List accessibility apps
+      description: Get paginated list of apps using accessibility services
+      parameters:
+      - name: data_source
+        in: query
+        schema:
+          type: string
+      - name: page
+        in: query
+        schema:
+          type: integer
+          default: 1
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 20
+          maximum: 100
+        description: Maximum number of results per page
+      responses:
+        '200':
+          description: Paginated accessibility apps
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        apk_id:
+                          type: string
+                        package_name:
+                          type: string
+                        app_name:
+                          type: string
+                        data_source:
+                          type: string
+                        permissions_count:
+                          type: integer
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  total_pages:
+                    type: integer
+                  limit:
+                    type: integer
+  /ad-sdk/statistics:
+    get:
+      tags:
+      - Ad SDK
+      summary: Get Ad SDK statistics
+      description: Get statistics about detected ad SDKs
+      responses:
+        '200':
+          description: Ad SDK statistics
+  /apk/{apk_id}/file-types:
+    get:
+      tags:
+      - APKs
+      summary: Get APK file types
+      description: Get file type analysis for APK contents
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: File type analysis
+  /apk/{apk_id}/native-cve-fast/{library_name}:
+    get:
+      tags:
+      - Native
+      summary: Fast CVE lookup for native library
+      description: Quick CVE vulnerability check for a specific native library
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      - name: library_name
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: CVE results
+  /bytecode/smali/{apk_id}:
+    get:
+      tags:
+      - Bytecode
+      summary: Get smali disassembly
+      description: Get smali disassembly for APK
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Smali file list
+  /bytecode/smali/{apk_id}/file:
+    get:
+      tags:
+      - Bytecode
+      summary: Get specific smali file
+      description: Get contents of a specific smali file
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      - name: path
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Smali file content
+  /catboost-analysis/{apk_id}:
+    get:
+      tags:
+      - ML
+      summary: Get CatBoost analysis
+      description: Get combined CatBoost model analysis for APK
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: CatBoost analysis results
+  /certificates/bulk:
+    get:
+      tags:
+      - Certificates
+      summary: Bulk certificate lookup
+      description: Look up multiple certificates by fingerprints
+      parameters:
+      - name: fingerprints
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Certificate results
+  /certificates/whitelist:
+    get:
+      tags:
+      - Certificates
+      summary: Get certificate whitelist
+      description: Get list of whitelisted certificates
+      responses:
+        '200':
+          description: Whitelist entries
+  /certificates/apks/bulk-sha256:
+    get:
+      tags:
+      - Certificates
+      summary: Bulk APK lookup by SHA256
+      description: Look up multiple APKs by SHA256 hashes
+      parameters:
+      - name: hashes
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: APK results
+  /config/limits:
+    get:
+      tags:
+      - System
+      summary: Get configuration limits
+      description: Get system configuration limits
+      responses:
+        '200':
+          description: Configuration limits
+  /dashboard-summary:
+    get:
+      tags:
+      - System
+      summary: Get dashboard summary
+      description: Get summary statistics for dashboard
+      responses:
+        '200':
+          description: Dashboard summary
+  /data-sources:
+    get:
+      tags:
+      - Meta
+      summary: List data sources
+      description: Get list of all data sources
+      responses:
+        '200':
+          description: Data source list
+  /device-grid/devices/{device_id}/activities:
+    get:
+      tags:
+      - Device Grid
+      summary: Get device activities
+      description: Get list of activities on device
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Activity list
+  /device-grid/test:
+    post:
+      tags:
+      - Device Grid
+      summary: Run automated test
+      description: Run automated APK test on device grid
+      responses:
+        '200':
+          description: Test started
+  /device-grid/test/{apk_id}/status:
+    get:
+      tags:
+      - Device Grid
+      summary: Get test status
+      description: Get status of automated test
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Test status
+  /device-grid/test/{apk_id}/results:
+    get:
+      tags:
+      - Device Grid
+      summary: Get test results
+      description: Get results of automated test
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Test results
+  /document/{doc_id}:
+    get:
+      tags:
+      - Search
+      summary: Get document by ID
+      description: Retrieve a specific Elasticsearch document
+      parameters:
+      - name: doc_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Document data
+  /firmware/upload:
+    post:
+      tags:
+      - Firmware
+      summary: Upload firmware
+      description: Upload firmware file for analysis
+      responses:
+        '200':
+          description: Upload started
+  /firmware/upload/chunked/init:
+    post:
+      tags:
+      - Firmware
+      summary: Initialize chunked upload
+      description: Initialize chunked firmware upload
+      responses:
+        '200':
+          description: Upload session created
+  /firmware/upload/chunked/chunk:
+    post:
+      tags:
+      - Firmware
+      summary: Upload chunk
+      description: Upload a chunk of firmware file
+      responses:
+        '200':
+          description: Chunk received
+  /firmware/upload/chunked/complete:
+    post:
+      tags:
+      - Firmware
+      summary: Complete chunked upload
+      description: Finalize chunked firmware upload
+      responses:
+        '200':
+          description: Upload completed
+  /firmware/jobs:
+    get:
+      tags:
+      - Firmware
+      summary: List firmware jobs
+      description: Get list of firmware analysis jobs
+      responses:
+        '200':
+          description: Job list
+  /firmware/jobs/{job_id}:
+    get:
+      tags:
+      - Firmware
+      summary: Get firmware job
+      description: Get details of firmware analysis job
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Job details
+  /firmware/jobs/{job_id}/logs:
+    get:
+      tags:
+      - Firmware
+      summary: Get firmware job logs
+      description: Get logs for firmware analysis job
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Job logs
+  /firmware/jobs/{job_id}/control:
+    post:
+      tags:
+      - Firmware
+      summary: Control firmware job
+      description: Control firmware analysis job (pause/resume/cancel)
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Job controlled
+  /firmware/validate:
+    post:
+      tags:
+      - Firmware
+      summary: Validate firmware
+      description: Validate firmware file format
+      responses:
+        '200':
+          description: Validation result
+  /firmware/supported-devices:
+    get:
+      tags:
+      - Firmware
+      summary: Get supported devices
+      description: Get list of supported device models
+      responses:
+        '200':
+          description: Device list
+  /filesystem-monitor/stream:
+    get:
+      tags:
+      - Filesystem Monitor
+      summary: Stream filesystem events
+      description: Server-sent events for filesystem changes
+      responses:
+        '200':
+          description: SSE stream
+  /health:
+    get:
+      tags:
+      - System
+      summary: Health check
+      description: Basic health check endpoint
+      responses:
+        '200':
+          description: Health status
+  /llm/analyze/{apk_id}:
+    get:
+      tags:
+      - LLM
+      summary: LLM analysis
+      description: Get LLM-powered analysis of APK
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: LLM analysis
+  /llm/providers:
+    get:
+      tags:
+      - LLM
+      summary: List LLM providers
+      description: Get available LLM providers
+      responses:
+        '200':
+          description: Provider list
+  /llm/context/{apk_id}:
+    get:
+      tags:
+      - LLM
+      summary: Get LLM context
+      description: Get context for LLM analysis
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Context data
+  /llm/diagram/{apk_id}:
+    post:
+      tags:
+      - LLM
+      summary: Generate diagram
+      description: Generate architecture diagram using LLM
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: Diagram generated
+  /llm/diagram-standalone/{apk_id}:
+    get:
+      tags:
+      - LLM
+      summary: Get standalone diagram
+      description: Get standalone HTML diagram
+      parameters:
+      - $ref: '#/components/parameters/apk_id'
+      responses:
+        '200':
+          description: HTML diagram
+  /ml-predictions:
+    post:
+      tags:
+      - ML
+      summary: Get ML predictions
+      description: Get ML predictions for APKs
+      responses:
+        '200':
+          description: Predictions
+  /permission-monitor/stream:
+    get:
+      tags:
+      - Permission Monitor
+      summary: Stream permission events
+      description: Server-sent events for permission changes
+      responses:
+        '200':
+          description: SSE stream
+  /recent-apks:
+    get:
+      tags:
+      - APKs
+      summary: Get recent APKs
+      description: Get most recently analyzed APKs
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 10
+      responses:
+        '200':
+          description: Recent APKs
+  /routes:
+    get:
+      tags:
+      - System
+      summary: List API routes
+      description: Get list of all registered API routes
+      responses:
+        '200':
+          description: Route list
+  /search/content:
+    get:
+      tags:
+      - Search
+      summary: Search code content
+      description: Search within code content
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          default: 50
+      responses:
+        '200':
+          description: Search results
+  /search/tags:
+    get:
+      tags:
+      - Search
+      summary: Get search tags
+      description: Get available tags for search filtering
+      responses:
+        '200':
+          description: Tag list
+  /tags/{tag_name}:
+    delete:
+      tags:
+      - Meta
+      summary: Delete tag
+      description: Delete a tag from the system
+      parameters:
+      - name: tag_name
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Tag deleted
+  /virustotal/{sha256_hash}:
+    get:
+      tags:
+      - VirusTotal
+      summary: Get VirusTotal results by hash
+      description: Get VirusTotal scan results using SHA256 hash
+      parameters:
+      - name: sha256_hash
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: VirusTotal results
+components:
+  parameters:
+    apk_id:
+      name: apk_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: APK identifier (hash)
+    device_id:
+      name: device_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Device identifier
+  schemas:
+    APK:
+      type: object
+      description: APK metadata (list response)
+      properties:
+        apk_id:
+          type: string
+          description: Unique APK identifier (SHA256 hash)
+          example: af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9aabbccdd1122334455667788
+        package_name:
+          type: string
+          example: com.example.app
+        version_name:
+          type: string
+          example: 1.2.3
+        version_code:
+          type: integer
+          example: 123
+        datasource:
+          type: string
+          description: Source/tag of the APK for deduplication
+          example: apkpure-2024
+        timestamp:
+          type: string
+          format: date-time
+        app_name:
+          type: string
+          example: My App
+        risk_score:
+          type: number
+          description: Overall risk score (0-100)
+          example: 45.5
+        risk_level:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+          - unknown
+          example: medium
+    APKFull:
+      type: object
+      description: Full APK metadata (single APK response) - corresponds to doc_type:apk_metadata in ES
+      properties:
+        apk_id:
+          type: string
+          description: Unique APK identifier (SHA256 hash)
+        package_name:
+          type: string
+        app_name:
+          type: string
+        version_name:
+          type: string
+        version_code:
+          type: integer
+        apk_path:
+          type: string
+          description: Full filesystem path
+        apk_name:
+          type: string
+          description: APK filename
+        apk_size:
+          type: integer
+          description: File size in bytes
+        md5_hash:
+          type: string
+          description: MD5 hash
+        sha1_hash:
+          type: string
+          description: SHA-1 hash
+        sha256:
+          type: string
+          description: SHA-256 hash (primary identifier)
+        quick_hash:
+          type: string
+          description: SHA256 hash for fast deduplication
+        min_sdk_version:
+          type: integer
+          description: Minimum SDK version required
+        target_sdk_version:
+          type: integer
+          description: Target SDK version
+        compile_sdk_version:
+          type: integer
+          description: Compile SDK version
+        permissions:
+          type: array
+          items:
+            type: string
+          description: All requested permissions
+        dangerous_permissions:
+          type: array
+          items:
+            type: string
+          description: Dangerous permissions only
+        permission_analysis:
+          $ref: '#/components/schemas/PermissionAnalysis'
+        datasource:
+          type: string
+          description: Data source identifier
+        timestamp:
+          type: string
+          format: date-time
+        tools_run:
+          type: array
+          items:
+            type: string
+          description: Analysis tools executed
+        tool_timings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolTiming'
+        total_processing_time_sec:
+          type: number
+          description: Total analysis duration in seconds
+        first_submission:
+          type: string
+          format: date-time
+        last_submission:
+          type: string
+          format: date-time
+        last_analysis:
+          type: string
+          format: date-time
+        submission_count:
+          type: integer
+        risk_score:
+          type: number
+          description: Computed risk score (0-100)
+        risk_level:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+          - unknown
+        apkid_detections:
+          type: array
+          items:
+            type: string
+          description: APKiD detection labels
+        apkid_all_detections:
+          type: object
+          description: Full APKiD output by file
+        dex_files:
+          type: array
+          items:
+            type: object
+          description: DEX file metadata
+        certificate_analysis:
+          $ref: '#/components/schemas/CertificateAnalysis'
+        security_warnings:
+          type: array
+          items:
+            type: string
+        apk_properties:
+          $ref: '#/components/schemas/APKProperties'
+        native_libraries:
+          type: array
+          items:
+            $ref: '#/components/schemas/NativeLibrarySummary'
+        native_security_analysis:
+          $ref: '#/components/schemas/NativeSecurityAnalysis'
+        unpacker_analysis:
+          $ref: '#/components/schemas/UnpackerAnalysis'
+        embedded_code_analysis:
+          $ref: '#/components/schemas/EmbeddedCodeAnalysis'
+        app_icon:
+          $ref: '#/components/schemas/AppIcon'
+        icon_hashes:
+          type: object
+          description: Perceptual hashes for similarity detection
+        dangerous_api_analysis:
+          $ref: '#/components/schemas/DangerousAPIAnalysis'
+        android_api_analysis:
+          $ref: '#/components/schemas/AndroidAPIAnalysis'
+        language_analysis:
+          $ref: '#/components/schemas/LanguageAnalysis'
+        threat_indicators:
+          type: object
+          description: Detection results by category
+        threat_intelligence:
+          $ref: '#/components/schemas/ThreatIntelligenceSummary'
+        jadx_info:
+          $ref: '#/components/schemas/JADXInfo'
+    ToolTiming:
+      type: object
+      properties:
+        tool:
+          type: string
+          example: jadx
+        duration:
+          type: number
+          description: Duration in seconds
+          example: 12.5
+        success:
+          type: boolean
+    PermissionAnalysis:
+      type: object
+      properties:
+        total_permissions:
+          type: integer
+        dangerous_count:
+          type: integer
+        signature_count:
+          type: integer
+        normal_count:
+          type: integer
+        dangerous_permissions:
+          type: array
+          items:
+            type: string
+        signature_permissions:
+          type: array
+          items:
+            type: string
+    CertificateAnalysis:
+      type: object
+      properties:
+        cert_sha256:
+          type: string
+          description: Certificate SHA-256 fingerprint
+        issuer:
+          type: string
+        subject:
+          type: string
+        valid_from:
+          type: string
+        valid_to:
+          type: string
+        is_debug_cert:
+          type: boolean
+        is_expired:
+          type: boolean
+        signature_algorithm:
+          type: string
+    APKProperties:
+      type: object
+      properties:
+        contains_native_code:
+          type: boolean
+          description: Has .so libraries
+        native_library_count:
+          type: integer
+        native_architectures:
+          type: array
+          items:
+            type: string
+          description: Supported ABIs (arm64-v8a, x86, etc.)
+        dex_count:
+          type: integer
+        multidex:
+          type: boolean
+        app_framework:
+          type: string
+          description: Detected framework (React Native, Flutter, etc.)
+    NativeLibrarySummary:
+      type: object
+      description: Basic native library info in main APK document
+      properties:
+        name:
+          type: string
+          example: libnative.so
+        path:
+          type: string
+          example: lib/arm64-v8a/libnative.so
+        architecture:
+          type: string
+          example: arm64-v8a
+        file_size:
+          type: integer
+    NativeLibraryFull:
+      type: object
+      description: Full native library analysis - corresponds to doc_type:native_library in ES
+      properties:
+        library_name:
+          type: string
+          description: Library filename
+          example: libnative.so
+        library_path:
+          type: string
+          description: Path in APK
+          example: lib/arm64-v8a/libnative.so
+        architecture:
+          type: string
+          enum:
+          - arm64-v8a
+          - armeabi-v7a
+          - x86
+          - x86_64
+          description: Target ABI
+        magic_signature:
+          type: string
+          description: ELF magic bytes (hex)
+          example: 7f454c46
+        mime_type:
+          type: string
+          example: application/x-sharedlib
+        file_size:
+          type: integer
+        md5:
+          type: string
+        sha256:
+          type: string
+        is_packed:
+          type: boolean
+          description: Detected as packed
+        has_vm_detection:
+          type: boolean
+          description: Contains VM/emulator detection code
+        has_anti_debug:
+          type: boolean
+          description: Contains anti-debugging code
+        is_suspicious:
+          type: boolean
+        detections:
+          type: array
+          items:
+            type: string
+          description: Detection labels
+        entropy:
+          type: number
+          description: Shannon entropy (0-8), high values suggest packing
+          example: 7.85
+        elf_info:
+          $ref: '#/components/schemas/ELFInfo'
+        die_analysis:
+          $ref: '#/components/schemas/DIEAnalysis'
+        compilers:
+          type: array
+          items:
+            type: string
+          description: Detected compilers
+          example:
+          - GCC 4.9.x
+        linkers:
+          type: array
+          items:
+            type: string
+          description: Detected linkers
+        apkid_analysis:
+          type: object
+          description: APKiD results for this library
+    ELFInfo:
+      type: object
+      description: ELF header details
+      properties:
+        class:
+          type: string
+          enum:
+          - ELF32
+          - ELF64
+        endianness:
+          type: string
+          enum:
+          - little
+          - big
+        machine:
+          type: string
+          example: AArch64
+        entry_point:
+          type: string
+          example: '0x1000'
+        sections:
+          type: array
+          items:
+            type: string
+        symbols_count:
+          type: integer
+        dynamic_libs:
+          type: array
+          items:
+            type: string
+    DIEAnalysis:
+      type: object
+      description: Detect It Easy (DIE) analysis results for native libraries
+      properties:
+        packers:
+          type: array
+          items:
+            type: string
+          description: Detected packers
+          example:
+          - UPX 3.96
+        protectors:
+          type: array
+          items:
+            type: string
+          description: Detected protectors
+          example:
+          - VMProtect 3.5
+        compilers:
+          type: array
+          items:
+            type: string
+          description: Detected compilers
+          example:
+          - GCC (GNU) 4.9.x 20150123 (prerelease)
+        linkers:
+          type: array
+          items:
+            type: string
+          description: Detected linkers
+          example:
+          - GNU ld 2.25
+        tools:
+          type: array
+          items:
+            type: string
+        libraries:
+          type: array
+          items:
+            type: string
+          example:
+          - OpenSSL 1.1.1
+    NativeSecurityAnalysis:
+      type: object
+      description: Aggregate native library security analysis
+      properties:
+        has_packed_libraries:
+          type: boolean
+        packed_count:
+          type: integer
+        has_vm_detection:
+          type: boolean
+        vm_detection_count:
+          type: integer
+        has_anti_debug:
+          type: boolean
+        anti_debug_count:
+          type: integer
+        suspicious_count:
+          type: integer
+        architectures:
+          type: array
+          items:
+            type: string
+    UnpackerAnalysis:
+      type: object
+      description: Packer detection and unpacking results
+      properties:
+        has_packed_resources:
+          type: boolean
+        packers_detected:
+          type: array
+          items:
+            type: string
+          example:
+          - jiagu
+          - legu
+          - qihoo
+        packed_dex_count:
+          type: integer
+        unpacked_dex_count:
+          type: integer
+        unpacking_success:
+          type: boolean
+        unpacked_source_files_count:
+          type: integer
+        total_dex_files:
+          type: integer
+    EmbeddedCodeAnalysis:
+      type: object
+      description: Analysis of embedded APKs and DEX files
+      properties:
+        has_embedded_apks:
+          type: boolean
+        embedded_apk_count:
+          type: integer
+        embedded_apk_names:
+          type: array
+          items:
+            type: string
+        embedded_apk_paths:
+          type: array
+          items:
+            type: string
+        has_embedded_dex:
+          type: boolean
+        embedded_dex_count:
+          type: integer
+        embedded_dex_names:
+          type: array
+          items:
+            type: string
+        total_embedded_code_files:
+          type: integer
+        embedded_code_decompiled_successfully:
+          type: integer
+    AppIcon:
+      type: object
+      properties:
+        base64:
+          type: string
+          description: Base64-encoded icon image
+        format:
+          type: string
+          enum:
+          - PNG
+          - WEBP
+          - JPEG
+        size:
+          type: array
+          items:
+            type: integer
+          description: Dimensions [width, height]
+        path:
+          type: string
+    DangerousAPIAnalysis:
+      type: object
+      description: Analysis of dangerous API usage
+      properties:
+        success:
+          type: boolean
+        duration:
+          type: number
+        dangerous_api_score:
+          type: number
+          description: Risk score (0-100)
+        total_dangerous_apis:
+          type: integer
+        total_hidden_apis:
+          type: integer
+        blacklisted_apis:
+          type: integer
+        greylisted_apis:
+          type: integer
+        unique_dangerous_apis:
+          type: integer
+        unique_hidden_apis:
+          type: integer
+        risk_categories:
+          type: object
+          description: Breakdown by risk category
+        high_risk_files:
+          type: array
+          items:
+            type: string
+        files_scanned:
+          type: integer
+        files_with_dangerous_apis:
+          type: integer
+        detection_rate:
+          type: string
+        top_dangerous_apis:
+          type: array
+          items:
+            type: object
+        command_execution_details:
+          type: array
+          items:
+            type: object
+          description: Runtime.exec() calls
+    AndroidAPIAnalysis:
+      type: object
+      properties:
+        success:
+          type: boolean
+        duration:
+          type: number
+        api_levels:
+          type: object
+        permission_analysis:
+          type: object
+        risk_score:
+          type: number
+    LanguageAnalysis:
+      type: object
+      description: Supported languages in the APK
+      properties:
+        supported_languages:
+          type: array
+          items:
+            type: string
+          example:
+          - en
+          - ko
+          - zh
+        language_count:
+          type: integer
+        default_language:
+          type: string
+        has_rtl_support:
+          type: boolean
+        has_cjk_support:
+          type: boolean
+        language_details:
+          type: array
+          items:
+            type: object
+        region_specific:
+          type: array
+          items:
+            type: string
+        language_summary:
+          type: string
+        extraction_success:
+          type: boolean
+        extraction_duration:
+          type: number
+    ThreatIntelligenceSummary:
+      type: object
+      description: Threat intelligence summary in main document
+      properties:
+        has_threat_intel:
+          type: boolean
+        category:
+          type: string
+          description: Threat category
+          example: trojan
+        av_consensus:
+          type: number
+          description: AV agreement percentage (0-1)
+        threat_score:
+          type: number
+        malicious_count:
+          type: integer
+          description: AV engines detecting malware
+    ThreatIntelligenceFull:
+      type: object
+      description: Full threat intelligence - corresponds to doc_type:threat_intelligence in ES
+      properties:
+        threat_category:
+          type: string
+          enum:
+          - trojan
+          - adware
+          - banker
+          - ransomware
+          - spyware
+          - riskware
+          - unknown
+        vt_detection_stats:
+          type: object
+        av_detections:
+          type: object
+          description: Per-AV engine detections
+        av_malicious_count:
+          type: integer
+        av_consensus:
+          type: number
+        threat_score:
+          type: number
+        threat_names:
+          type: array
+          items:
+            type: string
+          example:
+          - Trojan.Android.Banker
+        c2_servers:
+          type: array
+          items:
+            type: string
+          description: Command & control URLs
+        suspicious_urls:
+          type: array
+          items:
+            type: string
+        behavioral_indicators:
+          type: array
+          items:
+            type: string
+          example:
+          - sends_sms
+          - steals_contacts
+        reputation:
+          type: number
+        json_path:
+          type: string
+        timeline:
+          type: object
+        raw_threat_intel:
+          type: object
+    JADXInfo:
+      type: object
+      description: JADX decompilation info
+      properties:
+        version:
+          type: string
+        success:
+          type: boolean
+        duration:
+          type: number
+        warnings:
+          type: integer
+        errors:
+          type: integer
+    BytecodeAnalysis:
+      type: object
+      description: ML feature extraction from DEX bytecode - corresponds to doc_type:bytecode_analysis
+      properties:
+        bytecode_features:
+          type: object
+          description: Complete feature vector (354 features for ML)
+        dex_files:
+          type: array
+          items:
+            type: object
+        dex_count:
+          type: integer
+        class_count:
+          type: integer
+        method_count:
+          type: integer
+        api_calls:
+          type: array
+          items:
+            type: string
+        opcodes:
+          type: array
+          items:
+            type: string
+        has_native:
+          type: boolean
+        extracted_with:
+          type: string
+    SourceCode:
+      type: object
+      description: Decompiled source file - corresponds to doc_type:source_code
+      properties:
+        file_path:
+          type: string
+        file_name:
+          type: string
+        file_extension:
+          type: string
+          enum:
+          - java
+          - kt
+        file_size:
+          type: integer
+        content:
+          type: string
+          description: Full source code
+        package:
+          type: string
+        imports:
+          type: array
+          items:
+            type: string
+        is_obfuscated:
+          type: boolean
+        is_unpacked:
+          type: boolean
+          description: From unpacked DEX
+        unpacked_from_packer:
+          type: string
+        is_embedded:
+          type: boolean
+        embedded_apk_name:
+          type: string
+    FileTypeScan:
+      type: object
+      description: File type verification using Magika AI and libmagic
+      properties:
+        file_path:
+          type: string
+        file_size:
+          type: integer
+        extension:
+          type: string
+        magic_hex:
+          type: string
+          description: First 16 bytes in hex
+        magic_type:
+          type: string
+          description: libmagic type
+        magic_mime:
+          type: string
+        magika_label:
+          type: string
+          description: Magika AI label
+        magika_mime:
+          type: string
+        magika_confidence:
+          type: number
+          description: Magika confidence (0-1)
+        magika_group:
+          type: string
+        is_mismatch:
+          type: boolean
+          description: Extension/type mismatch
+        mismatch_severity:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+        mismatch_reason:
+          type: string
+    GhidraAnalysis:
+      type: object
+      description: Ghidra native code decompilation results - corresponds to doc_type:ghidra_analysis
+      properties:
+        library_name:
+          type: string
+        binary_info:
+          type: object
+        summary:
+          type: object
+        analysis_duration:
+          type: number
+        analysis_metadata:
+          type: object
+        functions_json:
+          type: string
+          description: Decompiled functions as JSON string
+        jni_functions:
+          type: integer
+        decompiled_count:
+          type: integer
+        chunk_info:
+          type: object
+          properties:
+            is_chunked:
+              type: boolean
+            total_functions:
+              type: integer
+    Manifest:
+      type: object
+      properties:
+        package_name:
+          type: string
+        version_name:
+          type: string
+        version_code:
+          type: integer
+        permissions:
+          type: array
+          items:
+            type: string
+        activities:
+          type: array
+          items:
+            type: string
+        services:
+          type: array
+          items:
+            type: string
+        receivers:
+          type: array
+          items:
+            type: string
+        providers:
+          type: array
+          items:
+            type: string
+    Device:
+      type: object
+      description: Emulator device in the device farm - stored in knox_devices_v1 index
+      properties:
+        id:
+          type: string
+          description: Device identifier
+          example: t5554_1
+        avd_name:
+          type: string
+          description: AVD name
+          example: KnoxAVD_5554_t1
+        type:
+          type: string
+          enum:
+          - test
+          - source
+          description: Device type
+        status:
+          type: string
+          enum:
+          - idle
+          - running
+          - busy
+          - error
+          - initializing
+          description: Current device status
+        emulator_serial:
+          type: string
+          description: ADB serial
+          example: emulator-5554
+        emulator_pid:
+          type: integer
+          description: Emulator process ID
+        emulator_port:
+          type: integer
+          description: Emulator port
+          example: 5554
+        current_package:
+          type: string
+          description: Currently running package
+          example: com.example.malware
+        current_apk:
+          type: string
+          description: Path to current APK
+        architecture:
+          type: string
+          description: Device architecture
+          example: x86_64
+        android_version:
+          type: string
+          description: Android version
+          example: '11'
+        created_at:
+          type: number
+          description: Creation timestamp (epoch)
+        updated_at:
+          type: number
+          description: Last update timestamp (epoch)
+        error:
+          type: string
+          description: Error message if any
+        metadata:
+          type: object
+          description: Additional device metadata
+    Job:
+      type: object
+      properties:
+        job_id:
+          type: string
+        job_type:
+          type: string
+        status:
+          type: string
+          enum:
+          - pending
+          - running
+          - completed
+          - failed
+          - cancelled
+        progress:
+          type: number
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        result:
+          type: object
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+        success:
+          type: boolean
+          default: false
+    MLAnalysisResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        apk_id:
+          type: string
+        package_name:
+          type: string
+        prediction:
+          type: string
+          enum:
+          - MALWARE
+          - BENIGN
+          description: Binary classification result
+        malware_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Calibrated probability of malware (0-1)
+        raw_malware_probability:
+          type: number
+          description: Raw model output probability
+        benign_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        confidence:
+          type: number
+          description: Model confidence score
+        confidence_score:
+          type: number
+        model_version:
+          type: string
+        feature_importance:
+          type: object
+          description: Top features contributing to prediction
+        risk_indicators:
+          type: array
+          items:
+            type: string
+        statistics:
+          type: object
+          description: Feature statistics summary
+        analysis_timestamp:
+          type: string
+          format: date-time
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

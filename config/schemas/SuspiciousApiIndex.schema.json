@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["apk_id", "catalog_version", "callsites"],
+  "properties": {
+    "apk_id": {"type": "string"},
+    "catalog_version": {"type": "string"},
+    "callsites": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["seed_id", "category", "signature", "caller_method", "caller_class", "confidence"],
+        "properties": {
+          "seed_id": {"type": "string"},
+          "category": {"type": "string"},
+          "signature": {"type": "string"},
+          "caller_method": {"type": "string"},
+          "caller_class": {"type": "string"},
+          "callsite_descriptor": {"type": "object"},
+          "confidence": {"type": "number"}
+        }
+      }
+    }
+  }
+}

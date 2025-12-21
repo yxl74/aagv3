@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["seed_id", "intent_verdict", "rationale", "taint_recommended"],
+  "properties": {
+    "seed_id": {"type": "string"},
+    "intent_verdict": {"type": "string"},
+    "rationale": {"type": "array", "items": {"type": "string"}},
+    "evidence": {"type": "array", "items": {"type": "object"}},
+    "taint_recommended": {"type": "boolean"},
+    "taint_question": {"type": "string"}
+  }
+}

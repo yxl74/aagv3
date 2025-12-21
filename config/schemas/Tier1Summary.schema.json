@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["seed_id", "function_summary", "facts", "confidence"],
+  "properties": {
+    "seed_id": {"type": "string"},
+    "function_summary": {"type": "string"},
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["fact", "support_unit_ids"],
+        "properties": {
+          "fact": {"type": "string"},
+          "support_unit_ids": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "uncertainties": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "number"}
+  }
+}

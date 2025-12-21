@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apk-analysis-agent"
+version = "0.1.0"
+description = "LLM-assisted Android APK malware analysis pipeline"
+readme = "impl.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+dependencies = [
+  "httpx>=0.26",
+  "pydantic>=2.6",
+  "PyYAML>=6.0",
+  "jsonschema>=4.21",
+  "androguard>=3.4.0",
+  "rich>=13.7",
+]
+
+[project.scripts]
+apk-analyze = "apk_analyzer.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
