@@ -31,10 +31,7 @@ RUN curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-1
 ARG ANDROID_API_MIN=25
 ARG ANDROID_API_MAX=36
 RUN yes | sdkmanager --licenses
-RUN for api in $(seq ${ANDROID_API_MIN} ${ANDROID_API_MAX}); do \\
-      sdkmanager "platforms;android-${api}"; \\
-    done \\
-  && sdkmanager "platform-tools"
+RUN /bin/bash -lc "for api in $(seq ${ANDROID_API_MIN} ${ANDROID_API_MAX}); do sdkmanager \"platforms;android-${api}\"; done && sdkmanager \"platform-tools\""
 
 WORKDIR /workspace
 CMD ["/bin/bash"]
