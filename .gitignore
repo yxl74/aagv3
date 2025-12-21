@@ -8,5 +8,6 @@ artifacts/
 .idea/
 .vscode/
 *.iml
-
+.gradle/
+**/build/
 .serena/
