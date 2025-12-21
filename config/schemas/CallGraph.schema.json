@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["nodes", "edges", "metadata"],
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["method", "class"],
+        "properties": {
+          "method": {"type": "string"},
+          "class": {"type": "string"},
+          "is_android_framework": {"type": "boolean"}
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["caller", "callee"],
+        "properties": {
+          "caller": {"type": "string"},
+          "callee": {"type": "string"},
+          "callsite": {"type": "object"}
+        }
+      }
+    },
+    "metadata": {"type": "object"}
+  }
+}

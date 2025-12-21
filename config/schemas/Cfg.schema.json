@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["method", "units"],
+  "properties": {
+    "method": {"type": "string"},
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "stmt"],
+        "properties": {
+          "id": {"type": "string"},
+          "stmt": {"type": "string"},
+          "succs": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "properties": {
+          "from": {"type": "string"},
+          "to": {"type": "string"}
+        }
+      }
+    }
+  }
+}

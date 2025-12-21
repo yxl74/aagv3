@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.venv/
+artifacts/
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+.serena/

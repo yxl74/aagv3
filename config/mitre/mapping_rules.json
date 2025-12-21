@@ -1,0 +1,21 @@
+{
+  "category_rules": {
+    "DYNAMIC_CODE_LOADING": [
+      {"technique_id": "T1407", "why": "Dynamic code loading"}
+    ],
+    "ACCESSIBILITY_ABUSE": [
+      {"technique_id": "T1411", "why": "Input capture or UI interaction via accessibility"}
+    ],
+    "SENSITIVE_DATA_ACCESS": [
+      {"technique_id": "T1409", "why": "Access to sensitive data"}
+    ],
+    "DATA_TRANSMISSION": [
+      {"technique_id": "T1410", "why": "Data exfiltration over network"}
+    ]
+  },
+  "keyword_rules": {
+    "sms": {"technique_id": "T1412", "why": "SMS collection or abuse"},
+    "contacts": {"technique_id": "T1430", "why": "Contact list collection"},
+    "location": {"technique_id": "T1430", "why": "Location data collection"}
+  }
+}

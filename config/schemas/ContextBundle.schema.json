@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["seed_id", "api_category", "api_signature", "caller_method", "caller_class"],
+  "properties": {
+    "seed_id": {"type": "string"},
+    "api_category": {"type": "string"},
+    "api_signature": {"type": "string"},
+    "caller_method": {"type": "string"},
+    "caller_class": {"type": "string"},
+    "sliced_cfg": {"type": "object"},
+    "fcg_neighborhood": {"type": "object"},
+    "static_context": {"type": "object"}
+  }
+}

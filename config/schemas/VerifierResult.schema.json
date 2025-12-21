@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["seed_id", "status", "validated_facts", "rejected_facts"],
+  "properties": {
+    "seed_id": {"type": "string"},
+    "status": {"type": "string"},
+    "validated_facts": {"type": "array", "items": {"type": "string"}},
+    "rejected_facts": {"type": "array", "items": {"type": "string"}},
+    "mitre_candidates": {"type": "array", "items": {"type": "object"}}
+  }
+}

@@ -1,0 +1,21 @@
+knox:
+  base_url: "http://105.145.72.82:8081/api/v1"
+  headers: {}
+analysis:
+  artifacts_dir: "artifacts"
+  android_platforms_dir: ""
+  flowdroid_jar_path: "FlowDroid/soot-infoflow-cmd/target/soot-infoflow-cmd-jar-with-dependencies.jar"
+  soot_extractor_jar_path: "java/soot-extractor/build/libs/soot-extractor.jar"
+  flowdroid_timeout_sec: 900
+  callgraph_algo: "SPARK"
+  k_hop: 2
+  max_seed_count: 20
+llm:
+  enabled: false
+  provider: ""
+  model_orchestrator: "gemini-pro"
+  model_recon: "gemini-flash"
+  model_tier1: "gemini-flash"
+  model_verifier: "gemini-pro"
+  model_tier2: "gemini-pro"
+  model_report: "gemini-pro"
