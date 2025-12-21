@@ -28,6 +28,8 @@ def main() -> None:
     parser.add_argument("--soot-jar", help="Path to Soot extractor jar")
 
     args = parser.parse_args()
+    if not (args.apk and args.knox_id):
+        parser.error("Both --apk and --knox-id are required for analysis.")
     settings = load_settings(args.settings)
     _apply_overrides(settings, args)
 

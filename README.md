@@ -56,12 +56,10 @@ mvn -f FlowDroid/pom.xml -pl soot-infoflow-cmd -am package -DskipTests
 - `analysis.flowdroid_jar_path` should point to `FlowDroid/soot-infoflow-cmd/target/soot-infoflow-cmd-jar-with-dependencies.jar`.
 - `analysis.soot_extractor_jar_path` should point to `java/soot-extractor/build/libs/soot-extractor.jar`.
 
-5) Run analysis:
+5) Run analysis (requires both APK path and Knox APK ID):
 
 ```bash
-python -m apk_analyzer.main --apk /path/to/app.apk
-# or
-python -m apk_analyzer.main --knox-id <apk_id>
+python -m apk_analyzer.main --apk /path/to/app.apk --knox-id <apk_id>
 ```
 
 Artifacts are written under `artifacts/{analysis_id}/`.
@@ -92,18 +90,11 @@ docker compose run --rm aag ./scripts/docker_bootstrap.sh
 
 ### Run analysis (Docker)
 
-APK path:
+APK + Knox ID:
 
 ```bash
 docker compose run --rm aag \
-  python -m apk_analyzer.main --apk /workspace/path/to/app.apk
-```
-
-Knox APK ID:
-
-```bash
-docker compose run --rm aag \
-  python -m apk_analyzer.main --knox-id <apk_id>
+  python -m apk_analyzer.main --apk /workspace/path/to/app.apk --knox-id <apk_id>
 ```
 
 Interactive shell:
@@ -131,6 +122,12 @@ Notes:
 - `ANDROID_SDK_ROOT` is set to `/opt/android-sdk`, and `analysis.android_platforms_dir` auto-resolves to `/opt/android-sdk/platforms` if unset.
 - `KNOX_BASE_URL` defaults to `http://105.145.72.82:8081/api/v1` in `docker-compose.yml` and can be overridden via env.
 - Artifacts are written to `/workspace/artifacts/{analysis_id}/` on the host.
+
+## Input Requirements
+
+Every run requires both:
+- `--apk` path on disk
+- `--knox-id` (Knox APK ID)
 
 ## Configuration
 
