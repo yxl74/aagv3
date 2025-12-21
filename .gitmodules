@@ -1,3 +1,4 @@
 [submodule "FlowDroid"]
 	path = FlowDroid
 	url = https://github.com/secure-software-engineering/FlowDroid.git
+	ignore = dirty
