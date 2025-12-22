@@ -5,7 +5,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from apk_analyzer.clients.knox_client import KnoxClient
 from apk_analyzer.utils.artifact_store import ArtifactStore
@@ -98,6 +98,7 @@ class DexInvocationIndexer:
         apk_id: str,
         apk_path: str | Path | None = None,
         knox_client: Optional[KnoxClient] = None,
+        local_search_fn: Optional[Callable[[str, int], List[Dict[str, Any]]]] = None,
         artifact_store: Optional[ArtifactStore] = None,
     ) -> SuspiciousApiIndex:
         callsites: List[ApiCallSite] = []
@@ -146,6 +147,29 @@ class DexInvocationIndexer:
                                 "match": method_name,
                             },
                             confidence=0.4,
+                        )
+                    )
+
+        if not callsites and local_search_fn:
+            for sig, category in self.signature_index.items():
+                method_name = method_name_from_signature(sig)
+                if not method_name or len(method_name) < 3:
+                    continue
+                hits = local_search_fn(method_name, 10)
+                for hit in hits:
+                    seed_id = _seed_id_for(method_name, sig, hit.get("file_path"))
+                    callsites.append(
+                        ApiCallSite(
+                            seed_id=seed_id,
+                            category=category,
+                            signature=sig,
+                            caller_method=hit.get("file_path", "UNKNOWN"),
+                            caller_class="UNKNOWN",
+                            callsite_descriptor={
+                                "source_file": hit.get("file_path"),
+                                "match": method_name,
+                            },
+                            confidence=0.3,
                         )
                     )
 

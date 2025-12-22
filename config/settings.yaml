@@ -7,6 +7,8 @@ analysis:
   flowdroid_jar_path: "FlowDroid/soot-infoflow-cmd/target/soot-infoflow-cmd-jar-with-dependencies.jar"
   soot_extractor_jar_path: "java/soot-extractor/build/libs/soot-extractor.jar"
   flowdroid_timeout_sec: 900
+  jadx_path: "jadx"
+  jadx_timeout_sec: 600
   callgraph_algo: "SPARK"
   k_hop: 2
   max_seed_count: 20

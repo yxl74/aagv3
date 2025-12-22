@@ -16,7 +16,12 @@ LLM-assisted Android APK malware analysis pipeline aligned to LAMD: deterministi
 
 ## Workflow
 
-The pipeline uses **both** the local APK and Knox metadata in a single run.
+The pipeline has two modes:
+
+- **Combined (default):** requires the local APK path + Knox APK ID.
+- **APK-only (opt-in):** requires the local APK path only, uses JADX to decompile into a temp dir, and falls back to local source search when Knox is unavailable. The temp dir is deleted after analysis.
+
+### Combined workflow
 
 ```mermaid
 flowchart TD
@@ -34,9 +39,28 @@ flowchart TD
   K --> L[Threat Report + MITRE Mapping]
 ```
 
+### APK-only workflow
+
+```mermaid
+flowchart TD
+  A[Input<br/>APK path] --> B[Stage A: Local static extractors]
+  B --> C[Stage A2: JADX decompile (temp dir)]
+  C --> D[Stage B: Suspicious API Seeding<br/>DEX invoke index + local source search fallback]
+  D --> E[Stage C: Graph + Slice Extraction<br/>Soot callgraph + CFG slices]
+  E --> F[Stage D: Recon Agent<br/>prioritize seeds]
+  F --> G[Tier-1 Summarizer<br/>function behavior]
+  G --> H[Verifier<br/>consistency_check]
+  H --> I[Tier-2 Intent<br/>graph reasoning]
+  I --> J{Need taint confirmation?}
+  J -- yes --> K[Targeted FlowDroid<br/>sources/sinks subset]
+  J -- no --> L[Report Agent<br/>JSON + markdown]
+  K --> L
+  L --> M[Threat Report + MITRE Mapping]
+```
+
 High-level steps:
 - Build static artifacts (manifest, permissions, strings, certs, Knox indicators).
-- Seed suspicious API callsites from DEX, fall back to Knox source search when needed.
+- Seed suspicious API callsites from DEX, fall back to Knox or local source search when needed.
 - Build callgraph and CFG slices for each seed and create context bundles.
 - Run LLM agents (Recon → Tier1 → Verifier → Tier2) with evidence gating.
 - Run FlowDroid only if Tier2 requests taint confirmation.
@@ -84,10 +108,16 @@ mvn -f FlowDroid/pom.xml -pl soot-infoflow-cmd -am package -DskipTests
 - `analysis.flowdroid_jar_path` should point to `FlowDroid/soot-infoflow-cmd/target/soot-infoflow-cmd-jar-with-dependencies.jar`.
 - `analysis.soot_extractor_jar_path` should point to `java/soot-extractor/build/libs/soot-extractor.jar`.
 
-5) Run analysis (requires both APK path and Knox APK ID):
+5) Run analysis (default combined mode requires both APK path and Knox APK ID):
 
 ```bash
 python -m apk_analyzer.main --apk /path/to/app.apk --knox-id <apk_id>
+```
+
+APK-only mode (opt-in):
+
+```bash
+python -m apk_analyzer.main --mode apk-only --apk /path/to/app.apk
 ```
 
 Artifacts are written under `artifacts/{analysis_id}/`.
@@ -135,11 +165,24 @@ docker compose run --rm \
 
 ### Run analysis (Docker)
 
+Place APKs inside the repo (or mount a folder) so they are visible under `/workspace`:
+
+```bash
+cp /path/to/app.apk ./data/app.apk
+```
+
 APK + Knox ID:
 
 ```bash
 docker compose run --rm aag \
   python -m apk_analyzer.main --apk /workspace/path/to/app.apk --knox-id <apk_id>
+```
+
+APK-only mode (JADX-based):
+
+```bash
+docker compose run --rm aag \
+  python -m apk_analyzer.main --mode apk-only --apk /workspace/path/to/app.apk
 ```
 
 Interactive shell:
@@ -165,14 +208,19 @@ docker compose run --rm aag \
 Notes:
 - The repo is mounted at `/workspace`.
 - `ANDROID_SDK_ROOT` is set to `/opt/android-sdk`, and `analysis.android_platforms_dir` auto-resolves to `/opt/android-sdk/platforms` if unset.
+- `jadx` is preinstalled at `/opt/jadx/bin/jadx` and available on `PATH`.
 - `KNOX_BASE_URL` defaults to `http://105.145.72.82:8081/api/v1` in `docker-compose.yml` and can be overridden via env.
 - Artifacts are written to `/workspace/artifacts/{analysis_id}/` on the host.
 
 ## Input Requirements
 
-Every run requires both:
+Default (combined) mode requires both:
 - `--apk` path on disk
 - `--knox-id` (Knox APK ID)
+
+APK-only mode requires:
+- `--apk` path on disk
+- `--mode apk-only`
 
 ## Configuration
 
@@ -182,6 +230,8 @@ Key settings live in `config/settings.yaml`:
 - `analysis.android_platforms_dir`: Android SDK platforms folder.
 - `analysis.flowdroid_jar_path`: FlowDroid CLI jar path.
 - `analysis.soot_extractor_jar_path`: Soot extractor jar path.
+- `analysis.jadx_path`: JADX binary or jar (used in apk-only mode).
+- `analysis.jadx_timeout_sec`: JADX decompile timeout.
 - `analysis.callgraph_algo`: `SPARK` or `CHA`.
 - `analysis.k_hop`: call graph neighborhood hops.
 - `analysis.max_seed_count`: maximum seeds to process.
@@ -259,4 +309,5 @@ pytest
 ## Notes
 
 - FlowDroid and Soot require Android platform jars. If analyses fail with classpath errors, verify `analysis.android_platforms_dir`.
+- APK-only mode runs JADX in a temp directory that is deleted after analysis; if JADX is missing or fails, the pipeline falls back to DEX-only seeding with reduced recall.
 - LLM integration is currently stubbed; you must implement the Vertex client to enable real completions.

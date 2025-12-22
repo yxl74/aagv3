@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ANDROID_SDK_ROOT=/opt/android-sdk
-ENV PATH="/opt/gradle/bin:$PATH:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools"
+ENV PATH="/opt/jadx/bin:/opt/gradle/bin:$PATH:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jdk \
@@ -21,6 +21,12 @@ RUN curl -fsSL https://services.gradle.org/distributions/gradle-${GRADLE_VERSION
   && unzip -q /tmp/gradle.zip -d /opt \
   && ln -s /opt/gradle-${GRADLE_VERSION} /opt/gradle \
   && rm /tmp/gradle.zip
+
+ARG JADX_VERSION=1.5.1
+RUN curl -fsSL https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/jadx-${JADX_VERSION}.zip -o /tmp/jadx.zip \
+  && unzip -q /tmp/jadx.zip -d /opt \
+  && mv /opt/jadx-${JADX_VERSION} /opt/jadx \
+  && rm /tmp/jadx.zip
 
 RUN mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
 RUN curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdline.zip \
