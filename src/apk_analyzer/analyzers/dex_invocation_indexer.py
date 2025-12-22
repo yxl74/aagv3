@@ -62,21 +62,92 @@ def _iter_invoke_instructions(apk_path: str | Path) -> Iterable[Tuple[str, str, 
         raise RuntimeError("androguard is required for DEX indexing")
     _, dex_files, _ = AnalyzeAPK(str(apk_path))
     for dex in dex_files:
-        for method in dex.get_methods():
-            m = method.get_method()
-            if not m.get_code():
+        for method in _iter_encoded_methods(dex):
+            core = _unwrap_method(method)
+            if core is None:
                 continue
-            caller_class = m.get_class_name()
-            caller_sig = dex_method_to_soot(caller_class, m.get_name(), m.get_descriptor())
-            for ins in m.get_instructions():
-                if not ins.get_name().startswith("invoke-"):
+            if hasattr(core, "get_code") and core.get_code() is None:
+                continue
+            triple = _get_method_triple(core)
+            if not triple:
+                continue
+            caller_class, caller_name, caller_desc = triple
+            caller_sig = dex_method_to_soot(caller_class, caller_name, caller_desc)
+            for offset, ins in _iter_method_instructions(core):
+                try:
+                    name = ins.get_name()
+                except Exception:
                     continue
-                output = ins.get_output()
+                if not name.startswith("invoke-"):
+                    continue
+                try:
+                    output = ins.get_output()
+                except Exception:
+                    output = ""
                 match = DEX_INVOKE_RE.search(output)
                 if not match:
                     continue
                 callee = match.group(1)
-                yield caller_sig, callee, ins.get_address()
+                yield caller_sig, callee, offset
+
+
+def _iter_encoded_methods(dex: Any) -> Iterable[Any]:
+    if hasattr(dex, "get_encoded_methods"):
+        return dex.get_encoded_methods() or []
+    if hasattr(dex, "get_methods"):
+        return dex.get_methods() or []
+    return []
+
+
+def _unwrap_method(method: Any) -> Any:
+    if hasattr(method, "get_instructions") and hasattr(method, "get_name"):
+        return method
+    if hasattr(method, "get_method"):
+        try:
+            return method.get_method()
+        except Exception:
+            return None
+    return None
+
+
+def _get_method_triple(method: Any) -> Optional[Tuple[str, str, str]]:
+    if hasattr(method, "get_triple"):
+        try:
+            class_name, name, desc = method.get_triple()
+            if class_name and name and desc:
+                return class_name, name, desc
+        except Exception:
+            pass
+    try:
+        class_name = method.get_class_name()
+        name = method.get_name()
+        desc = method.get_descriptor()
+        if class_name and name and desc:
+            return class_name, name, desc
+    except Exception:
+        return None
+    return None
+
+
+def _iter_method_instructions(method: Any) -> Iterable[Tuple[int, Any]]:
+    if hasattr(method, "get_instructions_idx"):
+        try:
+            for offset, ins in method.get_instructions_idx():
+                yield offset, ins
+            return
+        except Exception:
+            pass
+    offset = 0
+    try:
+        instructions = method.get_instructions() or []
+    except Exception:
+        return
+    for ins in instructions:
+        yield offset, ins
+        try:
+            offset += ins.get_length()
+        except Exception:
+            offset += 0
 
 
 class DexInvocationIndexer:
