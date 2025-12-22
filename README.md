@@ -237,6 +237,7 @@ Key settings live in `config/settings.yaml`:
 - `analysis.max_seed_count`: maximum seeds to process.
 - `llm.provider`: LLM provider (use `vertex` for API key auth).
 - `llm.api_key`: API key (or use `VERTEX_API_KEY` / `GOOGLE_API_KEY` env).
+- `llm.verify_ssl`: Set `false` to disable SSL verification for Vertex calls (PoC only).
 
 Env overrides:
 
