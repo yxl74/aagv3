@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if ! python -c "import apk_analyzer" >/dev/null 2>&1; then
-  python -m pip install -e .
+  python -m pip install .
 fi
 
 exec "$@"

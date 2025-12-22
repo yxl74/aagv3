@@ -9,6 +9,6 @@ services:
       ANDROID_SDK_ROOT: "/opt/android-sdk"
     volumes:
       - .:/workspace
-    entrypoint: ["/workspace/scripts/docker_entrypoint.sh"]
+    entrypoint: ["/bin/bash", "/workspace/scripts/docker_entrypoint.sh"]
     tty: true
     stdin_open: true
