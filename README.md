@@ -66,6 +66,44 @@ High-level steps:
 - Run FlowDroid only if Tier2 requests taint confirmation.
 - Emit report with evidence supports and MITRE mappings.
 
+## Detailed Workflow and Tool Usage
+
+Stage A: Static preprocess (local APK + Knox)
+- **Androguard APK parser** (`src/apk_analyzer/analyzers/static_extractors.py`): extracts manifest metadata (package, version, permissions, components, SDK) from the APK.
+- **ZIP parsing** (built-in `zipfile`): extracts ASCII strings from `classes*.dex` and assets; extracts cert blobs from `META-INF/*.RSA|*.DSA|*.EC`.
+- **Knox Vision API** (`src/apk_analyzer/clients/knox_client.py`, combined mode): pulls full analysis, manifest, components, threat indicators; if present, Knox manifest overrides local manifest.
+- **Artifacts**: `artifacts/{analysis_id}/static/manifest.json`, `strings.json`, `cert.json`, `knox_full.json`, `components.json`, `permissions.json`.
+
+Stage A2: APK-only decompile (opt-in)
+- **JADX** (`src/apk_analyzer/analyzers/jadx_extractors.py`): decompiles APK to a temp directory for local search. The temp directory is deleted after analysis.
+- **Local search helper** (`src/apk_analyzer/analyzers/local_query.py`): scans JADX output (`.java`, `.kt`, `.xml`, `.smali`) for method-name hits; used only as a fallback for seeding.
+- If JADX is missing or fails, the pipeline continues with DEX-only seeding (lower recall).
+
+Stage B: Suspicious API seeding
+- **DEX invocation indexer** (`src/apk_analyzer/analyzers/dex_invocation_indexer.py`): uses Androguard `AnalyzeAPK` to walk encoded methods and instructions; finds `invoke-*` sites and matches against `config/suspicious_api_catalog.json`.
+- **Fallbacks**: if no DEX callsites, uses Knox source search (combined mode) or local JADX search (apk-only) to propose low-confidence seeds.
+- **Artifacts**: `artifacts/{analysis_id}/seeds/suspicious_api_index.json`.
+
+Stage C: Graph + slice extraction
+- **Soot extractor (Java)** (`java/soot-extractor`): builds call graph + per-method CFGs using Android platform jars.
+- **Outputs**: `artifacts/{analysis_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`.
+- **Context bundles** (`src/apk_analyzer/analyzers/context_bundle_builder.py`): creates per-seed slices and FCG neighborhoods for LLM prompts.
+
+Stage D: LLM reasoning
+- **Recon**: summarizes manifest + indicators + seed counts, prioritizes seeds.
+- **Tier1**: summarizes behavior of a seed using the sliced CFG.
+- **Verifier**: enforces evidence grounding (non-LLM consistency check).
+- **Tier2**: higher-level intent reasoning using callgraph neighborhood.
+- **Artifacts**: `artifacts/{analysis_id}/llm/*` with JSON outputs.
+
+Stage E: Targeted taint analysis (optional)
+- **FlowDroid CLI jar** (`src/apk_analyzer/tools/flowdroid_tools.py`): runs taint analysis using a generated sources/sinks subset based on categories present in the seed list.
+- **Artifacts**: `artifacts/{analysis_id}/taint/flowdroid_summary.json`.
+
+Stage F: Reporting + MITRE mapping
+- **MITRE mapping** (`config/mitre/` + `src/apk_analyzer/analyzers/mitre_mapper.py`): maps extracted evidence to ATT&CK techniques.
+- **Report**: `artifacts/{analysis_id}/report/threat_report.json` and `.md`.
+
 ## Repo Layout
 
 - `src/apk_analyzer/`: Python pipeline and agent logic
