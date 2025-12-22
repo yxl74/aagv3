@@ -14,6 +14,34 @@ LLM-assisted Android APK malware analysis pipeline aligned to LAMD: deterministi
 - MITRE Mobile ATT&CK mapping via local rules and optional dataset fetch.
 - Artifacts are stored under `artifacts/{analysis_id}/` for traceability.
 
+## Workflow
+
+The pipeline uses **both** the local APK and Knox metadata in a single run.
+
+```mermaid
+flowchart TD
+  A[Inputs<br/>APK path + Knox APK ID] --> B[Stage A: Static Preprocess<br/>Knox metadata + local extractors]
+  B --> C[Stage B: Suspicious API Seeding<br/>DEX invoke index + Knox search fallback]
+  C --> D[Stage C: Graph + Slice Extraction<br/>Soot callgraph + CFG slices]
+  D --> E[Stage D: Recon Agent<br/>prioritize seeds]
+  E --> F[Tier-1 Summarizer<br/>function behavior]
+  F --> G[Verifier<br/>consistency_check]
+  G --> H[Tier-2 Intent<br/>graph reasoning]
+  H --> I{Need taint confirmation?}
+  I -- yes --> J[Targeted FlowDroid<br/>sources/sinks subset]
+  I -- no --> K[Report Agent<br/>JSON + markdown]
+  J --> K
+  K --> L[Threat Report + MITRE Mapping]
+```
+
+High-level steps:
+- Build static artifacts (manifest, permissions, strings, certs, Knox indicators).
+- Seed suspicious API callsites from DEX, fall back to Knox source search when needed.
+- Build callgraph and CFG slices for each seed and create context bundles.
+- Run LLM agents (Recon → Tier1 → Verifier → Tier2) with evidence gating.
+- Run FlowDroid only if Tier2 requests taint confirmation.
+- Emit report with evidence supports and MITRE mappings.
+
 ## Repo Layout
 
 - `src/apk_analyzer/`: Python pipeline and agent logic
