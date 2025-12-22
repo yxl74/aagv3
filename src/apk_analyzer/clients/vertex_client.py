@@ -22,7 +22,7 @@ class VertexLLMClient:
         self.default_model = default_model
         self.client = httpx.Client(timeout=timeout_sec, verify=verify_ssl)
 
-    def complete(self, prompt: str, payload: dict, model: Optional[str] = None) -> Dict[str, Any]:
+    def complete(self, prompt: str, payload: dict, model: Optional[str] = None) -> str:
         model_name = model or self.default_model
         url = f"{self.base_url}/publishers/google/models/{model_name}:generateContent"
         text = f"{prompt}\n\nPayload JSON:\n{json.dumps(payload, indent=2, ensure_ascii=True)}"
@@ -40,10 +40,7 @@ class VertexLLMClient:
         response.raise_for_status()
         data = response.json()
         content = _extract_text(data)
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError as exc:  # pragma: no cover - depends on LLM output
-            raise ValueError("Vertex response was not valid JSON") from exc
+        return content
 
 
 def _extract_text(payload: Dict[str, Any]) -> str:

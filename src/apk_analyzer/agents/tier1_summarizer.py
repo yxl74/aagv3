@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from apk_analyzer.agents.base import LLMClient
+from apk_analyzer.utils.llm_json import coerce_llm_dict
 
 
 class Tier1SummarizerAgent:
@@ -29,6 +29,15 @@ class Tier1SummarizerAgent:
                 "confidence": 0.0,
             }
         response = self.llm_client.complete(self.prompt, payload, model=self.model)
-        if isinstance(response, str):
-            return json.loads(response)
-        return response
+        fallback = {
+            "seed_id": payload.get("seed_id"),
+            "function_summary": "LLM output invalid; no summary generated.",
+            "facts": [],
+            "uncertainties": ["LLM output invalid"],
+            "confidence": 0.0,
+        }
+        return coerce_llm_dict(
+            response,
+            fallback,
+            required_keys=("seed_id", "function_summary", "facts", "uncertainties", "confidence"),
+        )

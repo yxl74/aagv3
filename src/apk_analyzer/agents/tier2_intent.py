@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from apk_analyzer.agents.base import LLMClient
+from apk_analyzer.utils.llm_json import coerce_llm_dict
 
 
 class Tier2IntentAgent:
@@ -30,6 +30,23 @@ class Tier2IntentAgent:
                 "taint_question": "",
             }
         response = self.llm_client.complete(self.prompt, payload, model=self.model)
-        if isinstance(response, str):
-            return json.loads(response)
-        return response
+        fallback = {
+            "seed_id": payload.get("seed_id"),
+            "intent_verdict": "unknown",
+            "rationale": ["LLM output invalid; no intent inference."],
+            "evidence": [],
+            "taint_recommended": False,
+            "taint_question": "",
+        }
+        return coerce_llm_dict(
+            response,
+            fallback,
+            required_keys=(
+                "seed_id",
+                "intent_verdict",
+                "rationale",
+                "evidence",
+                "taint_recommended",
+                "taint_question",
+            ),
+        )
