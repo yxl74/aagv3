@@ -17,6 +17,8 @@ from apk_analyzer.analyzers.local_query import search_source_code
 from apk_analyzer.analyzers.mitre_mapper import load_rules, load_technique_index, map_evidence
 from apk_analyzer.analyzers.sources_sinks_subset import generate_subset
 from apk_analyzer.clients.knox_client import KnoxClient
+from apk_analyzer.telemetry import llm_context, set_run_context, span
+from apk_analyzer.telemetry.llm_instrumentation import InstrumentedLLMClient
 from apk_analyzer.tools.flowdroid_tools import run_targeted_taint_analysis
 from apk_analyzer.tools.soot_tools import run_soot_extractor
 from apk_analyzer.tools.static_tools import run_static_extractors
@@ -49,8 +51,12 @@ class Orchestrator:
         artifact_store.ensure_dir("seeds")
         artifact_store.ensure_dir("graphs")
         artifact_store.ensure_dir("llm")
+        artifact_store.ensure_dir("llm_inputs")
+        artifact_store.ensure_dir("llm_outputs")
         artifact_store.ensure_dir("taint")
         artifact_store.ensure_dir("report")
+
+        set_run_context(artifact_store.analysis_id, mode=mode)
 
         knox_client = None
         full_knox = None
@@ -70,17 +76,19 @@ class Orchestrator:
         with temp_ctx as tmpdir:
             static_outputs: Dict[str, Any] = {}
             manifest = {}
-            if apk_path:
-                static_outputs = run_static_extractors(apk_path, artifact_store)
-                manifest = static_outputs.get("manifest", {})
+            with span("stage.static_preprocess", stage="static_preprocess"):
+                if apk_path:
+                    static_outputs = run_static_extractors(apk_path, artifact_store)
+                    manifest = static_outputs.get("manifest", {})
 
             if mode == "apk-only":
-                jadx_path = self.settings.get("analysis", {}).get("jadx_path", "jadx")
-                jadx_timeout = self.settings.get("analysis", {}).get("jadx_timeout_sec", 600)
-                if tmpdir:
-                    jadx_root = run_jadx(apk_path, Path(tmpdir), jadx_path=jadx_path, timeout_sec=jadx_timeout)
-                if jadx_root:
-                    local_search_fn = lambda query, limit=10: search_source_code(jadx_root, query, limit)
+                with span("tool.jadx", tool_name="jadx"):
+                    jadx_path = self.settings.get("analysis", {}).get("jadx_path", "jadx")
+                    jadx_timeout = self.settings.get("analysis", {}).get("jadx_timeout_sec", 600)
+                    if tmpdir:
+                        jadx_root = run_jadx(apk_path, Path(tmpdir), jadx_path=jadx_path, timeout_sec=jadx_timeout)
+                    if jadx_root:
+                        local_search_fn = lambda query, limit=10: search_source_code(jadx_root, query, limit)
 
             if full_knox and full_knox.get("manifest_data"):
                 manifest = full_knox.get("manifest_data", manifest)
@@ -99,13 +107,14 @@ class Orchestrator:
 
             catalog_path = Path("config/suspicious_api_catalog.json")
             indexer = DexInvocationIndexer(catalog_path)
-            suspicious_index = indexer.build_index(
-                apk_id=artifact_store.analysis_id,
-                apk_path=apk_path,
-                knox_client=knox_client,
-                local_search_fn=local_search_fn,
-                artifact_store=artifact_store,
-            )
+            with span("stage.seeding", stage="seeding"):
+                suspicious_index = indexer.build_index(
+                    apk_id=artifact_store.analysis_id,
+                    apk_path=apk_path,
+                    knox_client=knox_client,
+                    local_search_fn=local_search_fn,
+                    artifact_store=artifact_store,
+                )
             validate_json(
                 artifact_store.read_json("seeds/suspicious_api_index.json"),
                 "config/schemas/SuspiciousApiIndex.schema.json",
@@ -115,47 +124,52 @@ class Orchestrator:
             android_platforms = self.settings["analysis"].get("android_platforms_dir")
             soot_jar = self.settings["analysis"].get("soot_extractor_jar_path") or "java/soot-extractor/build/libs/soot-extractor.jar"
             if apk_path and android_platforms:
-                out_dir = artifact_store.path("graphs")
-                run_soot_extractor(
-                    apk_path,
-                    android_platforms,
-                    out_dir,
-                    soot_jar,
-                    cg_algo=self.settings["analysis"].get("callgraph_algo", "SPARK"),
-                    k_hop=self.settings["analysis"].get("k_hop", 2),
-                )
-                callgraph_path = artifact_store.path("graphs/callgraph.json")
-                if callgraph_path.exists():
-                    validate_json(json.loads(callgraph_path.read_text(encoding="utf-8")), "config/schemas/CallGraph.schema.json")
+                with span("stage.graphs", stage="graphs"):
+                    out_dir = artifact_store.path("graphs")
+                    run_soot_extractor(
+                        apk_path,
+                        android_platforms,
+                        out_dir,
+                        soot_jar,
+                        cg_algo=self.settings["analysis"].get("callgraph_algo", "SPARK"),
+                        k_hop=self.settings["analysis"].get("k_hop", 2),
+                    )
+                    callgraph_path = artifact_store.path("graphs/callgraph.json")
+                    if callgraph_path.exists():
+                        validate_json(json.loads(callgraph_path.read_text(encoding="utf-8")), "config/schemas/CallGraph.schema.json")
 
             context_builder = ContextBundleBuilder(artifact_store)
-            bundles = context_builder.build_for_index(
-                suspicious_index,
-                static_context=static_context,
-                callgraph_path=callgraph_path,
-                k_hop=self.settings["analysis"].get("k_hop", 2),
-            )
+            with span("stage.context_bundles", stage="context_bundles"):
+                bundles = context_builder.build_for_index(
+                    suspicious_index,
+                    static_context=static_context,
+                    callgraph_path=callgraph_path,
+                    k_hop=self.settings["analysis"].get("k_hop", 2),
+                )
 
             llm_conf = self.settings.get("llm", {}) or {}
+            llm_client = self.llm_client
+            if llm_client:
+                llm_client = InstrumentedLLMClient(llm_client, artifact_store)
             recon_agent = ReconAgent(
                 self.prompt_dir / "recon.md",
-                self.llm_client,
+                llm_client,
                 model=llm_conf.get("model_recon"),
             )
             tier1_agent = Tier1SummarizerAgent(
                 self.prompt_dir / "tier1_summarize.md",
-                self.llm_client,
+                llm_client,
                 model=llm_conf.get("model_tier1"),
             )
-            verifier_agent = VerifierAgent(self.prompt_dir / "verifier.md", self.llm_client)
+            verifier_agent = VerifierAgent(self.prompt_dir / "verifier.md", llm_client)
             tier2_agent = Tier2IntentAgent(
                 self.prompt_dir / "tier2_intent.md",
-                self.llm_client,
+                llm_client,
                 model=llm_conf.get("model_tier2"),
             )
             report_agent = ReportAgent(
                 self.prompt_dir / "tier3_final.md",
-                self.llm_client,
+                llm_client,
                 model=llm_conf.get("model_report"),
             )
 
@@ -168,25 +182,31 @@ class Orchestrator:
                 "suspicious_api_counts": counts,
                 "context_bundle_metadata": [{"seed_id": b["seed_id"], "category": b["api_category"]} for b in bundles],
             }
-            recon_result = recon_agent.run(recon_payload)
-            artifact_store.write_json("llm/recon.json", recon_result)
+            with span("stage.recon", stage="recon"):
+                with llm_context("recon"):
+                    recon_result = recon_agent.run(recon_payload)
+                artifact_store.write_json("llm/recon.json", recon_result)
 
             seed_summaries = []
             evidence_support_index: Dict[str, Any] = {}
             for bundle in bundles[: self.settings["analysis"].get("max_seed_count", 20)]:
-                tier1 = tier1_agent.run(bundle)
-                artifact_store.write_json(f"llm/tier1/{bundle['seed_id']}.json", tier1)
-                verifier = verifier_agent.run(tier1, bundle)
-                artifact_store.write_json(f"llm/verifier/{bundle['seed_id']}.json", verifier)
-                if verifier.get("status") != "VERIFIED":
-                    continue
-                tier2 = tier2_agent.run({
-                    "seed_id": bundle["seed_id"],
-                    "tier1": tier1,
-                    "fcg": bundle.get("fcg_neighborhood"),
-                    "static_context": bundle.get("static_context"),
-                })
-                artifact_store.write_json(f"llm/tier2/{bundle['seed_id']}.json", tier2)
+                seed_id = bundle["seed_id"]
+                with span("llm.seed", stage="seed_processing", seed_id=seed_id, api_category=bundle.get("api_category")):
+                    with llm_context("tier1", seed_id=seed_id):
+                        tier1 = tier1_agent.run(bundle)
+                    artifact_store.write_json(f"llm/tier1/{seed_id}.json", tier1)
+                    verifier = verifier_agent.run(tier1, bundle)
+                    artifact_store.write_json(f"llm/verifier/{seed_id}.json", verifier)
+                    if verifier.get("status") != "VERIFIED":
+                        continue
+                    with llm_context("tier2", seed_id=seed_id):
+                        tier2 = tier2_agent.run({
+                            "seed_id": seed_id,
+                            "tier1": tier1,
+                            "fcg": bundle.get("fcg_neighborhood"),
+                            "static_context": bundle.get("static_context"),
+                        })
+                    artifact_store.write_json(f"llm/tier2/{seed_id}.json", tier2)
 
                 for idx, fact in enumerate(tier1.get("facts", [])):
                     ev_id = f"ev-{bundle['seed_id']}-{idx}"
@@ -218,15 +238,16 @@ class Orchestrator:
                     jar_path = None
                     platforms_path = None
                 if jar_path and platforms_path and jar_path.exists() and platforms_path.exists():
-                    flowdroid_summary = run_targeted_taint_analysis(
-                        apk_path,
-                        sources_sinks_subset,
-                        android_platforms_dir,
-                        flowdroid_jar,
-                        artifact_store.path("taint"),
-                        timeout_sec=self.settings["analysis"].get("flowdroid_timeout_sec", 900),
-                    )
-                    artifact_store.write_json("taint/flowdroid_summary.json", flowdroid_summary)
+                    with span("tool.flowdroid", tool_name="flowdroid"):
+                        flowdroid_summary = run_targeted_taint_analysis(
+                            apk_path,
+                            sources_sinks_subset,
+                            android_platforms_dir,
+                            flowdroid_jar,
+                            artifact_store.path("taint"),
+                            timeout_sec=self.settings["analysis"].get("flowdroid_timeout_sec", 900),
+                        )
+                        artifact_store.write_json("taint/flowdroid_summary.json", flowdroid_summary)
 
             mitre_rules = load_rules("config/mitre/mapping_rules.json")
             technique_index = load_technique_index("config/mitre/technique_index.json")
@@ -248,10 +269,12 @@ class Orchestrator:
                 },
                 "mitre_candidates": mitre_candidates,
             }
-            report = report_agent.run(report_payload)
-            validate_json(report, "config/schemas/ThreatReport.schema.json")
-            artifact_store.write_json("report/threat_report.json", report)
-            artifact_store.write_text("report/threat_report.md", json.dumps(report, indent=2))
+            with span("stage.report", stage="report"):
+                with llm_context("report"):
+                    report = report_agent.run(report_payload)
+                validate_json(report, "config/schemas/ThreatReport.schema.json")
+                artifact_store.write_json("report/threat_report.json", report)
+                artifact_store.write_text("report/threat_report.md", json.dumps(report, indent=2))
 
             return report
 

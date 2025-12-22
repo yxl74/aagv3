@@ -6,3 +6,6 @@ androguard>=3.4.0
 apkInspector>=1.1.7
 lxml>=4.3.0
 rich>=13.7
+opentelemetry-api>=1.24
+opentelemetry-sdk>=1.24
+opentelemetry-exporter-otlp>=1.24

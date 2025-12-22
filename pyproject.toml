@@ -16,6 +16,9 @@ dependencies = [
   "jsonschema>=4.21",
   "androguard>=3.4.0",
   "rich>=13.7",
+  "opentelemetry-api>=1.24",
+  "opentelemetry-sdk>=1.24",
+  "opentelemetry-exporter-otlp>=1.24",
 ]
 
 [project.scripts]

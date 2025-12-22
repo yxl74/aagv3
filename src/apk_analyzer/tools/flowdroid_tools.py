@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List
 
+from apk_analyzer.telemetry import span
 
 def _parse_flowdroid_xml(xml_path: Path) -> Dict[str, Any]:
     flows: List[Dict[str, Any]] = []
@@ -59,7 +60,9 @@ def run_targeted_taint_analysis(
         "-o",
         str(xml_out),
     ]
-    subprocess.run(cmd, check=True, timeout=timeout_sec)
-    summary = _parse_flowdroid_xml(xml_out)
+    with span("tool.flowdroid", tool_name="flowdroid", timeout_sec=timeout_sec) as sp:
+        subprocess.run(cmd, check=True, timeout=timeout_sec)
+        summary = _parse_flowdroid_xml(xml_out)
+        sp.set_attribute("flow_count", summary.get("flow_count", 0))
     summary["xml_path"] = str(xml_out)
     return summary

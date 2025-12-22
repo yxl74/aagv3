@@ -5,6 +5,7 @@ from pathlib import Path
 
 from apk_analyzer.agents.orchestrator import Orchestrator
 from apk_analyzer.clients.llm_factory import build_llm_client
+from apk_analyzer.telemetry import init_telemetry
 from apk_analyzer.utils.config import load_settings
 
 
@@ -27,6 +28,7 @@ def main() -> None:
         parser.error("--apk-list is required when --mode is apk-only.")
 
     settings = load_settings(args.settings)
+    init_telemetry(settings)
     llm_client = build_llm_client(settings)
     orchestrator = Orchestrator(settings, llm_client=llm_client)
 
