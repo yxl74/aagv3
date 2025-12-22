@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from apk_analyzer.agents.orchestrator import Orchestrator
+from apk_analyzer.clients.llm_factory import build_llm_client
 from apk_analyzer.utils.config import load_settings
 
 
@@ -47,7 +48,8 @@ def main() -> None:
     settings = load_settings(args.settings)
     _apply_overrides(settings, args)
 
-    orchestrator = Orchestrator(settings)
+    llm_client = build_llm_client(settings)
+    orchestrator = Orchestrator(settings, llm_client=llm_client)
     report = orchestrator.run(apk_path=args.apk, knox_apk_id=args.knox_id, mode=args.mode)
     print(f"Report written for {report.get('analysis_id')}")
 

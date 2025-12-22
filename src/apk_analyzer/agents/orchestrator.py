@@ -136,11 +136,28 @@ class Orchestrator:
                 k_hop=self.settings["analysis"].get("k_hop", 2),
             )
 
-            recon_agent = ReconAgent(self.prompt_dir / "recon.md", self.llm_client)
-            tier1_agent = Tier1SummarizerAgent(self.prompt_dir / "tier1_summarize.md", self.llm_client)
+            llm_conf = self.settings.get("llm", {}) or {}
+            recon_agent = ReconAgent(
+                self.prompt_dir / "recon.md",
+                self.llm_client,
+                model=llm_conf.get("model_recon"),
+            )
+            tier1_agent = Tier1SummarizerAgent(
+                self.prompt_dir / "tier1_summarize.md",
+                self.llm_client,
+                model=llm_conf.get("model_tier1"),
+            )
             verifier_agent = VerifierAgent(self.prompt_dir / "verifier.md", self.llm_client)
-            tier2_agent = Tier2IntentAgent(self.prompt_dir / "tier2_intent.md", self.llm_client)
-            report_agent = ReportAgent(self.prompt_dir / "tier3_final.md", self.llm_client)
+            tier2_agent = Tier2IntentAgent(
+                self.prompt_dir / "tier2_intent.md",
+                self.llm_client,
+                model=llm_conf.get("model_tier2"),
+            )
+            report_agent = ReportAgent(
+                self.prompt_dir / "tier3_final.md",
+                self.llm_client,
+                model=llm_conf.get("model_report"),
+            )
 
             counts: Dict[str, int] = {}
             for callsite in suspicious_index.callsites:

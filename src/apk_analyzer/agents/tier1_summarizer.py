@@ -8,9 +8,15 @@ from apk_analyzer.agents.base import LLMClient
 
 
 class Tier1SummarizerAgent:
-    def __init__(self, prompt_path: str | Path, llm_client: Optional[LLMClient] = None) -> None:
+    def __init__(
+        self,
+        prompt_path: str | Path,
+        llm_client: Optional[LLMClient] = None,
+        model: Optional[str] = None,
+    ) -> None:
         self.prompt_path = Path(prompt_path)
         self.llm_client = llm_client
+        self.model = model
         self.prompt = self.prompt_path.read_text(encoding="utf-8") if self.prompt_path.exists() else ""
 
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -22,7 +28,7 @@ class Tier1SummarizerAgent:
                 "uncertainties": ["LLM disabled"],
                 "confidence": 0.0,
             }
-        response = self.llm_client.complete(self.prompt, payload)
+        response = self.llm_client.complete(self.prompt, payload, model=self.model)
         if isinstance(response, str):
             return json.loads(response)
         return response
