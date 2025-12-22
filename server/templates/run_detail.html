@@ -73,9 +73,21 @@
   </div>
 
   <div class="section">
+    <h2>Sensitive API Hits</h2>
+    {% if sensitive_api %}
+      <p>Total hits: {{ sensitive_api.total_hits }}</p>
+      {% if sensitive_api.ref %}
+      <a href="/runs/{{ analysis_id }}/artifact/{{ sensitive_api.ref }}">View sensitive_api_hits.json</a>
+      {% endif %}
+    {% else %}
+      <p>No sensitive API hits recorded.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
     <h2>Threat Triage (Recon)</h2>
     {% if recon %}
-      <p>Threat level: <strong>{{ recon.threat_level }}</strong> | Prioritized: {{ recon.prioritized_count }}</p>
+      <p>Threat level: <strong>{{ recon.threat_level }}</strong> | Cases: {{ recon.case_count }}</p>
       {% if recon.ref %}
       <a href="/runs/{{ analysis_id }}/artifact/{{ recon.ref }}">View recon JSON</a>
       {% endif %}

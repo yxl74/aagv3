@@ -1,0 +1,1172 @@
+{
+  "version": "2.3.0",
+  "meta": {
+    "description": "Android Sensitive API Catalog for static & neuro-symbolic malware analysis (Recon/Code-Analysis agents).",
+    "usage": "Phase 0 (DEX/Callgraph indexing) -> Phase 1 (Soot/FlowDroid slicing targets) -> LLM Recon summarization",
+    "generated_at": "2025-12-22",
+    "notes": [
+      "Method signatures use Soot format: <class: ret method(params)>",
+      "Fields/constants are optional indicators (not always present in call graphs).",
+      "This catalog intentionally includes both 'sources' (collection) and 'enablers' (execution/evasion/persistence).",
+      "Maintain locally; optionally regenerate/expand from FlowDroid/SuSi SourcesAndSinks and PScout permission mapping."
+    ]
+  },
+  "categories": {
+    "COLLECTION_DEVICE_IDENTIFIERS": {
+      "priority": "CRITICAL",
+      "description": "Accessing persistent device identifiers (IMEI/IMSI/ICCID/Android ID/MAC/Serial) used for profiling, tracking, or correlation.",
+      "weight": 0.9,
+      "mitre": {
+        "primary": "T1426",
+        "aliases": [
+          "T1422",
+          "T1533"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "SPYWARE",
+        "STALKERWARE",
+        "BACKDOOR"
+      ],
+      "permission_hints": [
+        "READ_PHONE_STATE",
+        "READ_PRIVILEGED_PHONE_STATE",
+        "ACCESS_WIFI_STATE",
+        "BLUETOOTH_CONNECT"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.telephony.TelephonyManager: java.lang.String getDeviceId()>",
+          "<android.telephony.TelephonyManager: java.lang.String getImei()>",
+          "<android.telephony.TelephonyManager: java.lang.String getMeid()>",
+          "<android.telephony.TelephonyManager: java.lang.String getSubscriberId()>",
+          "<android.telephony.TelephonyManager: java.lang.String getSimSerialNumber()>",
+          "<android.telephony.TelephonyManager: java.lang.String getLine1Number()>",
+          "<android.telephony.TelephonyManager: java.lang.String getNetworkOperator()>",
+          "<android.telephony.TelephonyManager: java.lang.String getNetworkOperatorName()>",
+          "<android.telephony.TelephonyManager: java.lang.String getSimOperator()>",
+          "<android.telephony.TelephonyManager: java.lang.String getSimOperatorName()>",
+          "<android.telephony.TelephonyManager: java.lang.String getNetworkCountryIso()>",
+          "<android.telephony.TelephonyManager: java.lang.String getSimCountryIso()>",
+          "<android.telephony.TelephonyManager: int getPhoneType()>",
+          "<android.telephony.SubscriptionManager: java.util.List getActiveSubscriptionInfoList()>",
+          "<android.telephony.SubscriptionInfo: java.lang.String getIccId()>",
+          "<android.provider.Settings$Secure: java.lang.String getString(android.content.ContentResolver,java.lang.String)>",
+          "<android.provider.Settings$System: java.lang.String getString(android.content.ContentResolver,java.lang.String)>",
+          "<android.os.Build: java.lang.String getSerial()>",
+          "<android.os.Build: java.lang.String getRadioVersion()>",
+          "<android.os.Build: java.lang.String getFingerprint()>",
+          "<android.os.Build: java.lang.String getHardware()>",
+          "<android.os.Build: java.lang.String getBrand()>",
+          "<android.os.Build: java.lang.String getManufacturer()>",
+          "<android.os.Build: java.lang.String getModel()>",
+          "<android.net.wifi.WifiInfo: java.lang.String getMacAddress()>",
+          "<android.bluetooth.BluetoothAdapter: java.lang.String getAddress()>",
+          "<java.net.NetworkInterface: byte[] getHardwareAddress()>",
+          "<com.google.android.gms.ads.identifier.AdvertisingIdClient: com.google.android.gms.ads.identifier.AdvertisingIdClient$Info getAdvertisingIdInfo(android.content.Context)>"
+        ],
+        "fields": [
+          "<android.provider.Settings$Secure: java.lang.String ANDROID_ID>",
+          "<android.os.Build: java.lang.String SERIAL>"
+        ],
+        "strings": [
+          "android_id"
+        ]
+      }
+    },
+    "COLLECTION_ACCOUNTS": {
+      "priority": "CRITICAL",
+      "description": "Enumerating accounts and retrieving account tokens (Google accounts, email accounts, etc.).",
+      "weight": 0.95,
+      "mitre": {
+        "primary": "T1636.005",
+        "aliases": [
+          "T1533"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "SPYWARE",
+        "BACKDOOR"
+      ],
+      "permission_hints": [
+        "GET_ACCOUNTS",
+        "READ_CONTACTS",
+        "USE_CREDENTIALS"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.accounts.AccountManager: android.accounts.Account[] getAccounts()>",
+          "<android.accounts.AccountManager: android.accounts.Account[] getAccountsByType(java.lang.String)>",
+          "<android.accounts.AccountManager: android.accounts.Account[] getAccountsByTypeAndFeatures(java.lang.String,java.lang.String[],android.accounts.AccountManagerCallback,android.os.Handler)>",
+          "<android.accounts.AccountManager: android.accounts.AccountManagerFuture getAuthToken(android.accounts.Account,java.lang.String,boolean,android.accounts.AccountManagerCallback,android.os.Handler)>",
+          "<android.accounts.AccountManager: android.accounts.AccountManagerFuture getAuthToken(android.accounts.Account,java.lang.String,android.os.Bundle,boolean,android.accounts.AccountManagerCallback,android.os.Handler)>",
+          "<android.accounts.AccountManager: android.accounts.AccountManagerFuture getAuthTokenByFeatures(java.lang.String,java.lang.String,java.lang.String[],android.app.Activity,android.os.Bundle,android.os.Bundle,android.accounts.AccountManagerCallback,android.os.Handler)>",
+          "<android.accounts.AccountManager: java.lang.String blockingGetAuthToken(android.accounts.Account,java.lang.String,boolean)>",
+          "<android.accounts.AccountManager: android.accounts.AccountManagerFuture getPassword(android.accounts.Account,android.accounts.AccountManagerCallback,android.os.Handler)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "COLLECTION_CONTACTS": {
+      "priority": "CRITICAL",
+      "description": "Reading contacts and contact metadata via the Contacts content provider.",
+      "weight": 1.0,
+      "mitre": {
+        "primary": "T1636.003",
+        "aliases": [
+          "T1533"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "SPYWARE",
+        "STALKERWARE"
+      ],
+      "permission_hints": [
+        "READ_CONTACTS"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.content.ContentResolver: android.database.Cursor query(android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String)>",
+          "<android.content.ContentResolver: android.database.Cursor query(android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String,android.os.CancellationSignal)>",
+          "<android.content.ContentResolver: java.io.InputStream openInputStream(android.net.Uri)>",
+          "<android.provider.ContactsContract$Contacts: android.net.Uri getContentUri()>",
+          "<android.provider.ContactsContract$Contacts: android.net.Uri getLookupUri(long,java.lang.String)>",
+          "<android.provider.ContactsContract$CommonDataKinds$Phone: android.net.Uri getContentUri(java.lang.String)>",
+          "<android.provider.ContactsContract$CommonDataKinds$Email: android.net.Uri getContentUri(java.lang.String)>"
+        ],
+        "fields": [
+          "<android.provider.ContactsContract$Contacts: android.net.Uri CONTENT_URI>",
+          "<android.provider.ContactsContract$CommonDataKinds$Phone: android.net.Uri CONTENT_URI>",
+          "<android.provider.ContactsContract$CommonDataKinds$Email: android.net.Uri CONTENT_URI>"
+        ],
+        "strings": []
+      }
+    },
+    "COLLECTION_SMS_MESSAGES": {
+      "priority": "CRITICAL",
+      "description": "Reading SMS/MMS messages via Telephony content provider (OTP theft, surveillance, account takeover).",
+      "weight": 1.0,
+      "mitre": {
+        "primary": "T1636.004",
+        "aliases": [
+          "T1412"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "SPYWARE",
+        "BANKING_TROJAN",
+        "BILLING_FRAUD"
+      ],
+      "permission_hints": [
+        "READ_SMS",
+        "READ_PHONE_STATE"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.content.ContentResolver: android.database.Cursor query(android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String)>",
+          "<android.provider.Telephony$Sms$Intents: android.telephony.SmsMessage[] getMessagesFromIntent(android.content.Intent)>",
+          "<android.telephony.SmsMessage: android.telephony.SmsMessage createFromPdu(byte[])>",
+          "<android.telephony.SmsMessage: java.lang.String getMessageBody()>",
+          "<android.telephony.SmsMessage: java.lang.String getOriginatingAddress()>"
+        ],
+        "fields": [
+          "<android.provider.Telephony$Sms: android.net.Uri CONTENT_URI>",
+          "<android.provider.Telephony$Mms: android.net.Uri CONTENT_URI>"
+        ],
+        "strings": [
+          "android.provider.Telephony.SMS_RECEIVED",
+          "android.provider.Telephony.WAP_PUSH_RECEIVED"
+        ]
+      }
+    },
+    "INTERCEPT_SMS_MESSAGES": {
+      "priority": "CRITICAL",
+      "description": "Intercepting received SMS via broadcast receivers or parsing PDUs (OTP interception; bypassing MFA).",
+      "weight": 0.95,
+      "mitre": {
+        "primary": "T1412",
+        "aliases": [
+          "T1624.001",
+          "T1636.004"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BANKING_TROJAN",
+        "SPYWARE",
+        "PHISHING"
+      ],
+      "permission_hints": [
+        "RECEIVE_SMS",
+        "READ_SMS",
+        "BROADCAST_SMS",
+        "READ_PHONE_STATE"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.content.BroadcastReceiver: void onReceive(android.content.Context,android.content.Intent)>",
+          "<android.provider.Telephony$Sms$Intents: android.telephony.SmsMessage[] getMessagesFromIntent(android.content.Intent)>",
+          "<android.telephony.SmsMessage: android.telephony.SmsMessage createFromPdu(byte[])>",
+          "<android.telephony.SmsMessage: java.lang.String getMessageBody()>",
+          "<android.telephony.SmsMessage: java.lang.String getOriginatingAddress()>",
+          "<android.telephony.SmsMessage: long getTimestampMillis()>"
+        ],
+        "fields": [],
+        "strings": [
+          "SMS_RECEIVED",
+          "WAP_PUSH_RECEIVED",
+          "DATA_SMS_RECEIVED"
+        ]
+      }
+    },
+    "COLLECTION_CALL_LOG": {
+      "priority": "HIGH",
+      "description": "Accessing call history via CallLog content provider.",
+      "weight": 0.85,
+      "mitre": {
+        "primary": "T1636.002",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "SPYWARE",
+        "STALKERWARE"
+      ],
+      "permission_hints": [
+        "READ_CALL_LOG"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.content.ContentResolver: android.database.Cursor query(android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String)>",
+          "<android.provider.CallLog$Calls: android.net.Uri getContentUri(java.lang.String)>"
+        ],
+        "fields": [
+          "<android.provider.CallLog$Calls: android.net.Uri CONTENT_URI>"
+        ],
+        "strings": []
+      }
+    },
+    "COLLECTION_CALENDAR": {
+      "priority": "HIGH",
+      "description": "Accessing calendar entries via Calendar content provider.",
+      "weight": 0.75,
+      "mitre": {
+        "primary": "T1636.001",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "SPYWARE",
+        "STALKERWARE"
+      ],
+      "permission_hints": [
+        "READ_CALENDAR"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.content.ContentResolver: android.database.Cursor query(android.net.Uri,java.lang.String[],java.lang.String,java.lang.String[],java.lang.String)>"
+        ],
+        "fields": [],
+        "strings": [
+          "content://com.android.calendar"
+        ]
+      }
+    },
+    "COLLECTION_CLIPBOARD": {
+      "priority": "HIGH",
+      "description": "Reading clipboard contents (often includes passwords, crypto addresses, OTPs).",
+      "weight": 0.8,
+      "mitre": {
+        "primary": "T1414",
+        "aliases": []
+      },
+      "requires_slice": false,
+      "pha_tags": [
+        "BANKING_TROJAN",
+        "CRYPTO_STEALER",
+        "SPYWARE"
+      ],
+      "permission_hints": [],
+      "signatures": {
+        "methods": [
+          "<android.content.ClipboardManager: android.content.ClipData getPrimaryClip()>",
+          "<android.content.ClipboardManager: void addPrimaryClipChangedListener(android.content.ClipboardManager$OnPrimaryClipChangedListener)>",
+          "<android.content.ClipboardManager: boolean hasPrimaryClip()>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "COLLECTION_NOTIFICATIONS": {
+      "priority": "CRITICAL",
+      "description": "Reading notifications (e.g., OTP codes, banking alerts) via NotificationListenerService.",
+      "weight": 0.95,
+      "mitre": {
+        "primary": "T1517",
+        "aliases": [
+          "T1453"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BANKING_TROJAN",
+        "SPYWARE"
+      ],
+      "permission_hints": [
+        "BIND_NOTIFICATION_LISTENER_SERVICE"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.service.notification.NotificationListenerService: void onNotificationPosted(android.service.notification.StatusBarNotification)>",
+          "<android.service.notification.NotificationListenerService: void onNotificationRemoved(android.service.notification.StatusBarNotification)>",
+          "<android.service.notification.StatusBarNotification: android.app.Notification getNotification()>",
+          "<android.app.Notification: android.os.Bundle getExtras()>",
+          "<android.os.Bundle: java.lang.CharSequence getCharSequence(java.lang.String)>",
+          "<android.service.notification.NotificationListenerService: void cancelNotification(java.lang.String,java.lang.String,int)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "COLLECTION_FILES_MEDIA": {
+      "priority": "HIGH",
+      "description": "Reading local files/media (external storage, shared folders, MediaStore) for exfiltration.",
+      "weight": 0.8,
+      "mitre": {
+        "primary": "T1533",
+        "aliases": [
+          "T1409"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "SPYWARE",
+        "RANSOMWARE",
+        "BACKDOOR"
+      ],
+      "permission_hints": [
+        "READ_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "READ_MEDIA_AUDIO",
+        "MANAGE_EXTERNAL_STORAGE"
+      ],
+      "signatures": {
+        "methods": [
+          "<java.io.FileInputStream: void <init>(java.io.File)>",
+          "<java.io.FileInputStream: void <init>(java.lang.String)>",
+          "<java.io.RandomAccessFile: void <init>(java.io.File,java.lang.String)>",
+          "<java.io.RandomAccessFile: void <init>(java.lang.String,java.lang.String)>",
+          "<android.content.ContentResolver: java.io.InputStream openInputStream(android.net.Uri)>",
+          "<android.content.ContentResolver: android.os.ParcelFileDescriptor openFileDescriptor(android.net.Uri,java.lang.String)>",
+          "<android.provider.MediaStore$Images$Media: android.net.Uri getContentUri(java.lang.String)>",
+          "<android.provider.MediaStore$Video$Media: android.net.Uri getContentUri(java.lang.String)>",
+          "<android.provider.MediaStore$Audio$Media: android.net.Uri getContentUri(java.lang.String)>",
+          "<android.os.Environment: java.io.File getExternalStorageDirectory()>",
+          "<androidx.documentfile.provider.DocumentFile: androidx.documentfile.provider.DocumentFile fromTreeUri(android.content.Context,android.net.Uri)>",
+          "<androidx.documentfile.provider.DocumentFile: java.io.InputStream openInputStream()>"
+        ],
+        "fields": [
+          "<android.provider.MediaStore$Images$Media: android.net.Uri EXTERNAL_CONTENT_URI>",
+          "<android.provider.MediaStore$Video$Media: android.net.Uri EXTERNAL_CONTENT_URI>",
+          "<android.provider.MediaStore$Audio$Media: android.net.Uri EXTERNAL_CONTENT_URI>"
+        ],
+        "strings": []
+      }
+    },
+    "SURVEILLANCE_LOCATION": {
+      "priority": "HIGH",
+      "description": "Tracking device location via LocationManager or Google FusedLocationProvider.",
+      "weight": 0.8,
+      "mitre": {
+        "primary": "T1430",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "STALKERWARE",
+        "SPYWARE"
+      ],
+      "permission_hints": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.location.LocationManager: android.location.Location getLastKnownLocation(java.lang.String)>",
+          "<android.location.LocationManager: void requestLocationUpdates(java.lang.String,long,float,android.location.LocationListener)>",
+          "<android.location.LocationManager: void requestSingleUpdate(java.lang.String,android.location.LocationListener,android.os.Looper)>",
+          "<com.google.android.gms.location.FusedLocationProviderClient: com.google.android.gms.tasks.Task getLastLocation()>",
+          "<com.google.android.gms.location.FusedLocationProviderClient: com.google.android.gms.tasks.Task requestLocationUpdates(com.google.android.gms.location.LocationRequest,com.google.android.gms.location.LocationCallback,android.os.Looper)>",
+          "<android.location.Location: double getLatitude()>",
+          "<android.location.Location: double getLongitude()>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "SURVEILLANCE_AUDIO": {
+      "priority": "CRITICAL",
+      "description": "Recording microphone or call audio using MediaRecorder/AudioRecord/AudioTrack.",
+      "weight": 0.95,
+      "mitre": {
+        "primary": "T1429",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "SPYWARE",
+        "STALKERWARE"
+      ],
+      "permission_hints": [
+        "RECORD_AUDIO",
+        "CAPTURE_AUDIO_OUTPUT"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.media.MediaRecorder: void setAudioSource(int)>",
+          "<android.media.MediaRecorder: void setOutputFile(java.lang.String)>",
+          "<android.media.MediaRecorder: void prepare()>",
+          "<android.media.MediaRecorder: void start()>",
+          "<android.media.AudioRecord: void startRecording()>",
+          "<android.media.AudioRecord: int read(byte[],int,int)>",
+          "<android.media.AudioRecord: void stop()>",
+          "<android.media.AudioTrack: void play()>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "SURVEILLANCE_CAMERA": {
+      "priority": "CRITICAL",
+      "description": "Taking photos or recording video using legacy Camera API or camera2 (and optionally ImageReader).",
+      "weight": 0.9,
+      "mitre": {
+        "primary": "T1512",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "SPYWARE",
+        "STALKERWARE"
+      ],
+      "permission_hints": [
+        "CAMERA"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.hardware.Camera: android.hardware.Camera open()>",
+          "<android.hardware.Camera: android.hardware.Camera open(int)>",
+          "<android.hardware.Camera: void startPreview()>",
+          "<android.hardware.Camera: void takePicture(android.hardware.Camera$ShutterCallback,android.hardware.Camera$PictureCallback,android.hardware.Camera$PictureCallback)>",
+          "<android.hardware.camera2.CameraManager: void openCamera(java.lang.String,android.hardware.camera2.CameraDevice$StateCallback,android.os.Handler)>",
+          "<android.media.ImageReader: android.media.Image acquireLatestImage()>",
+          "<android.media.Image: java.nio.ByteBuffer getPlanes()>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "SURVEILLANCE_SCREEN_CAPTURE": {
+      "priority": "CRITICAL",
+      "description": "Capturing screenshots or screen recordings via MediaProjection / UIAutomation.",
+      "weight": 0.95,
+      "mitre": {
+        "primary": "T1513",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BANKING_TROJAN",
+        "SPYWARE"
+      ],
+      "permission_hints": [
+        "CAPTURE_VIDEO_OUTPUT"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.media.projection.MediaProjectionManager: android.media.projection.MediaProjection getMediaProjection(int,android.content.Intent)>",
+          "<android.media.projection.MediaProjection: void registerCallback(android.media.projection.MediaProjection$Callback,android.os.Handler)>",
+          "<android.media.projection.MediaProjection: void stop()>",
+          "<android.app.UiAutomation: android.graphics.Bitmap takeScreenshot()>",
+          "<android.view.PixelCopy: void request(android.view.SurfaceView,android.graphics.Bitmap,android.view.PixelCopy$OnPixelCopyFinishedListener,android.os.Handler)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "ABUSE_ACCESSIBILITY": {
+      "priority": "CRITICAL",
+      "description": "Using AccessibilityService to read UI text, steal credentials/OTPs, and automate taps/clicks.",
+      "weight": 1.0,
+      "mitre": {
+        "primary": "T1453",
+        "aliases": [
+          "T1417.002",
+          "T1516"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BANKING_TROJAN",
+        "SPYWARE",
+        "STALKERWARE"
+      ],
+      "permission_hints": [
+        "BIND_ACCESSIBILITY_SERVICE"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.accessibilityservice.AccessibilityService: void onAccessibilityEvent(android.view.accessibility.AccessibilityEvent)>",
+          "<android.accessibilityservice.AccessibilityService: boolean performGlobalAction(int)>",
+          "<android.accessibilityservice.AccessibilityService: void dispatchGesture(android.accessibilityservice.GestureDescription,android.accessibilityservice.AccessibilityService$GestureResultCallback,android.os.Handler)>",
+          "<android.view.accessibility.AccessibilityNodeInfo: java.lang.CharSequence getText()>",
+          "<android.view.accessibility.AccessibilityNodeInfo: java.lang.CharSequence getContentDescription()>",
+          "<android.view.accessibility.AccessibilityNodeInfo: boolean performAction(int)>",
+          "<android.view.accessibility.AccessibilityNodeInfo: java.util.List findAccessibilityNodeInfosByText(java.lang.String)>",
+          "<android.view.accessibility.AccessibilityNodeInfo: java.util.List findAccessibilityNodeInfosByViewId(java.lang.String)>",
+          "<android.view.accessibility.AccessibilityEvent: java.util.List getText()>",
+          "<android.view.accessibility.AccessibilityEvent: java.lang.CharSequence getContentDescription()>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "INPUT_PROMPT_OVERLAY": {
+      "priority": "CRITICAL",
+      "description": "Creating overlays (SYSTEM_ALERT_WINDOW) to phish credentials or perform clickjacking/tapjacking.",
+      "weight": 0.95,
+      "mitre": {
+        "primary": "T1411",
+        "aliases": [
+          "T1417.002"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BANKING_TROJAN",
+        "PHISHING"
+      ],
+      "permission_hints": [
+        "SYSTEM_ALERT_WINDOW"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.view.WindowManager: void addView(android.view.View,android.view.ViewGroup$LayoutParams)>",
+          "<android.view.WindowManager: void updateViewLayout(android.view.View,android.view.ViewGroup$LayoutParams)>",
+          "<android.view.WindowManager: void removeView(android.view.View)>",
+          "<android.provider.Settings: boolean canDrawOverlays(android.content.Context)>"
+        ],
+        "fields": [],
+        "strings": [
+          "TYPE_APPLICATION_OVERLAY",
+          "SYSTEM_ALERT_WINDOW"
+        ]
+      }
+    },
+    "INPUT_INJECTION": {
+      "priority": "HIGH",
+      "description": "Injecting UI input to mimic user interaction (auto-click, auto-grant permissions).",
+      "weight": 0.8,
+      "mitre": {
+        "primary": "T1516",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BANKING_TROJAN",
+        "ADWARE"
+      ],
+      "permission_hints": [
+        "BIND_ACCESSIBILITY_SERVICE"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.accessibilityservice.AccessibilityService: void dispatchGesture(android.accessibilityservice.GestureDescription,android.accessibilityservice.AccessibilityService$GestureResultCallback,android.os.Handler)>",
+          "<android.view.accessibility.AccessibilityNodeInfo: boolean performAction(int)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "WEBVIEW_PHISHING": {
+      "priority": "HIGH",
+      "description": "Using WebView to load remote pages, inject JS bridges, or capture credentials/cookies.",
+      "weight": 0.7,
+      "mitre": {
+        "primary": "T1660",
+        "aliases": [
+          "T1437.001"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "PHISHING",
+        "BANKING_TROJAN"
+      ],
+      "permission_hints": [
+        "INTERNET"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.webkit.WebView: void loadUrl(java.lang.String)>",
+          "<android.webkit.WebView: void postUrl(java.lang.String,byte[])>",
+          "<android.webkit.WebView: void addJavascriptInterface(java.lang.Object,java.lang.String)>",
+          "<android.webkit.WebView: void evaluateJavascript(java.lang.String,android.webkit.ValueCallback)>",
+          "<android.webkit.CookieManager: java.lang.String getCookie(java.lang.String)>",
+          "<android.webkit.WebViewClient: boolean shouldOverrideUrlLoading(android.webkit.WebView,java.lang.String)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "C2_NETWORKING": {
+      "priority": "HIGH",
+      "description": "Network communication APIs; usually requires slicing to identify endpoints, headers, payload encoding, and triggered conditions.",
+      "weight": 0.6,
+      "mitre": {
+        "primary": "T1437",
+        "aliases": [
+          "T1646",
+          "T1639"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BACKDOOR",
+        "SPYWARE",
+        "BANKING_TROJAN",
+        "HOSTILE_DOWNLOADER"
+      ],
+      "permission_hints": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ],
+      "signatures": {
+        "methods": [
+          "<java.net.URL: java.net.URLConnection openConnection()>",
+          "<java.net.HttpURLConnection: void connect()>",
+          "<javax.net.ssl.HttpsURLConnection: void connect()>",
+          "<java.net.URLConnection: java.io.InputStream getInputStream()>",
+          "<java.net.URLConnection: java.io.OutputStream getOutputStream()>",
+          "<java.net.Socket: void <init>(java.lang.String,int)>",
+          "<java.net.Socket: java.io.InputStream getInputStream()>",
+          "<java.net.Socket: java.io.OutputStream getOutputStream()>",
+          "<java.net.DatagramSocket: void send(java.net.DatagramPacket)>",
+          "<okhttp3.OkHttpClient: okhttp3.Call newCall(okhttp3.Request)>",
+          "<okhttp3.Call: okhttp3.Response execute()>",
+          "<okhttp3.Call: void enqueue(okhttp3.Callback)>",
+          "<okhttp3.WebSocket: boolean send(java.lang.String)>",
+          "<okhttp3.WebSocket: boolean send(okio.ByteString)>",
+          "<retrofit2.Retrofit: java.lang.Object create(java.lang.Class)>",
+          "<retrofit2.Call: retrofit2.Response execute()>",
+          "<retrofit2.Call: void enqueue(retrofit2.Callback)>",
+          "<com.android.volley.RequestQueue: com.android.volley.Request add(com.android.volley.Request)>",
+          "<org.apache.http.impl.client.DefaultHttpClient: org.apache.http.HttpResponse execute(org.apache.http.client.methods.HttpUriRequest)>",
+          "<org.eclipse.paho.client.mqttv3.MqttClient: void connect()>",
+          "<org.eclipse.paho.client.mqttv3.MqttClient: void publish(java.lang.String,byte[],int,boolean)>"
+        ],
+        "fields": [],
+        "strings": [
+          "http://",
+          "https://",
+          "ws://",
+          "wss://",
+          "mqtt://",
+          "tcp://"
+        ]
+      }
+    },
+    "EXFIL_ALTERNATIVE_PROTOCOL": {
+      "priority": "MEDIUM",
+      "description": "Exfiltration using non-standard protocols (FTP, SMTP, email APIs) or secondary channels.",
+      "weight": 0.55,
+      "mitre": {
+        "primary": "T1639",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BACKDOOR",
+        "SPYWARE"
+      ],
+      "permission_hints": [
+        "INTERNET"
+      ],
+      "signatures": {
+        "methods": [
+          "<org.apache.commons.net.ftp.FTPClient: void connect(java.lang.String)>",
+          "<org.apache.commons.net.ftp.FTPClient: boolean login(java.lang.String,java.lang.String)>",
+          "<org.apache.commons.net.ftp.FTPClient: boolean storeFile(java.lang.String,java.io.InputStream)>",
+          "<javax.mail.Transport: void send(javax.mail.Message)>",
+          "<javax.mail.Transport: javax.mail.Transport getTransport(javax.mail.Session)>",
+          "<javax.mail.Transport: void connect(java.lang.String,java.lang.String,java.lang.String)>"
+        ],
+        "fields": [],
+        "strings": [
+          "ftp://",
+          "smtp://",
+          "mailto:"
+        ]
+      }
+    },
+    "SMS_CONTROL_SEND": {
+      "priority": "HIGH",
+      "description": "Sending SMS messages (premium billing fraud, propagation, remote control).",
+      "weight": 0.9,
+      "mitre": {
+        "primary": "T1582",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BILLING_FRAUD",
+        "TROJAN",
+        "WORM"
+      ],
+      "permission_hints": [
+        "SEND_SMS"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.telephony.SmsManager: void sendTextMessage(java.lang.String,java.lang.String,java.lang.String,android.app.PendingIntent,android.app.PendingIntent)>",
+          "<android.telephony.SmsManager: void sendMultipartTextMessage(java.lang.String,java.lang.String,java.util.ArrayList,java.util.ArrayList,java.util.ArrayList)>",
+          "<android.telephony.SmsManager: void sendDataMessage(java.lang.String,java.lang.String,short,byte[],android.app.PendingIntent,android.app.PendingIntent)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "CALL_CONTROL_USSD": {
+      "priority": "HIGH",
+      "description": "Initiating or controlling phone calls/USSD (call fraud, social engineering, service disruption).",
+      "weight": 0.8,
+      "mitre": {
+        "primary": "T1616",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BILLING_FRAUD",
+        "TROJAN"
+      ],
+      "permission_hints": [
+        "CALL_PHONE",
+        "READ_PHONE_STATE"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.telecom.TelecomManager: void placeCall(android.net.Uri,android.os.Bundle)>",
+          "<android.content.Context: void startActivity(android.content.Intent)>",
+          "<android.telephony.TelephonyManager: boolean endCall()>",
+          "<android.telephony.TelephonyManager: void sendUssdRequest(java.lang.String,android.telephony.TelephonyManager$UssdResponseCallback,android.os.Handler)>"
+        ],
+        "fields": [],
+        "strings": [
+          "android.intent.action.CALL",
+          "android.intent.action.DIAL"
+        ]
+      }
+    },
+    "DYNAMIC_CODE_LOADING": {
+      "priority": "CRITICAL",
+      "description": "Loading executable code at runtime (droppers, unpackers, modular malware).",
+      "weight": 0.95,
+      "mitre": {
+        "primary": "T1407",
+        "aliases": [
+          "T1575",
+          "T1406"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "HOSTILE_DOWNLOADER",
+        "BACKDOOR",
+        "TROJAN"
+      ],
+      "permission_hints": [
+        "INTERNET",
+        "READ_EXTERNAL_STORAGE"
+      ],
+      "signatures": {
+        "methods": [
+          "<dalvik.system.DexClassLoader: void <init>(java.lang.String,java.lang.String,java.lang.String,java.lang.ClassLoader)>",
+          "<dalvik.system.PathClassLoader: void <init>(java.lang.String,java.lang.ClassLoader)>",
+          "<dalvik.system.InMemoryDexClassLoader: void <init>(java.nio.ByteBuffer,java.lang.ClassLoader)>",
+          "<dalvik.system.DexFile: dalvik.system.DexFile loadDex(java.lang.String,java.lang.String,int)>",
+          "<dalvik.system.DexFile: java.lang.Class loadClass(java.lang.String,java.lang.ClassLoader)>",
+          "<java.lang.ClassLoader: java.lang.Class loadClass(java.lang.String)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "NATIVE_CODE_LOADING": {
+      "priority": "HIGH",
+      "description": "Loading native libraries (JNI) which can hide logic and evade Java-level analysis.",
+      "weight": 0.75,
+      "mitre": {
+        "primary": "T1575",
+        "aliases": [
+          "T1406"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BACKDOOR",
+        "TROJAN"
+      ],
+      "permission_hints": [],
+      "signatures": {
+        "methods": [
+          "<java.lang.System: void load(java.lang.String)>",
+          "<java.lang.System: void loadLibrary(java.lang.String)>",
+          "<java.lang.Runtime: void load(java.lang.String)>",
+          "<java.lang.Runtime: void loadLibrary(java.lang.String)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "EVASION_REFLECTION": {
+      "priority": "MEDIUM",
+      "description": "Reflection-based indirection (hiding API calls, dynamic dispatch). Often paired with string encryption.",
+      "weight": 0.55,
+      "mitre": {
+        "primary": "T1406",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BACKDOOR",
+        "TROJAN"
+      ],
+      "permission_hints": [],
+      "signatures": {
+        "methods": [
+          "<java.lang.Class: java.lang.Class forName(java.lang.String)>",
+          "<java.lang.Class: java.lang.reflect.Method getMethod(java.lang.String,java.lang.Class[])>",
+          "<java.lang.Class: java.lang.reflect.Method getDeclaredMethod(java.lang.String,java.lang.Class[])>",
+          "<java.lang.Class: java.lang.reflect.Field getField(java.lang.String)>",
+          "<java.lang.Class: java.lang.reflect.Field getDeclaredField(java.lang.String)>",
+          "<java.lang.reflect.Method: java.lang.Object invoke(java.lang.Object,java.lang.Object[])>",
+          "<java.lang.reflect.Constructor: java.lang.Object newInstance(java.lang.Object[])>",
+          "<java.lang.reflect.AccessibleObject: void setAccessible(boolean)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "EVASION_CRYPTO_OBFUSCATION": {
+      "priority": "MEDIUM",
+      "description": "High-signal crypto/encoding APIs commonly used for string encryption, payload unpacking, and obfuscation (not inherently malicious).",
+      "weight": 0.45,
+      "mitre": {
+        "primary": "T1406",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BACKDOOR",
+        "TROJAN"
+      ],
+      "permission_hints": [],
+      "signatures": {
+        "methods": [
+          "<javax.crypto.Cipher: javax.crypto.Cipher getInstance(java.lang.String)>",
+          "<javax.crypto.Cipher: void init(int,java.security.Key)>",
+          "<javax.crypto.Cipher: byte[] doFinal(byte[])>",
+          "<javax.crypto.Cipher: byte[] doFinal(byte[],int,int)>",
+          "<javax.crypto.spec.SecretKeySpec: void <init>(byte[],java.lang.String)>",
+          "<java.security.MessageDigest: java.security.MessageDigest getInstance(java.lang.String)>",
+          "<java.security.MessageDigest: byte[] digest(byte[])>",
+          "<android.util.Base64: byte[] decode(java.lang.String,int)>",
+          "<android.util.Base64: java.lang.String encodeToString(byte[],int)>"
+        ],
+        "fields": [],
+        "strings": [
+          "AES",
+          "DES",
+          "RSA",
+          "EC",
+          "PBKDF2",
+          "HmacSHA",
+          "RC4"
+        ]
+      }
+    },
+    "COMMAND_EXECUTION": {
+      "priority": "HIGH",
+      "description": "Executing shell commands/processes (often used for rooting, privilege escalation, system changes).",
+      "weight": 0.8,
+      "mitre": {
+        "primary": "T1623",
+        "aliases": [
+          "T1623.001"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BACKDOOR",
+        "TROJAN"
+      ],
+      "permission_hints": [],
+      "signatures": {
+        "methods": [
+          "<java.lang.Runtime: java.lang.Process exec(java.lang.String)>",
+          "<java.lang.Runtime: java.lang.Process exec(java.lang.String[])>",
+          "<java.lang.Runtime: java.lang.Process exec(java.lang.String,java.lang.String[])>",
+          "<java.lang.Runtime: java.lang.Process exec(java.lang.String[],java.lang.String[])>",
+          "<java.lang.ProcessBuilder: void <init>(java.lang.String[])>",
+          "<java.lang.ProcessBuilder: java.lang.Process start()>"
+        ],
+        "fields": [],
+        "strings": [
+          "su",
+          "sh",
+          "pm install",
+          "am start",
+          "svc",
+          "setprop",
+          "getprop"
+        ]
+      }
+    },
+    "PERSISTENCE_BROADCAST_RECEIVERS": {
+      "priority": "HIGH",
+      "description": "Registering broadcast receivers (BOOT_COMPLETED, SMS_RECEIVED, etc.) for persistence or event-driven execution.",
+      "weight": 0.7,
+      "mitre": {
+        "primary": "T1624.001",
+        "aliases": [
+          "T1624"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BACKDOOR",
+        "TROJAN",
+        "BANKING_TROJAN"
+      ],
+      "permission_hints": [
+        "RECEIVE_BOOT_COMPLETED"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.content.Context: android.content.Intent registerReceiver(android.content.BroadcastReceiver,android.content.IntentFilter)>",
+          "<android.content.Context: android.content.Intent registerReceiver(android.content.BroadcastReceiver,android.content.IntentFilter,java.lang.String,android.os.Handler)>",
+          "<android.content.Context: void unregisterReceiver(android.content.BroadcastReceiver)>"
+        ],
+        "fields": [],
+        "strings": [
+          "BOOT_COMPLETED",
+          "PACKAGE_ADDED",
+          "PACKAGE_REPLACED",
+          "USER_PRESENT",
+          "CONNECTIVITY_CHANGE"
+        ]
+      }
+    },
+    "PERSISTENCE_SCHEDULED_TASKS": {
+      "priority": "HIGH",
+      "description": "Using alarms, JobScheduler, WorkManager, or timers for periodic execution and persistence.",
+      "weight": 0.7,
+      "mitre": {
+        "primary": "T1603",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BACKDOOR",
+        "TROJAN",
+        "ADWARE"
+      ],
+      "permission_hints": [],
+      "signatures": {
+        "methods": [
+          "<android.app.AlarmManager: void set(int,long,android.app.PendingIntent)>",
+          "<android.app.AlarmManager: void setExact(int,long,android.app.PendingIntent)>",
+          "<android.app.AlarmManager: void setRepeating(int,long,long,android.app.PendingIntent)>",
+          "<android.app.job.JobScheduler: int schedule(android.app.job.JobInfo)>",
+          "<androidx.work.WorkManager: androidx.work.Operation enqueue(androidx.work.WorkRequest)>",
+          "<androidx.work.WorkManager: androidx.work.Operation enqueueUniqueWork(java.lang.String,androidx.work.ExistingWorkPolicy,androidx.work.OneTimeWorkRequest)>",
+          "<java.util.Timer: void schedule(java.util.TimerTask,long)>",
+          "<java.util.Timer: void schedule(java.util.TimerTask,long,long)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "PERSISTENCE_FOREGROUND_SERVICE": {
+      "priority": "MEDIUM",
+      "description": "Using startForeground()/foreground services to keep running and retain sensor access.",
+      "weight": 0.6,
+      "mitre": {
+        "primary": "T1541",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "SPYWARE",
+        "BACKDOOR"
+      ],
+      "permission_hints": [
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PROJECTION",
+        "FOREGROUND_SERVICE_LOCATION",
+        "FOREGROUND_SERVICE_MICROPHONE",
+        "FOREGROUND_SERVICE_CAMERA"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.app.Service: void startForeground(int,android.app.Notification)>",
+          "<android.content.Context: android.content.ComponentName startForegroundService(android.content.Intent)>",
+          "<android.app.Service: int onStartCommand(android.content.Intent,int,int)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "DEVICE_ADMIN_ABUSE": {
+      "priority": "CRITICAL",
+      "description": "Abusing DevicePolicyManager / Device Admin to lock, wipe, or prevent removal (ransomware/MDM-style control).",
+      "weight": 0.9,
+      "mitre": {
+        "primary": "T1626.001",
+        "aliases": [
+          "T1486",
+          "T1471"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "RANSOMWARE",
+        "BACKDOOR"
+      ],
+      "permission_hints": [
+        "BIND_DEVICE_ADMIN"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.app.admin.DevicePolicyManager: void lockNow()>",
+          "<android.app.admin.DevicePolicyManager: void wipeData(int)>",
+          "<android.app.admin.DevicePolicyManager: boolean isAdminActive(android.content.ComponentName)>",
+          "<android.app.admin.DevicePolicyManager: void setPasswordQuality(android.content.ComponentName,int)>",
+          "<android.app.admin.DevicePolicyManager: void setPasswordMinimumLength(android.content.ComponentName,int)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "SYSTEM_MANIPULATION_PACKAGE": {
+      "priority": "HIGH",
+      "description": "Manipulating packages/components (hide icon, disable security apps, query installed apps).",
+      "weight": 0.7,
+      "mitre": {
+        "primary": "T1418",
+        "aliases": [
+          "T1628.001"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BACKDOOR",
+        "TROJAN",
+        "ADWARE"
+      ],
+      "permission_hints": [
+        "QUERY_ALL_PACKAGES"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.content.pm.PackageManager: java.util.List getInstalledPackages(int)>",
+          "<android.content.pm.PackageManager: android.content.pm.PackageInfo getPackageInfo(java.lang.String,int)>",
+          "<android.content.pm.PackageManager: java.util.List queryIntentActivities(android.content.Intent,int)>",
+          "<android.content.pm.PackageManager: void setComponentEnabledSetting(android.content.ComponentName,int,int)>",
+          "<android.content.pm.PackageInstaller: android.content.pm.PackageInstaller$Session openSession(int)>",
+          "<android.content.pm.PackageInstaller$Session: void commit(android.content.IntentSender)>",
+          "<android.content.pm.PackageInstaller$Session: void write(java.lang.String,long,long,java.io.InputStream)>",
+          "<android.content.pm.PackageInstaller: int createSession(android.content.pm.PackageInstaller$SessionParams)>"
+        ],
+        "fields": [],
+        "strings": [
+          "QUERY_ALL_PACKAGES",
+          "android.intent.action.PACKAGE_ADDED",
+          "android.intent.action.PACKAGE_REPLACED"
+        ]
+      }
+    },
+    "ANTI_ANALYSIS_ANTI_DEBUG": {
+      "priority": "MEDIUM",
+      "description": "Detecting debugging/analysis environments and changing behavior.",
+      "weight": 0.5,
+      "mitre": {
+        "primary": "T1633",
+        "aliases": [
+          "T1627"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "TROJAN",
+        "BACKDOOR"
+      ],
+      "permission_hints": [],
+      "signatures": {
+        "methods": [
+          "<android.os.Debug: boolean isDebuggerConnected()>",
+          "<android.os.Debug: void waitForDebugger()>",
+          "<android.os.SystemProperties: java.lang.String get(java.lang.String)>",
+          "<android.os.Build: java.lang.String getFingerprint()>",
+          "<android.content.pm.PackageManager: java.lang.String getInstallerPackageName(java.lang.String)>"
+        ],
+        "fields": [],
+        "strings": [
+          "generic",
+          "vbox",
+          "emulator",
+          "goldfish",
+          "ranchu",
+          "frida",
+          "xposed"
+        ]
+      }
+    },
+    "ANTI_ANALYSIS_ROOT_CHECKS": {
+      "priority": "LOW",
+      "description": "Root/jailbreak checks & execution guardrails (may be benign anti-tamper).",
+      "weight": 0.25,
+      "mitre": {
+        "primary": "T1627",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "TROJAN",
+        "BACKDOOR"
+      ],
+      "permission_hints": [],
+      "signatures": {
+        "methods": [
+          "<java.io.File: boolean exists()>",
+          "<java.lang.System: java.lang.String getenv(java.lang.String)>",
+          "<android.os.Build: java.lang.String getTags()>"
+        ],
+        "fields": [],
+        "strings": [
+          "/system/xbin/su",
+          "/system/bin/su",
+          "magisk",
+          "busybox"
+        ]
+      }
+    }
+  }
+}

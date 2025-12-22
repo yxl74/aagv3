@@ -163,6 +163,7 @@ def run_detail(request: Request, analysis_id: str):
     events = _read_events(events_path)
     stages = _stage_summary(events)
     seeding_stats = next((e for e in events if e.get("stage") == "seeding" and e.get("event_type") == "stage.end"), None)
+    sensitive_api = next((e for e in events if e.get("stage") == "sensitive_api" and e.get("event_type") == "stage.end"), None)
     recon = next((e for e in events if e.get("stage") == "recon" and e.get("event_type") == "stage.end"), None)
     graphs = next((e for e in events if e.get("stage") == "graphs" and e.get("event_type") == "stage.end"), None)
     bundles = next((e for e in events if e.get("stage") == "context_bundles" and e.get("event_type") == "stage.end"), None)
@@ -177,6 +178,7 @@ def run_detail(request: Request, analysis_id: str):
             "events": events,
             "stages": stages,
             "seeding": seeding_stats,
+            "sensitive_api": sensitive_api,
             "recon": recon,
             "graphs": graphs,
             "bundles": bundles,
