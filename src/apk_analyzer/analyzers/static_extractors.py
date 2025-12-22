@@ -7,11 +7,17 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
+_ANDROGUARD_IMPORT_ERROR: Exception | None = None
+
+
 def _try_import_androguard():
+    global _ANDROGUARD_IMPORT_ERROR
     try:
         from androguard.core.bytecodes.apk import APK  # type: ignore
-    except ImportError:  # pragma: no cover - optional dependency
+    except Exception as exc:  # pragma: no cover - optional dependency
+        _ANDROGUARD_IMPORT_ERROR = exc
         return None
+    _ANDROGUARD_IMPORT_ERROR = None
     return APK
 
 
@@ -19,7 +25,8 @@ def extract_manifest(apk_path: str | Path) -> Dict[str, Any]:
     apk_path = Path(apk_path)
     APK = _try_import_androguard()
     if APK is None:
-        raise RuntimeError("androguard is required for manifest extraction")
+        detail = f": {_ANDROGUARD_IMPORT_ERROR}" if _ANDROGUARD_IMPORT_ERROR else ""
+        raise RuntimeError(f"androguard is required for manifest extraction{detail}")
     apk = APK(str(apk_path))
     return {
         "package_name": apk.get_package(),

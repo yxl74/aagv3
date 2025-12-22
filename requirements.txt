@@ -3,4 +3,6 @@ pydantic>=2.6
 PyYAML>=6.0
 jsonschema>=4.21
 androguard>=3.4.0
+apkInspector>=1.1.7
+lxml>=4.3.0
 rich>=13.7
