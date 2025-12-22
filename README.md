@@ -26,28 +26,10 @@ The pipeline has two modes:
 ```mermaid
 flowchart TD
   A[Inputs<br/>APK path + Knox APK ID] --> B[Stage A: Static Preprocess<br/>Knox metadata + local extractors]
-  B --> C[Stage B: Suspicious API Seeding<br/>DEX invoke index + Knox search fallback]
-  C --> D[Stage C: Graph + Slice Extraction<br/>Soot callgraph + CFG slices]
-  D --> E[Stage D: Recon Agent<br/>prioritize seeds]
-  E --> F[Tier-1 Summarizer<br/>function behavior]
-  F --> G[Verifier<br/>consistency_check]
-  G --> H[Tier-2 Intent<br/>graph reasoning]
-  H --> I{Need taint confirmation?}
-  I -- yes --> J[Targeted FlowDroid<br/>sources/sinks subset]
-  I -- no --> K[Report Agent<br/>JSON + markdown]
-  J --> K
-  K --> L[Threat Report + MITRE Mapping]
-```
-
-### APK-only workflow
-
-```mermaid
-flowchart TD
-  A[Input<br/>APK path] --> B[Stage A: Local static extractors]
-  B --> C[Stage A2: JADX decompile (temp dir)]
-  C --> D[Stage B: Suspicious API Seeding<br/>DEX invoke index + local source search fallback]
-  D --> E[Stage C: Graph + Slice Extraction<br/>Soot callgraph + CFG slices]
-  E --> F[Stage D: Recon Agent<br/>prioritize seeds]
+  B --> C[Stage B: Graph Extraction<br/>Soot callgraph + CFGs]
+  C --> D[Stage C: Sensitive API Matching<br/>catalog-driven hits]
+  D --> E[Stage D: Recon Agent<br/>build cases]
+  E --> F[Stage E: Slice Extraction<br/>case-driven CFG slices]
   F --> G[Tier-1 Summarizer<br/>function behavior]
   G --> H[Verifier<br/>consistency_check]
   H --> I[Tier-2 Intent<br/>graph reasoning]
@@ -58,9 +40,29 @@ flowchart TD
   L --> M[Threat Report + MITRE Mapping]
 ```
 
+### APK-only workflow
+
+```mermaid
+flowchart TD
+  A[Input<br/>APK path] --> B[Stage A: Local static extractors]
+  B --> C[Stage A2: JADX decompile (temp dir)]
+  C --> D[Stage B: Graph Extraction<br/>Soot callgraph + CFGs]
+  D --> E[Stage C: Sensitive API Matching<br/>catalog-driven hits]
+  E --> F[Stage D: Recon Agent<br/>build cases]
+  F --> G[Stage E: Slice Extraction<br/>case-driven CFG slices]
+  G --> H[Tier-1 Summarizer<br/>function behavior]
+  H --> I[Verifier<br/>consistency_check]
+  I --> J[Tier-2 Intent<br/>graph reasoning]
+  J --> K{Need taint confirmation?}
+  K -- yes --> L[Targeted FlowDroid<br/>sources/sinks subset]
+  K -- no --> M[Report Agent<br/>JSON + markdown]
+  L --> M
+  M --> N[Threat Report + MITRE Mapping]
+```
+
 High-level steps:
 - Build static artifacts (manifest, permissions, strings, certs, Knox indicators).
-- Seed suspicious API callsites from DEX, fall back to Knox or local source search when needed.
+- Match sensitive API callsites from the callgraph using the catalog.
 - Build callgraph and CFG slices for each seed and create context bundles.
 - Run LLM agents (Recon -> Tier1 -> Verifier -> Tier2) with evidence gating.
 - Run FlowDroid only if Tier2 requests taint confirmation.
@@ -79,15 +81,18 @@ Stage A2: APK-only decompile (opt-in)
 - **Local search helper** (`src/apk_analyzer/analyzers/local_query.py`): scans JADX output (`.java`, `.kt`, `.xml`, `.smali`) for method-name hits; used only as a fallback for seeding.
 - If JADX is missing or fails, the pipeline continues with DEX-only seeding (lower recall).
 
-Stage B: Suspicious API seeding
-- **DEX invocation indexer** (`src/apk_analyzer/analyzers/dex_invocation_indexer.py`): uses Androguard `AnalyzeAPK` to walk encoded methods and instructions; finds `invoke-*` sites and matches against `config/suspicious_api_catalog.json`.
-- **Fallbacks**: if no DEX callsites, uses Knox source search (combined mode) or local JADX search (apk-only) to propose low-confidence seeds.
-- **Artifacts**: `artifacts/{analysis_id}/seeds/suspicious_api_index.json`.
-
-Stage C: Graph + slice extraction
+Stage B: Graph extraction
 - **Soot extractor (Java)** (`java/soot-extractor`): builds call graph + per-method CFGs using Android platform jars.
 - **Outputs**: `artifacts/{analysis_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`.
-- **Context bundles** (`src/apk_analyzer/analyzers/context_bundle_builder.py`): creates per-seed slices and FCG neighborhoods for LLM prompts.
+
+Stage C: Sensitive API matching (catalog-driven)
+- **Sensitive API catalog** (`config/android_sensitive_api_catalog.json`): maps Soot signatures to categories, priorities, and tags.
+- **Matcher** (`src/apk_analyzer/phase0/sensitive_api_matcher.py`): walks callgraph edges, matches callees to catalog signatures, and emits `sensitive_api_hits.json` with reachability hints.
+- **Artifacts**: `artifacts/{analysis_id}/seeds/sensitive_api_hits.json`.
+
+Stage D: Case-driven slices
+- **Recon** builds cases from `sensitive_api_hits.json` and requests slices only where required.
+- **Context bundles** (`src/apk_analyzer/analyzers/context_bundle_builder.py`): creates per-case slices and FCG neighborhoods for LLM prompts.
 
 Stage D: LLM reasoning
 - **Recon**: summarizes manifest + indicators + seed counts, prioritizes seeds.
@@ -109,6 +114,7 @@ Stage F: Reporting + MITRE mapping
 - `src/apk_analyzer/`: Python pipeline and agent logic
 - `java/soot-extractor/`: Java Soot extractor (Gradle)
 - `config/`: settings, schemas, suspicious API catalog, SourcesAndSinks, MITRE mapping
+- `config/android_sensitive_api_catalog.json`: catalog-driven sensitive API definitions for recon
 - `scripts/`: entrypoints and helpers
 - `tests/`: unit tests
 - `FlowDroid/`: upstream FlowDroid repo (for CLI build)
