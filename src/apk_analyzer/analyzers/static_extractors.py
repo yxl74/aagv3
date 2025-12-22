@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import importlib
 import re
 import zipfile
 from pathlib import Path
@@ -12,13 +13,20 @@ _ANDROGUARD_IMPORT_ERROR: Exception | None = None
 
 def _try_import_androguard():
     global _ANDROGUARD_IMPORT_ERROR
-    try:
-        from androguard.core.bytecodes.apk import APK  # type: ignore
-    except Exception as exc:  # pragma: no cover - optional dependency
-        _ANDROGUARD_IMPORT_ERROR = exc
-        return None
-    _ANDROGUARD_IMPORT_ERROR = None
-    return APK
+    candidates = (
+        "androguard.core.bytecodes.apk",
+        "androguard.core.apk",
+    )
+    for module_path in candidates:
+        try:
+            module = importlib.import_module(module_path)
+            APK = getattr(module, "APK")
+        except Exception as exc:  # pragma: no cover - optional dependency
+            _ANDROGUARD_IMPORT_ERROR = exc
+            continue
+        _ANDROGUARD_IMPORT_ERROR = None
+        return APK
+    return None
 
 
 def extract_manifest(apk_path: str | Path) -> Dict[str, Any]:
