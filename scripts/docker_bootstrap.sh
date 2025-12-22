@@ -2,7 +2,7 @@
 set -euo pipefail
 
 python3 -m pip install --upgrade pip
-python3 -m pip install -e .
+python3 -m pip install .
 
 gradle -v
 
