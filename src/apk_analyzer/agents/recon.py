@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from apk_analyzer.agents.base import LLMClient
+from apk_analyzer.utils.llm_json import coerce_llm_dict
 
 
 class ReconAgent:
@@ -28,6 +28,14 @@ class ReconAgent:
                 "investigation_plan": ["LLM disabled; skipping recon prioritization."],
             }
         response = self.llm_client.complete(self.prompt, payload, model=self.model)
-        if isinstance(response, str):
-            return json.loads(response)
-        return response
+        fallback = {
+            "risk_score": 0.1,
+            "threat_level": "LOW",
+            "prioritized_seeds": [],
+            "investigation_plan": ["LLM output invalid; using fallback."],
+        }
+        return coerce_llm_dict(
+            response,
+            fallback,
+            required_keys=("risk_score", "threat_level", "prioritized_seeds", "investigation_plan"),
+        )

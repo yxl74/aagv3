@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from apk_analyzer.agents.base import LLMClient
+from apk_analyzer.utils.llm_json import coerce_llm_dict
 
 
 class ReportAgent:
@@ -30,6 +30,23 @@ class ReportAgent:
                 "analysis_artifacts": payload.get("analysis_artifacts", {}),
             }
         response = self.llm_client.complete(self.prompt, payload, model=self.model)
-        if isinstance(response, str):
-            return json.loads(response)
-        return response
+        fallback = {
+            "analysis_id": payload.get("analysis_id"),
+            "verdict": payload.get("verdict", "UNKNOWN"),
+            "summary": payload.get("summary", "LLM output invalid; report fallback."),
+            "seed_summaries": payload.get("seed_summaries", []),
+            "evidence_support_index": payload.get("evidence_support_index", {}),
+            "analysis_artifacts": payload.get("analysis_artifacts", {}),
+        }
+        return coerce_llm_dict(
+            response,
+            fallback,
+            required_keys=(
+                "analysis_id",
+                "verdict",
+                "summary",
+                "seed_summaries",
+                "evidence_support_index",
+                "analysis_artifacts",
+            ),
+        )
