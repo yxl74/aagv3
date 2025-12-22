@@ -13,15 +13,15 @@ analysis:
   k_hop: 2
   max_seed_count: 20
 llm:
-  enabled: false
-  provider: ""
-  api_key: ""
+  enabled: true
+  provider: "vertex"
+  api_key: "AQ.Ab8RN6KGJLaUG4w59C8brejLIj2SwhpuJmCc-520PBcIQBtP8w"
   base_url: "https://aiplatform.googleapis.com/v1"
   verify_ssl: false
   timeout_sec: 60
-  model_orchestrator: "gemini-pro"
-  model_recon: "gemini-flash"
-  model_tier1: "gemini-flash"
-  model_verifier: "gemini-pro"
-  model_tier2: "gemini-pro"
-  model_report: "gemini-pro"
+  model_orchestrator: "gemini-3-pro-preview"
+  model_recon: "gemini-3-flash-preview"
+  model_tier1: "gemini-3-flash-preview"
+  model_verifier: "gemini-3-pro-preview"
+  model_tier2: "gemini-3-flash-preview"
+  model_report: "gemini-3-flash-preview"
