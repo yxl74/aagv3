@@ -12,6 +12,7 @@ class VertexLLMClient:
         api_key: str,
         base_url: str = "https://aiplatform.googleapis.com/v1",
         default_model: str = "gemini-2.5-flash-lite",
+        verify_ssl: bool = False,
         timeout_sec: float = 60.0,
     ) -> None:
         if not api_key:
@@ -19,7 +20,7 @@ class VertexLLMClient:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.default_model = default_model
-        self.client = httpx.Client(timeout=timeout_sec)
+        self.client = httpx.Client(timeout=timeout_sec, verify=verify_ssl)
 
     def complete(self, prompt: str, payload: dict, model: Optional[str] = None) -> Dict[str, Any]:
         model_name = model or self.default_model

@@ -21,11 +21,13 @@ def build_llm_client(settings: Dict[str, Any]) -> Optional[LLMClient]:
 
     base_url = llm_conf.get("base_url", "https://aiplatform.googleapis.com/v1")
     timeout_sec = llm_conf.get("timeout_sec", 60)
+    verify_ssl = llm_conf.get("verify_ssl", False)
     default_model = llm_conf.get("model_orchestrator") or "gemini-2.5-flash-lite"
 
     return VertexLLMClient(
         api_key=api_key,
         base_url=base_url,
         default_model=default_model,
+        verify_ssl=verify_ssl,
         timeout_sec=timeout_sec,
     )
