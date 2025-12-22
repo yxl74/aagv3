@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from apk_analyzer.telemetry import span
 
 def run_soot_extractor(
     apk_path: str | Path,
@@ -36,5 +37,6 @@ def run_soot_extractor(
         "--k-hop",
         str(k_hop),
     ]
-    subprocess.run(cmd, check=True, timeout=timeout_sec)
+    with span("tool.soot", tool_name="soot", cg_algo=cg_algo, k_hop=k_hop, timeout_sec=timeout_sec):
+        subprocess.run(cmd, check=True, timeout=timeout_sec)
     return out_dir

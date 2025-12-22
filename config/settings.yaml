@@ -25,3 +25,8 @@ llm:
   model_verifier: "gemini-3-pro-preview"
   model_tier2: "gemini-3-flash-preview"
   model_report: "gemini-3-flash-preview"
+telemetry:
+  enabled: false
+  service_name: "apk-analysis-agent"
+  otlp_endpoint: "http://otel-collector:4317"
+  otlp_insecure: true

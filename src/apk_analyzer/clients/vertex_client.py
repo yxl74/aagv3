@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
+from apk_analyzer.telemetry import span
 
 class VertexLLMClient:
     def __init__(
@@ -36,11 +37,13 @@ class VertexLLMClient:
                 }
             ]
         }
-        response = self.client.post(url, params={"key": self.api_key}, json=body)
-        response.raise_for_status()
-        data = response.json()
-        content = _extract_text(data)
-        return content
+        with span("api.vertex", tool_name="vertex", http_method="POST", http_url=url, model=model_name) as sp:
+            response = self.client.post(url, params={"key": self.api_key}, json=body)
+            sp.set_attribute("http.status_code", response.status_code)
+            response.raise_for_status()
+            data = response.json()
+            content = _extract_text(data)
+            return content
 
 
 def _extract_text(payload: Dict[str, Any]) -> str:

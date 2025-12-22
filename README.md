@@ -229,6 +229,52 @@ Interactive shell:
 docker compose run --rm aag
 ```
 
+## Telemetry UI (Grafana + Tempo + Loki)
+
+The project ships a Docker-based telemetry stack so you can inspect agent progress, LLM I/O, and tool/API spans in a browser.
+
+### Start the UI stack
+
+```bash
+docker compose up -d grafana tempo loki otel-collector
+```
+
+### Enable telemetry in settings
+
+Edit `config/settings.yaml`:
+
+```yaml
+telemetry:
+  enabled: true
+  service_name: "apk-analysis-agent"
+  otlp_endpoint: "http://otel-collector:4317"
+  otlp_insecure: true
+```
+
+### Run an analysis (emits traces)
+
+```bash
+docker compose run --rm aag \
+  python -m apk_analyzer.main --mode apk-only --apk /workspace/path/to/app.apk
+```
+
+### Open Grafana and view traces
+
+1) Open `http://localhost:3000` (Grafana).
+2) Navigate to **Explore** → select **Tempo** datasource.
+3) Filter by attributes like:
+   - `analysis_id`
+   - `run_id`
+   - `stage`
+   - `tool_name`
+4) For LLM calls, span events include:
+   - `llm.input` → `artifacts/{analysis_id}/llm_inputs/...`
+   - `llm.output` → `artifacts/{analysis_id}/llm_outputs/...`
+
+Notes:
+- Tempo stores traces; Loki is provisioned but log export is not enabled yet.
+- If you change `requirements.txt` or telemetry config files, rebuild the image with `docker compose build`.
+
 ### Rebuild after FlowDroid changes
 
 ```bash
@@ -276,6 +322,8 @@ Key settings live in `config/settings.yaml`:
 - `llm.provider`: LLM provider (use `vertex` for API key auth).
 - `llm.api_key`: API key (or use `VERTEX_API_KEY` / `GOOGLE_API_KEY` env).
 - `llm.verify_ssl`: Set `false` to disable SSL verification for Vertex calls (PoC only).
+- `telemetry.enabled`: Enable OpenTelemetry export.
+- `telemetry.otlp_endpoint`: OTLP endpoint for traces (default `http://otel-collector:4317` in Docker).
 
 Env overrides:
 

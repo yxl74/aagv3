@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from apk_analyzer.utils.artifact_store import ArtifactStore
+from apk_analyzer.telemetry import span
 
 
 class KnoxClient:
@@ -24,15 +25,19 @@ class KnoxClient:
 
     def _get_json(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
-        response = self._client.get(url, params=params)
-        response.raise_for_status()
-        return response.json()
+        with span("api.knox", tool_name="knox", http_method="GET", http_url=url) as sp:
+            response = self._client.get(url, params=params)
+            sp.set_attribute("http.status_code", response.status_code)
+            response.raise_for_status()
+            return response.json()
 
     def _get_bytes(self, path: str, params: Optional[Dict[str, Any]] = None) -> bytes:
         url = f"{self.base_url}{path}"
-        response = self._client.get(url, params=params)
-        response.raise_for_status()
-        return response.content
+        with span("api.knox", tool_name="knox", http_method="GET", http_url=url) as sp:
+            response = self._client.get(url, params=params)
+            sp.set_attribute("http.status_code", response.status_code)
+            response.raise_for_status()
+            return response.content
 
     def get_full_analysis(self, apk_id: str) -> Dict[str, Any]:
         data = self._get_json(f"/apk/{apk_id}/full")

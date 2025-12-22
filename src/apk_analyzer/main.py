@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 from apk_analyzer.agents.orchestrator import Orchestrator
 from apk_analyzer.clients.llm_factory import build_llm_client
+from apk_analyzer.telemetry import init_telemetry
 from apk_analyzer.utils.config import load_settings
 
 
@@ -46,6 +47,7 @@ def main() -> None:
     if args.mode == "combined" and not args.knox_id:
         parser.error("--knox-id is required when --mode is combined.")
     settings = load_settings(args.settings)
+    init_telemetry(settings)
     _apply_overrides(settings, args)
 
     llm_client = build_llm_client(settings)
