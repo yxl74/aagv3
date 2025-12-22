@@ -4,5 +4,5 @@ from typing import Protocol
 
 
 class LLMClient(Protocol):
-    def complete(self, prompt: str, payload: dict) -> dict:
+    def complete(self, prompt: str, payload: dict, model: str | None = None) -> dict:
         ...

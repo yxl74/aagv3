@@ -235,6 +235,8 @@ Key settings live in `config/settings.yaml`:
 - `analysis.callgraph_algo`: `SPARK` or `CHA`.
 - `analysis.k_hop`: call graph neighborhood hops.
 - `analysis.max_seed_count`: maximum seeds to process.
+- `llm.provider`: LLM provider (use `vertex` for API key auth).
+- `llm.api_key`: API key (or use `VERTEX_API_KEY` / `GOOGLE_API_KEY` env).
 
 Env overrides:
 
@@ -243,53 +245,54 @@ Env overrides:
 
 ## Vertex AI (LLM) Setup
 
-The PoC currently uses LLM stubs; to enable real Vertex calls, you will need to wire an LLM client and enable `llm.enabled` in `config/settings.yaml`. The following steps set up credentials for Vertex AI.
+The PoC includes a minimal Vertex client that supports **API key auth** for public Gemini models. Enable `llm.enabled` in `config/settings.yaml` and configure an API key (supported) or add your own OAuth-based client for service accounts (not wired here).
 
-### 1) Enable Vertex AI API
+### Option A) API key (supported)
 
-- In GCP Console, enable the **Vertex AI API** for your project.
+1) Enable Vertex AI API + billing in GCP Console.
 
-### 2) Create Service Account + Key
+2) Create an API key in the same project.
 
-- Create a service account with `Vertex AI User` role (or higher).
-- Download a JSON key file.
-
-### 3) Configure Application Default Credentials
-
-Set the following environment variables:
+3) Export the key (or set it in `config/settings.yaml`):
 
 ```bash
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
-export GOOGLE_CLOUD_PROJECT=<your-gcp-project-id>
-export GOOGLE_CLOUD_LOCATION=<your-region>  # e.g. us-central1
+export VERTEX_API_KEY=your_api_key
 ```
 
-If you prefer gcloud-based auth:
+You can also use `GOOGLE_API_KEY` if preferred.
 
-```bash
-gcloud auth application-default login
-gcloud config set project <your-gcp-project-id>
-```
-
-### 4) Update settings
-
-Edit `config/settings.yaml`:
+4) Update settings:
 
 ```yaml
 llm:
   enabled: true
   provider: "vertex"
-  model_orchestrator: "gemini-pro"
-  model_recon: "gemini-flash"
-  model_tier1: "gemini-flash"
-  model_verifier: "gemini-pro"
-  model_tier2: "gemini-pro"
-  model_report: "gemini-pro"
+  api_key: ""  # optional if VERTEX_API_KEY is set
+  model_orchestrator: "gemini-2.5-flash-lite"
+  model_recon: "gemini-2.5-flash-lite"
+  model_tier1: "gemini-2.5-flash-lite"
+  model_verifier: "gemini-2.5-flash-lite"
+  model_tier2: "gemini-2.5-flash-lite"
+  model_report: "gemini-2.5-flash-lite"
 ```
 
-### 5) Docker + Vertex credentials
+### Option B) Service account (not wired in this PoC)
 
-If running in Docker, mount the service account file and pass env vars:
+If you need ADC/service-account auth (for private models), you'll need to add an OAuth-based client. The basic credential steps are:
+
+1) Create a service account with `Vertex AI User` role.
+2) Download its JSON key.
+3) Set:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+export GOOGLE_CLOUD_PROJECT=<your-gcp-project-id>
+export GOOGLE_CLOUD_LOCATION=<your-region>
+```
+
+### Docker + Vertex credentials
+
+Service account in Docker:
 
 ```bash
 docker compose run --rm \
@@ -297,6 +300,14 @@ docker compose run --rm \
   -e GOOGLE_CLOUD_PROJECT=<project-id> \
   -e GOOGLE_CLOUD_LOCATION=us-central1 \
   -v /local/keys:/workspace/keys \
+  aag
+```
+
+API key in Docker:
+
+```bash
+docker compose run --rm \
+  -e VERTEX_API_KEY=your_api_key \
   aag
 ```
 
@@ -310,4 +321,4 @@ pytest
 
 - FlowDroid and Soot require Android platform jars. If analyses fail with classpath errors, verify `analysis.android_platforms_dir`.
 - APK-only mode runs JADX in a temp directory that is deleted after analysis; if JADX is missing or fails, the pipeline falls back to DEX-only seeding with reduced recall.
-- LLM integration is currently stubbed; you must implement the Vertex client to enable real completions.
+- LLM integration uses Vertex API keys for public Gemini models; service-account auth requires a custom client.

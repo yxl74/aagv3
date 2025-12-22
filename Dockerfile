@@ -23,9 +23,10 @@ RUN curl -fsSL https://services.gradle.org/distributions/gradle-${GRADLE_VERSION
   && rm /tmp/gradle.zip
 
 ARG JADX_VERSION=1.5.1
-RUN curl -fsSL https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/jadx-${JADX_VERSION}.zip -o /tmp/jadx.zip \
-  && unzip -q /tmp/jadx.zip -d /opt \
-  && mv /opt/jadx-${JADX_VERSION} /opt/jadx \
+RUN mkdir -p /opt/jadx \
+  && curl -fsSL https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/jadx-${JADX_VERSION}.zip -o /tmp/jadx.zip \
+  && unzip -q /tmp/jadx.zip -d /opt/jadx \
+  && chmod +x /opt/jadx/bin/jadx \
   && rm /tmp/jadx.zip
 
 RUN mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
