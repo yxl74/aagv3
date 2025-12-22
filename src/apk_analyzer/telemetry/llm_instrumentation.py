@@ -5,14 +5,21 @@ import uuid
 from typing import Any, Dict, Optional
 
 from apk_analyzer.agents.base import LLMClient
+from apk_analyzer.observability.logger import EventLogger
 from apk_analyzer.telemetry.tracing import get_llm_context, span
 from apk_analyzer.utils.artifact_store import ArtifactStore
 
 
 class InstrumentedLLMClient(LLMClient):
-    def __init__(self, base: LLMClient, store: ArtifactStore) -> None:
+    def __init__(
+        self,
+        base: LLMClient,
+        store: ArtifactStore,
+        event_logger: EventLogger | None = None,
+    ) -> None:
         self.base = base
         self.store = store
+        self.event_logger = event_logger
 
     def complete(self, prompt: str, payload: dict, model: str | None = None) -> object:
         ctx = get_llm_context()
@@ -27,12 +34,30 @@ class InstrumentedLLMClient(LLMClient):
             "payload": payload,
             "model": model,
         })
+        if self.event_logger:
+            self.event_logger.log(
+                "llm.input",
+                llm_step=step,
+                seed_id=seed,
+                model=model or "",
+                ref=input_ref,
+            )
 
         with span("llm.call", llm_step=step, seed_id=seed, model=model or "") as sp:
             sp.add_event("llm.input", {"ref": input_ref})
             response = self.base.complete(prompt, payload, model=model)
-            self.store.write_text(output_ref, _format_response(response))
+            output_text = _format_response(response)
+            self.store.write_text(output_ref, output_text)
             sp.add_event("llm.output", {"ref": output_ref})
+            if self.event_logger:
+                self.event_logger.log(
+                    "llm.output",
+                    llm_step=step,
+                    seed_id=seed,
+                    model=model or "",
+                    ref=output_ref,
+                    size=len(output_text),
+                )
         return response
 
 

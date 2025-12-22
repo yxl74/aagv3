@@ -62,7 +62,7 @@ High-level steps:
 - Build static artifacts (manifest, permissions, strings, certs, Knox indicators).
 - Seed suspicious API callsites from DEX, fall back to Knox or local source search when needed.
 - Build callgraph and CFG slices for each seed and create context bundles.
-- Run LLM agents (Recon → Tier1 → Verifier → Tier2) with evidence gating.
+- Run LLM agents (Recon -> Tier1 -> Verifier -> Tier2) with evidence gating.
 - Run FlowDroid only if Tier2 requests taint confirmation.
 - Emit report with evidence supports and MITRE mappings.
 
@@ -261,19 +261,43 @@ docker compose run --rm aag \
 ### Open Grafana and view traces
 
 1) Open `http://localhost:3000` (Grafana).
-2) Navigate to **Explore** → select **Tempo** datasource.
+2) Navigate to **Explore** -> select **Tempo** datasource.
 3) Filter by attributes like:
    - `analysis_id`
    - `run_id`
    - `stage`
    - `tool_name`
 4) For LLM calls, span events include:
-   - `llm.input` → `artifacts/{analysis_id}/llm_inputs/...`
-   - `llm.output` → `artifacts/{analysis_id}/llm_outputs/...`
+   - `llm.input` -> `artifacts/{analysis_id}/llm_inputs/...`
+   - `llm.output` -> `artifacts/{analysis_id}/llm_outputs/...`
 
 Notes:
 - Tempo stores traces; Loki is provisioned but log export is not enabled yet.
 - If you change `requirements.txt` or telemetry config files, rebuild the image with `docker compose build`.
+
+## Run Observability UI (FastAPI)
+
+This UI is purpose-built for debugging the pipeline: it shows **seeding details, recon output, Soot stats, slice counts, Knox API calls, tool invocations, and exact LLM prompts/returns** per run.
+
+### Start the UI server
+
+```bash
+docker compose up -d obs-ui
+```
+
+### Run an analysis (emits run ledger)
+
+```bash
+docker compose run --rm aag \
+  python -m apk_analyzer.main --mode apk-only --apk /workspace/path/to/app.apk
+```
+
+### Open the UI
+
+- Run list: `http://localhost:8000/runs`
+- Run details: click an analysis ID to view stage timeline, seeding stats, recon output, Soot stats, API/tool events, and LLM I/O.
+
+Artifacts are linked directly (e.g. `llm_inputs/`, `llm_outputs/`, `graphs/slices/`) so you can inspect the exact payloads.
 
 ### Rebuild after FlowDroid changes
 
@@ -324,6 +348,7 @@ Key settings live in `config/settings.yaml`:
 - `llm.verify_ssl`: Set `false` to disable SSL verification for Vertex calls (PoC only).
 - `telemetry.enabled`: Enable OpenTelemetry export.
 - `telemetry.otlp_endpoint`: OTLP endpoint for traces (default `http://otel-collector:4317` in Docker).
+- `observability.enabled`: Enable the run ledger (`observability/run.jsonl`) consumed by the UI.
 
 Env overrides:
 

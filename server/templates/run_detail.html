@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Run {{ analysis_id }}</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 24px; color: #111; }
+    a { color: #2563eb; text-decoration: none; }
+    h1 { margin-bottom: 4px; }
+    .section { margin-top: 28px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+    th, td { border-bottom: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; }
+    code { background: #f3f4f6; padding: 2px 4px; border-radius: 4px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .card { border: 1px solid #e5e7eb; padding: 12px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <a href="/runs">&larr; Back to runs</a>
+  <h1>Run {{ analysis_id }}</h1>
+
+  <div class="section">
+    <h2>Stage Timeline</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Stage</th>
+          <th>Start</th>
+          <th>End</th>
+          <th>Status</th>
+          <th>Duration (s)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for stage in stages %}
+        <tr>
+          <td>{{ stage.stage }}</td>
+          <td>{{ stage.start_ts or "-" }}</td>
+          <td>{{ stage.end_ts or "-" }}</td>
+          <td>{{ stage.status or "-" }}</td>
+          <td>{{ stage.duration_sec or "-" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Seeding</h2>
+    {% if seeding %}
+    <div class="grid">
+      <div class="card">
+        <div class="pill">Callsites</div>
+        <div>{{ seeding.callsite_count }}</div>
+      </div>
+      <div class="card">
+        <div class="pill">Categories</div>
+        <pre>{{ seeding.category_counts }}</pre>
+      </div>
+      <div class="card">
+        <div class="pill">Confidence</div>
+        <pre>{{ seeding.confidence_counts }}</pre>
+      </div>
+    </div>
+    {% if seeding.ref %}
+      <p><a href="/runs/{{ analysis_id }}/artifact/{{ seeding.ref }}">View seed index</a></p>
+    {% endif %}
+    {% else %}
+    <p>No seeding stats recorded.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>Threat Triage (Recon)</h2>
+    {% if recon %}
+      <p>Threat level: <strong>{{ recon.threat_level }}</strong> | Prioritized: {{ recon.prioritized_count }}</p>
+      {% if recon.ref %}
+      <a href="/runs/{{ analysis_id }}/artifact/{{ recon.ref }}">View recon JSON</a>
+      {% endif %}
+    {% else %}
+      <p>No recon output recorded.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>Soot Graphs</h2>
+    {% if graphs %}
+      <div class="grid">
+        <div class="card">
+          <div class="pill">Nodes</div>
+          <div>{{ graphs.node_count }}</div>
+        </div>
+        <div class="card">
+          <div class="pill">Edges</div>
+          <div>{{ graphs.edge_count }}</div>
+        </div>
+        <div class="card">
+          <div class="pill">CFG Files</div>
+          <div>{{ graphs.cfg_count }}</div>
+        </div>
+      </div>
+      {% if graphs.callgraph_ref %}
+      <p><a href="/runs/{{ analysis_id }}/artifact/{{ graphs.callgraph_ref }}">View callgraph JSON</a></p>
+      {% endif %}
+    {% else %}
+      <p>No callgraph stats recorded.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>Context Bundles</h2>
+    {% if bundles %}
+      <p>Total bundles: {{ bundles.bundle_count }} | Avg slice units: {{ bundles.avg_slice_units }}</p>
+      {% if bundles.sample_slice_refs %}
+        <ul>
+        {% for ref in bundles.sample_slice_refs %}
+          <li><a href="/runs/{{ analysis_id }}/artifact/{{ ref }}">{{ ref }}</a></li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+    {% else %}
+      <p>No context bundle stats recorded.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>FlowDroid</h2>
+    {% if flowdroid %}
+      <p>Flow count: {{ flowdroid.flow_count }}</p>
+      {% if flowdroid.ref %}
+      <a href="/runs/{{ analysis_id }}/artifact/{{ flowdroid.ref }}">View FlowDroid summary</a>
+      {% endif %}
+    {% else %}
+      <p>No FlowDroid summary recorded.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>LLM I/O</h2>
+    {% if llm_events %}
+    <table>
+      <thead>
+        <tr>
+          <th>Event</th>
+          <th>Step</th>
+          <th>Seed</th>
+          <th>Ref</th>
+          <th>Size</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in llm_events %}
+        <tr>
+          <td>{{ event.event_type }}</td>
+          <td>{{ event.llm_step or "-" }}</td>
+          <td>{{ event.seed_id or "-" }}</td>
+          <td>
+            {% if event.ref %}
+            <a href="/runs/{{ analysis_id }}/artifact/{{ event.ref }}">{{ event.ref }}</a>
+            {% else %}-{% endif %}
+          </td>
+          <td>{{ event.size or "-" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p>No LLM events recorded.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>API + Tool Events</h2>
+    {% if api_events %}
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Event</th>
+          <th>Method</th>
+          <th>Path/Tool</th>
+          <th>Status</th>
+          <th>Ref</th>
+          <th>Extra</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in api_events %}
+        <tr>
+          <td>{{ event.ts or "-" }}</td>
+          <td>{{ event.event_type }}</td>
+          <td>{{ event.method or "-" }}</td>
+          <td>{{ event.path or "-" }}</td>
+          <td>{{ event.status or "-" }}</td>
+          <td>
+            {% if event.ref %}
+            <a href="/runs/{{ analysis_id }}/artifact/{{ event.ref }}">{{ event.ref }}</a>
+            {% else %}-{% endif %}
+          </td>
+          <td>{% if event.extra %}<pre>{{ event.extra }}</pre>{% else %}-{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p>No API/tool events recorded.</p>
+    {% endif %}
+  </div>
+</body>
+</html>

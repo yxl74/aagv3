@@ -54,3 +54,17 @@ services:
     depends_on:
       - tempo
       - loki
+
+  obs-ui:
+    build:
+      context: .
+      args:
+        GRADLE_VERSION: 8.7
+    environment:
+      ARTIFACTS_DIR: "/workspace/artifacts"
+    volumes:
+      - .:/workspace
+    entrypoint: ["/bin/bash", "/workspace/scripts/docker_entrypoint.sh"]
+    command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"

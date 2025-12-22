@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>APK Analysis Runs</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 24px; color: #111; }
+    table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+    th, td { border-bottom: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; }
+    th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; }
+    a { color: #2563eb; text-decoration: none; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>APK Analysis Runs</h1>
+  <div class="pill">Total runs: {{ runs|length }}</div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Analysis ID</th>
+        <th>Mode</th>
+        <th>Start</th>
+        <th>Status</th>
+        <th>Events</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td><a href="/runs/{{ run.analysis_id }}">{{ run.analysis_id }}</a></td>
+        <td>{{ run.mode or "unknown" }}</td>
+        <td>{{ run.start_ts or "-" }}</td>
+        <td>{{ run.end_status or "-" }}</td>
+        <td>{{ run.event_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

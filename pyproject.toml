@@ -15,10 +15,15 @@ dependencies = [
   "PyYAML>=6.0",
   "jsonschema>=4.21",
   "androguard>=3.4.0",
+  "apkInspector>=1.1.7",
+  "lxml>=4.3.0",
   "rich>=13.7",
   "opentelemetry-api>=1.24",
   "opentelemetry-sdk>=1.24",
   "opentelemetry-exporter-otlp>=1.24",
+  "fastapi>=0.111",
+  "uvicorn>=0.29",
+  "jinja2>=3.1",
 ]
 
 [project.scripts]
