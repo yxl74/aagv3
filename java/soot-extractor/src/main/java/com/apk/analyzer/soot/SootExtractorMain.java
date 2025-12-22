@@ -147,7 +147,7 @@ public class SootExtractorMain {
                 continue;
             }
             for (Map.Entry<String, SootClass> baseEntry : baseClasses.entrySet()) {
-                if (!hierarchy.isClassSubclassOfIncluding(cls, baseEntry.getValue())) {
+                if (!hierarchy.canStoreClass(cls, baseEntry.getValue())) {
                     continue;
                 }
                 for (String methodName : entrypointMethods.get(baseEntry.getKey())) {
