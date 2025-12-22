@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if ! python -c "import apk_analyzer" >/dev/null 2>&1; then
-  python -m pip install .
+export PYTHONPATH="/workspace/src:${PYTHONPATH:-}"
+
+if [[ "${AAG_SKIP_PIP_INSTALL:-}" != "1" ]] && [[ -f /workspace/requirements.txt ]]; then
+  python -m pip install -r /workspace/requirements.txt
 fi
 
 exec "$@"

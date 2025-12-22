@@ -2,6 +2,7 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ANDROID_SDK_ROOT=/opt/android-sdk
+ENV PYTHONPATH="/workspace/src"
 ENV PATH="/opt/jadx/bin:/opt/gradle/bin:$PATH:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
