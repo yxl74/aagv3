@@ -5,8 +5,9 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from apk_analyzer.utils.artifact_store import ArtifactStore
+from apk_analyzer.observability.logger import EventLogger
 from apk_analyzer.telemetry import span
+from apk_analyzer.utils.artifact_store import ArtifactStore
 
 
 class KnoxClient:
@@ -16,26 +17,58 @@ class KnoxClient:
         headers: Optional[Dict[str, str]] = None,
         timeout: float = 30.0,
         artifact_store: Optional[ArtifactStore] = None,
+        event_logger: EventLogger | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.headers = headers or {}
         self.timeout = timeout
         self.artifact_store = artifact_store
+        self.event_logger = event_logger
         self._client = httpx.Client(timeout=timeout, headers=self.headers)
+
+    def _log_request(
+        self,
+        path: str,
+        params: Optional[Dict[str, Any]],
+        status_code: Optional[int] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        if not self.event_logger:
+            return
+        payload: Dict[str, Any] = {
+            "http_method": "GET",
+            "path": path,
+            "params": params or {},
+        }
+        if status_code is not None:
+            payload["status_code"] = status_code
+        if error:
+            payload["error"] = error
+        self.event_logger.log("api.knox", **payload)
 
     def _get_json(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
         with span("api.knox", tool_name="knox", http_method="GET", http_url=url) as sp:
-            response = self._client.get(url, params=params)
+            try:
+                response = self._client.get(url, params=params)
+            except httpx.HTTPError as exc:
+                self._log_request(path, params, error=str(exc))
+                raise
             sp.set_attribute("http.status_code", response.status_code)
+            self._log_request(path, params, status_code=response.status_code)
             response.raise_for_status()
             return response.json()
 
     def _get_bytes(self, path: str, params: Optional[Dict[str, Any]] = None) -> bytes:
         url = f"{self.base_url}{path}"
         with span("api.knox", tool_name="knox", http_method="GET", http_url=url) as sp:
-            response = self._client.get(url, params=params)
+            try:
+                response = self._client.get(url, params=params)
+            except httpx.HTTPError as exc:
+                self._log_request(path, params, error=str(exc))
+                raise
             sp.set_attribute("http.status_code", response.status_code)
+            self._log_request(path, params, status_code=response.status_code)
             response.raise_for_status()
             return response.content
 

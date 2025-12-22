@@ -30,3 +30,5 @@ telemetry:
   service_name: "apk-analysis-agent"
   otlp_endpoint: "http://otel-collector:4317"
   otlp_insecure: true
+observability:
+  enabled: true
