@@ -18,11 +18,19 @@ class EventLogger:
         self.store = store
         self.enabled = enabled
         self.run_id = run_id
-        self.path = self.store.path("observability/run.jsonl")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path = self._resolve_path()
 
     def set_run_id(self, run_id: str) -> None:
         self.run_id = run_id
+        self.path = self._resolve_path()
+
+    def _resolve_path(self) -> Path:
+        if self.run_id:
+            path = self.store.path("observability", "runs", f"{self.run_id}.jsonl")
+        else:
+            path = self.store.path("observability/run.jsonl")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
 
     def log(self, event_type: str, **fields: Any) -> None:
         if not self.enabled:

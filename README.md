@@ -301,8 +301,9 @@ docker compose run --rm aag \
 ### Open the UI
 
 - Run list: `http://localhost:8000/runs`
-- Run details: click an analysis ID to view stage timeline, seeding stats, recon output, Soot stats, API/tool events, and LLM I/O.
+- Run details: click an analysis/run ID to view stage timeline, seeding stats, recon output, Soot stats, API/tool events, and LLM I/O.
 
+Each run writes its own `observability/runs/<run_id>.jsonl` log, so reruns of the same APK no longer mix trace events.
 Artifacts are linked directly (e.g. `llm_inputs/`, `llm_outputs/`, `graphs/slices/`) so you can inspect the exact payloads.
 
 ### Rebuild after FlowDroid changes

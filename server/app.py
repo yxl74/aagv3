@@ -45,23 +45,46 @@ def _list_runs() -> List[Dict[str, Any]]:
     runs = []
     if not ARTIFACTS_DIR.exists():
         return runs
-    for run_dir in sorted(ARTIFACTS_DIR.iterdir()):
-        if not run_dir.is_dir():
+    for analysis_dir in sorted(ARTIFACTS_DIR.iterdir()):
+        if not analysis_dir.is_dir():
             continue
-        events_path = run_dir / "observability" / "run.jsonl"
-        if not events_path.exists():
+        runs_dir = analysis_dir / "observability" / "runs"
+        if runs_dir.exists():
+            for events_path in sorted(runs_dir.glob("*.jsonl")):
+                run = _summarize_run(analysis_dir.name, events_path)
+                if run:
+                    runs.append(run)
             continue
-        events = _read_events(events_path)
-        start = next((e for e in events if e.get("event_type") == "run.start"), None)
-        end = next((e for e in reversed(events) if e.get("event_type") == "run.end"), None)
-        runs.append({
-            "analysis_id": run_dir.name,
-            "mode": (start or {}).get("mode"),
-            "start_ts": (start or {}).get("ts"),
-            "end_status": (end or {}).get("status"),
-            "event_count": len(events),
-        })
+        legacy_path = analysis_dir / "observability" / "run.jsonl"
+        if legacy_path.exists():
+            run = _summarize_run(analysis_dir.name, legacy_path)
+            if run:
+                runs.append(run)
     return runs
+
+
+def _summarize_run(analysis_id: str, events_path: Path) -> Dict[str, Any] | None:
+    events = _read_events(events_path)
+    if not events:
+        return None
+    start = next((e for e in events if e.get("event_type") == "run.start"), None)
+    end = next((e for e in reversed(events) if e.get("event_type") == "run.end"), None)
+    run_id = (start or {}).get("run_id") or _run_id_from_path(events_path)
+    return {
+        "analysis_id": analysis_id,
+        "run_id": run_id,
+        "mode": (start or {}).get("mode"),
+        "start_ts": (start or {}).get("ts"),
+        "end_status": (end or {}).get("status"),
+        "event_count": len(events),
+        "events_path": str(events_path),
+    }
+
+
+def _run_id_from_path(events_path: Path) -> str | None:
+    if events_path.name == "run.jsonl":
+        return None
+    return events_path.stem
 
 
 def _stage_summary(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -156,10 +179,22 @@ def runs_api():
 
 
 @app.get("/runs/{analysis_id}", response_class=HTMLResponse)
-def run_detail(request: Request, analysis_id: str):
-    events_path = ARTIFACTS_DIR / analysis_id / "observability" / "run.jsonl"
-    if not events_path.exists():
+def run_detail_latest(request: Request, analysis_id: str):
+    events_path = _latest_run_path(analysis_id)
+    if not events_path:
         raise HTTPException(status_code=404, detail="Run not found")
+    return _render_run_detail(request, analysis_id, events_path)
+
+
+@app.get("/runs/{analysis_id}/{run_id}", response_class=HTMLResponse)
+def run_detail(request: Request, analysis_id: str, run_id: str):
+    events_path = _resolve_run_path(analysis_id, run_id)
+    if not events_path:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return _render_run_detail(request, analysis_id, events_path)
+
+
+def _render_run_detail(request: Request, analysis_id: str, events_path: Path):
     events = _read_events(events_path)
     stages = _stage_summary(events)
     seeding_stats = next((e for e in events if e.get("stage") == "seeding" and e.get("event_type") == "stage.end"), None)
@@ -170,11 +205,13 @@ def run_detail(request: Request, analysis_id: str):
     flowdroid = next((e for e in events if e.get("event_type") in {"flowdroid.summary", "tool.flowdroid"}), None)
     llm_events = [e for e in events if e.get("event_type", "").startswith("llm.")]
     api_events = _format_api_events(events)
+    run_id = next((e.get("run_id") for e in events if e.get("run_id")), None) or _run_id_from_path(events_path)
     return templates.TemplateResponse(
         "run_detail.html",
         {
             "request": request,
             "analysis_id": analysis_id,
+            "run_id": run_id,
             "events": events,
             "stages": stages,
             "seeding": seeding_stats,
@@ -191,10 +228,41 @@ def run_detail(request: Request, analysis_id: str):
 
 @app.get("/api/runs/{analysis_id}")
 def run_api(analysis_id: str):
-    events_path = ARTIFACTS_DIR / analysis_id / "observability" / "run.jsonl"
-    if not events_path.exists():
+    events_path = _latest_run_path(analysis_id)
+    if not events_path:
         raise HTTPException(status_code=404, detail="Run not found")
     return _read_events(events_path)
+
+
+@app.get("/api/runs/{analysis_id}/{run_id}")
+def run_api_by_id(analysis_id: str, run_id: str):
+    events_path = _resolve_run_path(analysis_id, run_id)
+    if not events_path:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return _read_events(events_path)
+
+
+def _resolve_run_path(analysis_id: str, run_id: str) -> Path | None:
+    runs_dir = ARTIFACTS_DIR / analysis_id / "observability" / "runs"
+    candidate = runs_dir / f"{run_id}.jsonl"
+    if candidate.exists():
+        return candidate
+    legacy_path = ARTIFACTS_DIR / analysis_id / "observability" / "run.jsonl"
+    if legacy_path.exists():
+        return legacy_path
+    return None
+
+
+def _latest_run_path(analysis_id: str) -> Path | None:
+    runs_dir = ARTIFACTS_DIR / analysis_id / "observability" / "runs"
+    if runs_dir.exists():
+        candidates = list(runs_dir.glob("*.jsonl"))
+        if candidates:
+            return max(candidates, key=lambda p: p.stat().st_mtime)
+    legacy_path = ARTIFACTS_DIR / analysis_id / "observability" / "run.jsonl"
+    if legacy_path.exists():
+        return legacy_path
+    return None
 
 
 @app.get("/runs/{analysis_id}/artifact/{rel_path:path}")
