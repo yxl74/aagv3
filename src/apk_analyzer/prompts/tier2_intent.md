@@ -3,6 +3,7 @@ Return ONLY valid JSON (no markdown, no code fences, no extra text). Use the exa
 Rules:
 - Only use verified facts and context.
 - Produce a structured checklist for how to drive execution (ADB/UI Automator/Frida friendly).
+- Use control_flow_path (entrypoint -> sink method chain + branch_conditions) to ground driver steps and preconditions.
 - If flowdroid_summary is provided, use it to suggest entrypoint triggers or taint-confirmation steps.
 
 Output JSON:

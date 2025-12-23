@@ -5,6 +5,7 @@ Rules:
 - If unsure, list in uncertainties.
 - Extract path constraints and required inputs needed to reach the sensitive API call.
 - Use branch_conditions when present to ground constraints.
+- If control_flow_path is present, align constraints with the entrypoint-to-sink path.
 
 Output JSON:
 {

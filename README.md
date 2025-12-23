@@ -71,6 +71,7 @@ flowchart TD
 High-level steps:
 - Build static artifacts (manifest, permissions, strings, certs, Knox indicators).
 - Build callgraph + CFGs with Soot and match sensitive API callsites via the catalog.
+- Extract entrypoint -> sink control-flow paths with callsite statements and branch constraints.
 - Build recon cases and seed suspicious APIs (cases first, then DEX indexing fallback).
 - Build CFG slices + context bundles for each seed.
 - Run LLM agents (Recon -> Tier1 -> Verifier -> Tier2) with evidence gating.
@@ -115,12 +116,13 @@ Stage E: Seeding (SuspiciousApiIndex)
 Stage F: Context bundles + CFG slices
 - **Context bundle builder** (`src/apk_analyzer/analyzers/context_bundle_builder.py`): builds per-seed backward slices from Soot CFGs, extracts branch conditions, and computes k-hop callgraph neighborhoods.
 - Bundles include static context (permissions, receiver triggers, string hints) and case context (priority, reachability).
-- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/graphs/slices/<seed_id>.json`, `graphs/context_bundles/<seed_id>.json`.
+- **Control-flow paths**: derives entrypoint -> sink method chains using callgraph reachability + callsite statements, and attaches branch conditions from slices.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/graphs/slices/<seed_id>.json`, `graphs/context_bundles/<seed_id>.json`, `graphs/entrypoint_paths/<seed_id>.json`, `graphs/entrypoint_paths.json`.
 
 Stage G: Tiered LLM reasoning (dynamic-analysis focused)
 - **Tier1**: summarizes behavior and extracts execution constraints (branch predicates, required inputs, triggers).
 - **Verifier**: enforces evidence grounding against slice units and context bundles.
-- **Tier2**: produces driver guidance (ADB/UI Automator/Frida-friendly) using Tier1 + static context + case context + FlowDroid summary (if present).
+- **Tier2**: produces driver guidance (ADB/UI Automator/Frida-friendly) using Tier1 + control-flow paths + static context + case context + FlowDroid summary (if present).
 - LLM JSON is parsed with a tolerant parser (`src/apk_analyzer/utils/llm_json.py`) and falls back to safe defaults on invalid output.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/*`, plus `llm_inputs/` and `llm_outputs/` for raw prompts/returns.
 
@@ -317,7 +319,7 @@ Notes:
 
 ## Run Observability UI (FastAPI)
 
-This UI is purpose-built for debugging the pipeline: it shows **seeding details, recon output, Soot stats, slice counts, Knox API calls, tool invocations, and exact LLM prompts/returns** per run.
+This UI is purpose-built for debugging the pipeline: it shows **seeding details, recon output, Soot stats, entrypoint paths, slice counts, Knox API calls, tool invocations, and exact LLM prompts/returns** per run.
 
 ### Start the UI server
 
@@ -338,7 +340,7 @@ docker compose run --rm aag \
 - Run details: click an analysis/run ID to view stage timeline, seeding stats, recon output, Soot stats, API/tool events, and LLM I/O.
 
 Each run writes its own `observability/runs/<run_id>.jsonl` log, so reruns of the same APK no longer mix trace events.
-Artifacts are linked directly (e.g. `runs/<run_id>/llm_inputs/`, `runs/<run_id>/llm_outputs/`, `runs/<run_id>/graphs/slices/`) so you can inspect the exact payloads.
+Artifacts are linked directly (e.g. `runs/<run_id>/llm_inputs/`, `runs/<run_id>/llm_outputs/`, `runs/<run_id>/graphs/slices/`, `runs/<run_id>/graphs/entrypoint_paths/`) so you can inspect the exact payloads.
 
 ### Rebuild after FlowDroid changes
 
