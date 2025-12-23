@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import deque
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from apk_analyzer.knowledge.api_catalog import ApiCatalog, ApiCategory
 from apk_analyzer.utils.signature_normalize import method_name_from_signature, normalize_signature
+
+
+_SOOT_SIG_RE = re.compile(r"^<([^:]+):\s+([^\s]+)\s+([^(]+)\((.*)\)>$")
 
 
 ENTRYPOINT_METHODS: Dict[str, set[str]] = {
@@ -35,11 +39,14 @@ def build_sensitive_api_hits(
     manifest: Dict[str, Any],
     apk_path: Optional[str | Path] = None,
     max_example_path: int = 20,
+    class_hierarchy: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     component_map = _extract_component_map(manifest)
     entrypoints = _entrypoints_from_callgraph(callgraph, component_map)
     adjacency = _build_adjacency(callgraph.get("edges", []))
     distances, predecessors = _bfs_from_entrypoints(adjacency, entrypoints)
+    hierarchy_map = _build_hierarchy_map(class_hierarchy)
+    compat_index = _build_compat_index(catalog) if hierarchy_map else {}
 
     hits: List[Dict[str, Any]] = []
     for edge in callgraph.get("edges", []) or []:
@@ -48,6 +55,26 @@ def build_sensitive_api_hits(
         if not caller_sig or not callee_sig:
             continue
         categories = catalog.match_method(callee_sig)
+        match_type = "exact" if categories else None
+        if not categories and hierarchy_map:
+            parts = _parse_soot_signature(callee_sig)
+            if parts:
+                callee_class, ret_type, method_name, params = parts
+                key = (method_name, ret_type, tuple(params))
+                for catalog_class, category in compat_index.get(key, []):
+                    if _is_class_compatible(callee_class, catalog_class, hierarchy_map):
+                        categories.append(category)
+                if categories:
+                    match_type = "hierarchy"
+        if categories:
+            deduped = []
+            seen = set()
+            for category in categories:
+                if category.category_id in seen:
+                    continue
+                seen.add(category.category_id)
+                deduped.append(category)
+            categories = deduped
         if not categories:
             continue
         for category in categories:
@@ -71,6 +98,7 @@ def build_sensitive_api_hits(
                 "pha_tags": category.pha_tags,
                 "permission_hints": category.permission_hints,
                 "signature": callee_sig,
+                "match_type": match_type or "exact",
                 "caller": {
                     "class": caller_class,
                     "method": caller_sig,
@@ -111,6 +139,58 @@ def _class_name_from_signature(signature: str) -> str:
     if signature.startswith("<") and ":" in signature:
         return signature[1: signature.index(":", 1)].strip()
     return signature.split(":", 1)[0].strip("<>")
+
+
+def _parse_soot_signature(signature: str) -> Optional[Tuple[str, str, str, List[str]]]:
+    match = _SOOT_SIG_RE.match(signature.strip())
+    if not match:
+        return None
+    class_name, ret_type, method_name, params = match.groups()
+    params = params.strip()
+    if not params:
+        param_list: List[str] = []
+    else:
+        param_list = [p.strip() for p in params.split(",") if p.strip()]
+    return class_name, ret_type.strip(), method_name.strip(), param_list
+
+
+def _build_compat_index(catalog: ApiCatalog) -> Dict[Tuple[str, str, Tuple[str, ...]], List[Tuple[str, ApiCategory]]]:
+    index: Dict[Tuple[str, str, Tuple[str, ...]], List[Tuple[str, ApiCategory]]] = {}
+    for category in catalog.categories.values():
+        for sig in category.method_sigs:
+            parts = _parse_soot_signature(sig)
+            if not parts:
+                continue
+            class_name, ret_type, method_name, params = parts
+            key = (method_name, ret_type, tuple(params))
+            index.setdefault(key, []).append((class_name, category))
+    return index
+
+
+def _build_hierarchy_map(class_hierarchy: Optional[Dict[str, Any]]) -> Dict[str, set[str]]:
+    if not class_hierarchy:
+        return {}
+    classes = class_hierarchy.get("classes", {}) if isinstance(class_hierarchy, dict) else {}
+    hierarchy_map: Dict[str, set[str]] = {}
+    if isinstance(classes, dict):
+        for class_name, info in classes.items():
+            if not isinstance(info, dict):
+                continue
+            supertypes = info.get("supertypes", []) or []
+            hierarchy_map[class_name] = {str(t) for t in supertypes if t}
+    return hierarchy_map
+
+
+def _is_class_compatible(callee_class: str, catalog_class: str, hierarchy_map: Dict[str, set[str]]) -> bool:
+    if not callee_class or not catalog_class:
+        return False
+    if callee_class == catalog_class:
+        return True
+    callee_supers = hierarchy_map.get(callee_class, set())
+    if catalog_class in callee_supers:
+        return True
+    catalog_supers = hierarchy_map.get(catalog_class, set())
+    return callee_class in catalog_supers
 
 
 def _extract_component_map(manifest: Dict[str, Any]) -> Dict[str, Dict[str, str]]:

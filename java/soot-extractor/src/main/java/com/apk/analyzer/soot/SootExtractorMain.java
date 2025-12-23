@@ -28,8 +28,10 @@ public class SootExtractorMain {
         String androidPlatforms = require(params, "--android-platforms");
         String outDir = require(params, "--out");
         String cgAlgo = params.getOrDefault("--cg-algo", "SPARK");
+        String targetSdkRaw = params.get("--target-sdk");
+        String explicitJar = params.get("--android-jar");
 
-        String forcedAndroidJar = configureSoot(apkPath, androidPlatforms, cgAlgo);
+        AndroidJarSelection jarSelection = configureSoot(apkPath, androidPlatforms, cgAlgo, targetSdkRaw, explicitJar);
 
         Scene.v().loadNecessaryClasses();
         List<SootMethod> entryPoints = buildEntryPoints();
@@ -41,11 +43,25 @@ public class SootExtractorMain {
             out.mkdirs();
         }
 
-        writeCallGraph(new File(out, "callgraph.json"), entryPoints, apkPath, androidPlatforms, cgAlgo, forcedAndroidJar);
+        writeCallGraph(
+                new File(out, "callgraph.json"),
+                entryPoints,
+                apkPath,
+                androidPlatforms,
+                cgAlgo,
+                jarSelection
+        );
+        writeClassHierarchy(new File(out, "class_hierarchy.json"));
         writeCfgs(new File(out, "cfg"), new File(out, "method_index.json"));
     }
 
-    private static String configureSoot(String apkPath, String androidPlatforms, String cgAlgo) {
+    private static AndroidJarSelection configureSoot(
+            String apkPath,
+            String androidPlatforms,
+            String cgAlgo,
+            String targetSdkRaw,
+            String explicitJar
+    ) {
         G.reset();
         Options.v().set_src_prec(Options.src_prec_apk);
         Options.v().set_android_jars(androidPlatforms);
@@ -61,11 +77,12 @@ public class SootExtractorMain {
         } else {
             Options.v().setPhaseOption("cg.spark", "on");
         }
-        String forcedJar = findLatestAndroidJar(androidPlatforms);
-        if (forcedJar != null) {
-            Options.v().set_force_android_jar(forcedJar);
+        Integer targetSdk = parseSdk(targetSdkRaw);
+        AndroidJarSelection selection = selectAndroidJar(androidPlatforms, targetSdk, explicitJar);
+        if (selection.jarPath != null) {
+            Options.v().set_force_android_jar(selection.jarPath);
         }
-        return forcedJar;
+        return selection;
     }
 
     private static void writeCallGraph(
@@ -74,7 +91,7 @@ public class SootExtractorMain {
             String apkPath,
             String androidPlatforms,
             String cgAlgo,
-            String forcedAndroidJar
+            AndroidJarSelection jarSelection
     ) throws Exception {
         CallGraph cg = Scene.v().getCallGraph();
         Set<String> methodSet = new HashSet<>();
@@ -119,7 +136,9 @@ public class SootExtractorMain {
         metadata.put("apk_path", apkPath);
         metadata.put("android_platforms", androidPlatforms);
         metadata.put("cg_algo", cgAlgo);
-        metadata.put("forced_android_jar", forcedAndroidJar);
+        metadata.put("forced_android_jar", jarSelection.jarPath);
+        metadata.put("android_jar_reason", jarSelection.reason);
+        metadata.put("android_jar_api", jarSelection.apiLevel);
         metadata.put("application_class_count", Scene.v().getApplicationClasses().size());
         metadata.put("entrypoint_count", entryPoints.size());
         List<String> entrypointSamples = new ArrayList<>();
@@ -188,17 +207,37 @@ public class SootExtractorMain {
         return signature;
     }
 
-    private static String findLatestAndroidJar(String androidPlatforms) {
+    private static Integer parseSdk(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static AndroidJarSelection selectAndroidJar(
+            String androidPlatforms,
+            Integer targetSdk,
+            String explicitJar
+    ) {
+        if (explicitJar != null && !explicitJar.isEmpty()) {
+            File jarFile = new File(explicitJar);
+            if (jarFile.exists()) {
+                return new AndroidJarSelection(jarFile.getAbsolutePath(), apiFromPath(jarFile), "explicit");
+            }
+        }
         File platformsDir = new File(androidPlatforms);
         if (!platformsDir.isDirectory()) {
-            return null;
+            return new AndroidJarSelection(null, null, "missing_platforms_dir");
         }
         File[] dirs = platformsDir.listFiles(File::isDirectory);
         if (dirs == null || dirs.length == 0) {
-            return null;
+            return new AndroidJarSelection(null, null, "no_platforms");
         }
-        int bestApi = -1;
-        File bestDir = null;
+        Map<Integer, File> apiToJar = new HashMap<>();
         for (File dir : dirs) {
             String name = dir.getName();
             if (!name.startsWith("android-")) {
@@ -207,18 +246,124 @@ public class SootExtractorMain {
             try {
                 int api = Integer.parseInt(name.substring("android-".length()));
                 File jar = new File(dir, "android.jar");
-                if (jar.exists() && api > bestApi) {
-                    bestApi = api;
-                    bestDir = dir;
+                if (jar.exists()) {
+                    apiToJar.put(api, jar);
                 }
             } catch (NumberFormatException ignored) {
                 // skip
             }
         }
-        if (bestDir == null) {
+        if (apiToJar.isEmpty()) {
+            return new AndroidJarSelection(null, null, "no_android_jars");
+        }
+        List<Integer> apis = new ArrayList<>(apiToJar.keySet());
+        Collections.sort(apis);
+        if (targetSdk != null) {
+            for (Integer api : apis) {
+                if (api >= targetSdk) {
+                    String reason = api.equals(targetSdk) ? "target_exact" : "target_nearest_higher";
+                    return new AndroidJarSelection(apiToJar.get(api).getAbsolutePath(), api, reason);
+                }
+            }
+            Integer fallback = apis.get(apis.size() - 1);
+            return new AndroidJarSelection(apiToJar.get(fallback).getAbsolutePath(), fallback, "fallback_latest");
+        }
+        Integer latest = apis.get(apis.size() - 1);
+        return new AndroidJarSelection(apiToJar.get(latest).getAbsolutePath(), latest, "latest_available");
+    }
+
+    private static Integer apiFromPath(File jarFile) {
+        if (jarFile == null) {
             return null;
         }
-        return new File(bestDir, "android.jar").getAbsolutePath();
+        File parent = jarFile.getParentFile();
+        if (parent == null) {
+            return null;
+        }
+        String name = parent.getName();
+        if (!name.startsWith("android-")) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(name.substring("android-".length()));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static void writeClassHierarchy(File outputFile) throws Exception {
+        Map<String, Object> classes = new LinkedHashMap<>();
+        for (SootClass cls : Scene.v().getClasses()) {
+            Map<String, Object> info = new HashMap<>();
+            info.put("is_library", cls.isLibraryClass());
+            info.put("is_phantom", cls.isPhantom());
+            String superclass = null;
+            try {
+                if (cls.hasSuperclass()) {
+                    superclass = cls.getSuperclass().getName();
+                }
+            } catch (Exception ignored) {
+                // best effort
+            }
+            info.put("superclass", superclass);
+            List<String> interfaces = new ArrayList<>();
+            try {
+                for (SootClass iface : cls.getInterfaces()) {
+                    if (iface != null) {
+                        interfaces.add(iface.getName());
+                    }
+                }
+            } catch (Exception ignored) {
+                // best effort
+            }
+            info.put("interfaces", interfaces);
+            info.put("supertypes", new ArrayList<>(collectSupertypes(cls)));
+            classes.put(cls.getName(), info);
+        }
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("classes", classes);
+        writeJson(outputFile, payload);
+    }
+
+    private static Set<String> collectSupertypes(SootClass cls) {
+        Set<String> supers = new LinkedHashSet<>();
+        Deque<SootClass> stack = new ArrayDeque<>();
+        stack.add(cls);
+        while (!stack.isEmpty()) {
+            SootClass current = stack.pop();
+            try {
+                if (current.hasSuperclass()) {
+                    SootClass sup = current.getSuperclass();
+                    if (sup != null && supers.add(sup.getName())) {
+                        stack.add(sup);
+                    }
+                }
+            } catch (Exception ignored) {
+                // best effort
+            }
+            try {
+                for (SootClass iface : current.getInterfaces()) {
+                    if (iface != null && supers.add(iface.getName())) {
+                        stack.add(iface);
+                    }
+                }
+            } catch (Exception ignored) {
+                // best effort
+            }
+        }
+        return supers;
+    }
+
+    private static class AndroidJarSelection {
+        private final String jarPath;
+        private final Integer apiLevel;
+        private final String reason;
+
+        private AndroidJarSelection(String jarPath, Integer apiLevel, String reason) {
+            this.jarPath = jarPath;
+            this.apiLevel = apiLevel;
+            this.reason = reason;
+        }
     }
 
     private static void writeCfgs(File cfgDir, File methodIndexFile) throws Exception {
