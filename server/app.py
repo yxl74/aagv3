@@ -12,21 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 
 def _resolve_artifacts_dir() -> Path:
-    env_path = os.environ.get("ARTIFACTS_DIR")
-    if env_path:
-        return Path(env_path)
-    candidates: List[Path] = []
-    try:
-        repo_root = Path(__file__).resolve().parents[1]
-        candidates.append(repo_root / "artifacts")
-    except Exception:
-        pass
-    candidates.append(Path.cwd() / "artifacts")
-    candidates.append(Path("/workspace/artifacts"))
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0] if candidates else Path("artifacts")
+    return Path(os.environ.get("ARTIFACTS_DIR", "/workspace/artifacts"))
 
 
 ARTIFACTS_DIR = _resolve_artifacts_dir()
