@@ -167,7 +167,7 @@ public class SootExtractorMain {
     }
 
     private static List<SootMethod> buildEntryPoints() {
-        List<SootMethod> entryPoints = new ArrayList<>();
+        Set<SootMethod> entryPoints = new LinkedHashSet<>();
         FastHierarchy hierarchy = Scene.v().getOrMakeFastHierarchy();
         Map<String, Set<String>> entrypointMethods = entrypointMethodMap();
         Map<String, SootClass> baseClasses = new HashMap<>();
@@ -186,12 +186,16 @@ public class SootExtractorMain {
                 }
                 for (String methodName : entrypointMethods.get(baseEntry.getKey())) {
                     if (cls.declaresMethodByName(methodName)) {
-                        entryPoints.add(cls.getMethodByName(methodName));
+                        for (SootMethod method : cls.getMethodsByName(methodName)) {
+                            if (method != null && method.isConcrete()) {
+                                entryPoints.add(method);
+                            }
+                        }
                     }
                 }
             }
         }
-        return entryPoints;
+        return new ArrayList<>(entryPoints);
     }
 
     private static Map<String, Set<String>> entrypointMethodMap() {
