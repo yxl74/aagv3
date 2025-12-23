@@ -47,10 +47,12 @@ class Orchestrator:
                 raise ValueError("apk_path is required for apk-only analysis.")
         else:
             raise ValueError(f"Unknown analysis mode: {mode}")
-        artifact_store = ArtifactStore.from_inputs(
+        analysis_id = ArtifactStore.compute_analysis_id(apk_path, knox_apk_id)
+        run_id = set_run_context(analysis_id, mode=mode)
+        artifact_store = ArtifactStore(
             self.settings["analysis"]["artifacts_dir"],
-            apk_path=apk_path,
-            knox_apk_id=knox_apk_id,
+            analysis_id,
+            run_id=run_id,
         )
         artifact_store.ensure_dir("input")
         artifact_store.ensure_dir("static")
@@ -61,8 +63,6 @@ class Orchestrator:
         artifact_store.ensure_dir("llm_outputs")
         artifact_store.ensure_dir("taint")
         artifact_store.ensure_dir("report")
-
-        run_id = set_run_context(artifact_store.analysis_id, mode=mode)
         obs_conf = self.settings.get("observability", {}) if isinstance(self.settings, dict) else {}
         event_logger = EventLogger(
             artifact_store,
@@ -171,7 +171,7 @@ class Orchestrator:
                         "graphs",
                         **callgraph_stats,
                         cfg_count=cfg_count,
-                        callgraph_ref="graphs/callgraph.json" if callgraph_path else None,
+                        callgraph_ref=artifact_store.relpath("graphs/callgraph.json") if callgraph_path else None,
                     )
                     event_logger.log(
                         "tool.soot",
@@ -179,7 +179,7 @@ class Orchestrator:
                         status="ok",
                         **callgraph_stats,
                         cfg_count=cfg_count,
-                        callgraph_ref="graphs/callgraph.json" if callgraph_path else None,
+                        callgraph_ref=artifact_store.relpath("graphs/callgraph.json") if callgraph_path else None,
                     )
 
                 sensitive_hits = None
@@ -201,7 +201,7 @@ class Orchestrator:
                     event_logger.stage_end(
                         "sensitive_api",
                         total_hits=sensitive_hits.get("summary", {}).get("total_hits", 0),
-                        ref="seeds/sensitive_api_hits.json",
+                        ref=artifact_store.relpath("seeds/sensitive_api_hits.json"),
                     )
 
                 llm_conf = self.settings.get("llm", {}) or {}
@@ -240,7 +240,7 @@ class Orchestrator:
                         "recon",
                         threat_level=recon_result.get("threat_level"),
                         case_count=case_count,
-                        ref="llm/recon.json",
+                        ref=artifact_store.relpath("llm/recon.json"),
                     )
                     cases = recon_result.get("cases", []) or []
                     if not cases:
@@ -289,7 +289,7 @@ class Orchestrator:
                     callsite_count=len(suspicious_index.callsites),
                     category_counts=category_counts,
                     confidence_counts=confidence_counts,
-                    ref="seeds/suspicious_api_index.json",
+                    ref=artifact_store.relpath("seeds/suspicious_api_index.json"),
                 )
                 validate_json(
                     artifact_store.read_json("seeds/suspicious_api_index.json"),
@@ -314,7 +314,8 @@ class Orchestrator:
                     bundle_count=len(bundles),
                     avg_slice_units=(sum(slice_sizes) / len(slice_sizes)) if slice_sizes else 0,
                     sample_slice_refs=[
-                        f"graphs/slices/{bundle['seed_id']}.json" for bundle in bundles[:5]
+                        artifact_store.relpath(f"graphs/slices/{bundle['seed_id']}.json")
+                        for bundle in bundles[:5]
                     ],
                 )
 
@@ -359,7 +360,7 @@ class Orchestrator:
                         ev_id = f"ev-{bundle['seed_id']}-{idx}"
                         evidence_support_index[ev_id] = {
                             "support_unit_ids": fact.get("support_unit_ids", []),
-                            "artifact": f"graphs/slices/{bundle['seed_id']}.json",
+                            "artifact": artifact_store.relpath(f"graphs/slices/{bundle['seed_id']}.json"),
                         }
 
                     seed_summaries[seed_id] = {
@@ -412,7 +413,7 @@ class Orchestrator:
                             "flowdroid.summary",
                             tool="flowdroid",
                             flow_count=flowdroid_summary.get("flow_count") if flowdroid_summary else 0,
-                            ref="taint/flowdroid_summary.json",
+                            ref=artifact_store.relpath("taint/flowdroid_summary.json"),
                         )
 
                 for seed_id in verified_ids:
@@ -449,10 +450,10 @@ class Orchestrator:
                     "seed_summaries": seed_summary_list,
                     "evidence_support_index": evidence_support_index,
                     "analysis_artifacts": {
-                        "callgraph": "graphs/callgraph.json" if callgraph_path else None,
-                        "flowdroid": "taint/flowdroid_summary.json" if flowdroid_summary else None,
-                        "sensitive_api_hits": "seeds/sensitive_api_hits.json" if sensitive_hits else None,
-                        "recon": "llm/recon.json",
+                        "callgraph": artifact_store.relpath("graphs/callgraph.json") if callgraph_path else None,
+                        "flowdroid": artifact_store.relpath("taint/flowdroid_summary.json") if flowdroid_summary else None,
+                        "sensitive_api_hits": artifact_store.relpath("seeds/sensitive_api_hits.json") if sensitive_hits else None,
+                        "recon": artifact_store.relpath("llm/recon.json"),
                     },
                     "mitre_candidates": mitre_candidates,
                     "driver_guidance": _build_driver_guidance(seed_summary_list),
@@ -467,7 +468,7 @@ class Orchestrator:
                 event_logger.stage_end(
                     "report",
                     verdict=report.get("verdict"),
-                    ref="report/threat_report.json",
+                    ref=artifact_store.relpath("report/threat_report.json"),
                 )
 
                 success = True

@@ -25,10 +25,11 @@ class EventLogger:
         self.path = self._resolve_path()
 
     def _resolve_path(self) -> Path:
+        base_root = getattr(self.store, "base_root", self.store.path())
         if self.run_id:
-            path = self.store.path("observability", "runs", f"{self.run_id}.jsonl")
+            path = base_root / "observability" / "runs" / f"{self.run_id}.jsonl"
         else:
-            path = self.store.path("observability/run.jsonl")
+            path = base_root / "observability" / "run.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 

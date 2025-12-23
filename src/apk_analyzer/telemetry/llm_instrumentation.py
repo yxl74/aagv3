@@ -28,6 +28,8 @@ class InstrumentedLLMClient(LLMClient):
         suffix = uuid.uuid4().hex[:8]
         input_ref = f"llm_inputs/{step}_{seed}_{suffix}.json"
         output_ref = f"llm_outputs/{step}_{seed}_{suffix}.txt"
+        input_rel = self.store.relpath(input_ref)
+        output_rel = self.store.relpath(output_ref)
 
         self.store.write_json(input_ref, {
             "prompt": prompt,
@@ -40,22 +42,22 @@ class InstrumentedLLMClient(LLMClient):
                 llm_step=step,
                 seed_id=seed,
                 model=model or "",
-                ref=input_ref,
+                ref=input_rel,
             )
 
         with span("llm.call", llm_step=step, seed_id=seed, model=model or "") as sp:
-            sp.add_event("llm.input", {"ref": input_ref})
+            sp.add_event("llm.input", {"ref": input_rel})
             response = self.base.complete(prompt, payload, model=model)
             output_text = _format_response(response)
             self.store.write_text(output_ref, output_text)
-            sp.add_event("llm.output", {"ref": output_ref})
+            sp.add_event("llm.output", {"ref": output_rel})
             if self.event_logger:
                 self.event_logger.log(
                     "llm.output",
                     llm_step=step,
                     seed_id=seed,
                     model=model or "",
-                    ref=output_ref,
+                    ref=output_rel,
                     size=len(output_text),
                 )
         return response

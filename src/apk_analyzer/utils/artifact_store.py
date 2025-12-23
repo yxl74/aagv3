@@ -15,10 +15,21 @@ def _sha256_file(path: Path) -> str:
 
 
 class ArtifactStore:
-    def __init__(self, base_dir: str | Path, analysis_id: str) -> None:
+    def __init__(self, base_dir: str | Path, analysis_id: str, run_id: str | None = None) -> None:
         self.base_dir = Path(base_dir)
         self.analysis_id = analysis_id
-        self.root = self.base_dir / analysis_id
+        self.run_id = run_id
+        self.base_root = self.base_dir / analysis_id
+        self.root = self.base_root / "runs" / run_id if run_id else self.base_root
+
+    @staticmethod
+    def compute_analysis_id(apk_path: str | Path | None, knox_apk_id: str | None) -> str:
+        if apk_path:
+            apk_path = Path(apk_path)
+            return _sha256_file(apk_path)
+        if knox_apk_id:
+            return knox_apk_id
+        raise ValueError("apk_path or knox_apk_id is required")
 
     @classmethod
     def from_inputs(
@@ -26,15 +37,10 @@ class ArtifactStore:
         base_dir: str | Path,
         apk_path: str | Path | None = None,
         knox_apk_id: str | None = None,
+        run_id: str | None = None,
     ) -> "ArtifactStore":
-        if apk_path:
-            apk_path = Path(apk_path)
-            analysis_id = _sha256_file(apk_path)
-        elif knox_apk_id:
-            analysis_id = knox_apk_id
-        else:
-            raise ValueError("apk_path or knox_apk_id is required")
-        return cls(base_dir, analysis_id)
+        analysis_id = cls.compute_analysis_id(apk_path, knox_apk_id)
+        return cls(base_dir, analysis_id, run_id=run_id)
 
     def ensure_dir(self, *parts: str) -> Path:
         path = self.root.joinpath(*parts)
@@ -43,6 +49,11 @@ class ArtifactStore:
 
     def path(self, *parts: str) -> Path:
         return self.root.joinpath(*parts)
+
+    def relpath(self, rel_path: str) -> str:
+        if self.run_id:
+            return str(Path("runs") / self.run_id / rel_path)
+        return rel_path
 
     def write_json(self, rel_path: str, data: Any) -> Path:
         path = self.path(rel_path)
