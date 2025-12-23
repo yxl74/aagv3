@@ -9,7 +9,7 @@ analysis:
   flowdroid_timeout_sec: 900
   jadx_path: "jadx"
   jadx_timeout_sec: 600
-  callgraph_algo: "SPARK"
+  callgraph_algo: "CHA"
   k_hop: 2
   max_seed_count: 20
 llm:

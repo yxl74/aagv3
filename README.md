@@ -37,6 +37,7 @@ Identifiers:
    - Decompile the APK with JADX into a temp directory and set a local search fallback (used only if DEX indexing yields no hits).
 4) Graph extraction:
    - Build callgraph + per-method CFGs with Soot using Android platform jars (target SDK -> nearest higher jar selection).
+   - Default callgraph algorithm is CHA for better coverage with framework stubs.
 5) Sensitive API matching:
    - Match callgraph edges against the sensitive API catalog and compute entrypoint reachability.
 6) Recon + seeding:
@@ -75,7 +76,8 @@ Stage B: Graph extraction
   - exact match if present,
   - otherwise nearest higher available,
   - otherwise highest available as fallback.
-- **Outputs**: `artifacts/{analysis_id}/runs/{run_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`, `graphs/class_hierarchy.json`.
+- Callgraph edges combine Soot callgraph edges with direct Jimple invoke edges to avoid missing framework calls.
+- **Outputs**: `artifacts/{analysis_id}/runs/{run_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`, `graphs/class_hierarchy.json`, `graphs/entrypoints.json`.
 
 Stage C: Sensitive API matching (catalog-driven)
 - **Sensitive API catalog** (`config/android_sensitive_api_catalog.json`): maps Soot signatures to categories, priorities, and tags.
@@ -368,7 +370,7 @@ Key settings live in `config/settings.yaml`:
 - `analysis.soot_extractor_jar_path`: Soot extractor jar path.
 - `analysis.jadx_path`: JADX binary or jar (used in apk-only mode).
 - `analysis.jadx_timeout_sec`: JADX decompile timeout.
-- `analysis.callgraph_algo`: `SPARK` or `CHA`.
+- `analysis.callgraph_algo`: `CHA` (default) or `SPARK`.
 - `analysis.k_hop`: call graph neighborhood hops.
 - `analysis.max_seed_count`: maximum seeds to process.
 - `analysis.flowdroid_timeout_sec`: FlowDroid timeout in seconds.

@@ -11,6 +11,7 @@ import soot.SootMethod;
 import soot.Unit;
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.Edge;
+import soot.jimple.Stmt;
 import soot.options.Options;
 import soot.toolkits.graph.ExceptionalUnitGraph;
 
@@ -51,6 +52,7 @@ public class SootExtractorMain {
                 cgAlgo,
                 jarSelection
         );
+        writeEntrypoints(new File(out, "entrypoints.json"), entryPoints);
         writeClassHierarchy(new File(out, "class_hierarchy.json"));
         writeCfgs(new File(out, "cfg"), new File(out, "method_index.json"));
     }
@@ -96,6 +98,9 @@ public class SootExtractorMain {
         CallGraph cg = Scene.v().getCallGraph();
         Set<String> methodSet = new HashSet<>();
         List<Map<String, Object>> edges = new ArrayList<>();
+        Set<String> edgeKeys = new HashSet<>();
+        int cgEdges = 0;
+        int jimpleEdges = 0;
 
         for (Iterator<Edge> it = cg.iterator(); it.hasNext(); ) {
             Edge edge = it.next();
@@ -110,8 +115,15 @@ public class SootExtractorMain {
             if (edge.srcUnit() != null) {
                 edgeObj.put("callsite", Collections.singletonMap("unit", edge.srcUnit().toString()));
             }
-            edges.add(edgeObj);
+            edgeObj.put("edge_source", "soot_cg");
+            String key = edgeKey(edgeObj);
+            if (edgeKeys.add(key)) {
+                edges.add(edgeObj);
+                cgEdges += 1;
+            }
         }
+
+        jimpleEdges = appendInvokeEdges(edges, edgeKeys, methodSet);
 
         List<Map<String, Object>> nodes = new ArrayList<>();
         for (String sig : methodSet) {
@@ -141,6 +153,9 @@ public class SootExtractorMain {
         metadata.put("android_jar_api", jarSelection.apiLevel);
         metadata.put("application_class_count", Scene.v().getApplicationClasses().size());
         metadata.put("entrypoint_count", entryPoints.size());
+        metadata.put("cg_edge_count", cgEdges);
+        metadata.put("jimple_edge_count", jimpleEdges);
+        metadata.put("edge_total", edges.size());
         List<String> entrypointSamples = new ArrayList<>();
         for (int i = 0; i < Math.min(entryPoints.size(), 50); i++) {
             entrypointSamples.add(entryPoints.get(i).getSignature());
@@ -196,6 +211,14 @@ public class SootExtractorMain {
         map.put("android.app.Application", new LinkedHashSet<>(Collections.singletonList("onCreate")));
         map.put("android.accessibilityservice.AccessibilityService", new LinkedHashSet<>(Arrays.asList(
                 "onAccessibilityEvent", "onInterrupt", "onServiceConnected"
+        )));
+        map.put("android.app.Fragment", new LinkedHashSet<>(Arrays.asList(
+                "onAttach", "onCreate", "onCreateView", "onViewCreated", "onActivityCreated",
+                "onStart", "onResume", "onPause", "onStop", "onDestroyView", "onDestroy", "onDetach"
+        )));
+        map.put("androidx.fragment.app.Fragment", new LinkedHashSet<>(Arrays.asList(
+                "onAttach", "onCreate", "onCreateView", "onViewCreated", "onActivityCreated",
+                "onStart", "onResume", "onPause", "onStop", "onDestroyView", "onDestroy", "onDetach"
         )));
         return map;
     }
@@ -438,6 +461,76 @@ public class SootExtractorMain {
         try (FileWriter writer = new FileWriter(file, StandardCharsets.UTF_8)) {
             writer.write(gson.toJson(payload));
         }
+    }
+
+    private static void writeEntrypoints(File outputFile, List<SootMethod> entryPoints) throws Exception {
+        List<String> entries = new ArrayList<>();
+        for (SootMethod method : entryPoints) {
+            entries.add(method.getSignature());
+        }
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("entrypoints", entries);
+        payload.put("count", entries.size());
+        writeJson(outputFile, payload);
+    }
+
+    private static String edgeKey(Map<String, Object> edgeObj) {
+        String caller = String.valueOf(edgeObj.get("caller"));
+        String callee = String.valueOf(edgeObj.get("callee"));
+        String callsite = "";
+        Object callsiteObj = edgeObj.get("callsite");
+        if (callsiteObj instanceof Map) {
+            Object unit = ((Map<?, ?>) callsiteObj).get("unit");
+            if (unit != null) {
+                callsite = unit.toString();
+            }
+        }
+        return caller + "->" + callee + "|" + callsite;
+    }
+
+    private static int appendInvokeEdges(
+            List<Map<String, Object>> edges,
+            Set<String> edgeKeys,
+            Set<String> methodSet
+    ) {
+        int added = 0;
+        for (SootClass cls : Scene.v().getApplicationClasses()) {
+            for (SootMethod method : cls.getMethods()) {
+                if (!method.isConcrete()) {
+                    continue;
+                }
+                try {
+                    for (Unit unit : method.retrieveActiveBody().getUnits()) {
+                        if (!(unit instanceof Stmt)) {
+                            continue;
+                        }
+                        Stmt stmt = (Stmt) unit;
+                        if (!stmt.containsInvokeExpr()) {
+                            continue;
+                        }
+                        SootMethod target = stmt.getInvokeExpr().getMethod();
+                        if (target == null) {
+                            continue;
+                        }
+                        Map<String, Object> edgeObj = new HashMap<>();
+                        edgeObj.put("caller", method.getSignature());
+                        edgeObj.put("callee", target.getSignature());
+                        edgeObj.put("callsite", Collections.singletonMap("unit", stmt.toString()));
+                        edgeObj.put("edge_source", "jimple_invoke");
+                        String key = edgeKey(edgeObj);
+                        if (edgeKeys.add(key)) {
+                            edges.add(edgeObj);
+                            methodSet.add(method.getSignature());
+                            methodSet.add(target.getSignature());
+                            added += 1;
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // Skip methods without bodies
+                }
+            }
+        }
+        return added;
     }
 
     private static Map<String, String> parseArgs(String[] args) {
