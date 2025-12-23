@@ -508,8 +508,10 @@ public class SootExtractorMain {
             Set<String> methodSet
     ) {
         int added = 0;
-        for (SootClass cls : Scene.v().getApplicationClasses()) {
-            for (SootMethod method : cls.getMethods()) {
+        List<SootClass> classes = new ArrayList<>(Scene.v().getApplicationClasses());
+        for (SootClass cls : classes) {
+            List<SootMethod> methods = new ArrayList<>(cls.getMethods());
+            for (SootMethod method : methods) {
                 if (!method.isConcrete()) {
                     continue;
                 }
