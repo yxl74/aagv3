@@ -20,6 +20,7 @@
     <thead>
       <tr>
         <th>Analysis ID</th>
+        <th>Run ID</th>
         <th>Mode</th>
         <th>Start</th>
         <th>Status</th>
@@ -29,7 +30,8 @@
     <tbody>
       {% for run in runs %}
       <tr>
-        <td><a href="/runs/{{ run.analysis_id }}">{{ run.analysis_id }}</a></td>
+        <td><a href="/runs/{{ run.analysis_id }}/{{ run.run_id }}">{{ run.analysis_id }}</a></td>
+        <td>{{ run.run_id or "legacy" }}</td>
         <td>{{ run.mode or "unknown" }}</td>
         <td>{{ run.start_ts or "-" }}</td>
         <td>{{ run.end_status or "-" }}</td>
