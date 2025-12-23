@@ -27,56 +27,33 @@ Identifiers:
 - `analysis_id` is the APK SHA-256 hash (or the Knox ID if no APK is provided).
 - `run_id` is generated per run; artifacts live under `artifacts/{analysis_id}/runs/{run_id}/` and logs under `artifacts/{analysis_id}/observability/runs/{run_id}.jsonl`.
 
-### Combined workflow
+### Workflow overview (no diagram)
 
-```mermaid
-flowchart TD
-  A[Inputs<br/>APK path + Knox APK ID] --> B[Stage A: Static Preprocess<br/>Knox metadata + local extractors]
-  B --> C[Stage B: Graph Extraction<br/>Soot callgraph + CFGs]
-  C --> D[Stage C: Sensitive API Matching<br/>catalog-driven hits]
-  D --> E[Stage D: Recon Agent<br/>build cases]
-  E --> F[Stage E: Seeding<br/>SuspiciousApiIndex]
-  F --> G[Stage F: Context Bundles + Slices]
-  G --> H[Tier-1 Summarizer]
-  H --> I[Verifier]
-  I --> J{FlowDroid available + verified seeds?}
-  J -- yes --> K[Targeted FlowDroid]
-  J -- no --> L[Tier-2 Intent]
-  K --> L
-  L --> M[Report Agent]
-  M --> N[Threat Report + MITRE Mapping]
-```
-
-### APK-only workflow
-
-```mermaid
-flowchart TD
-  A[Input<br/>APK path] --> B[Stage A: Local static extractors]
-  B --> C[Stage A2: JADX decompile (temp dir)]
-  C --> D[Stage B: Graph Extraction<br/>Soot callgraph + CFGs]
-  D --> E[Stage C: Sensitive API Matching<br/>catalog-driven hits]
-  E --> F[Stage D: Recon Agent<br/>build cases]
-  F --> G[Stage E: Seeding<br/>SuspiciousApiIndex]
-  G --> H[Stage F: Context Bundles + Slices]
-  H --> I[Tier-1 Summarizer]
-  I --> J[Verifier]
-  J --> K{FlowDroid available + verified seeds?}
-  K -- yes --> L[Targeted FlowDroid]
-  K -- no --> M[Tier-2 Intent]
-  L --> M
-  M --> N[Report Agent]
-  N --> O[Threat Report + MITRE Mapping]
-```
-
-High-level steps:
-- Build static artifacts (manifest, permissions, strings, certs, Knox indicators).
-- Build callgraph + CFGs with Soot and match sensitive API callsites via the catalog.
-- Extract entrypoint -> sink control-flow paths with callsite statements and branch constraints.
-- Build recon cases and seed suspicious APIs (cases first, then DEX indexing fallback).
-- Build CFG slices + context bundles for each seed.
-- Run LLM agents (Recon -> Tier1 -> Verifier -> Tier2) with evidence gating.
-- Run FlowDroid after verified seeds are identified (optional, if jars are present).
-- Emit report with evidence supports and MITRE mappings.
+1) Initialize the run and derive `analysis_id` + `run_id`.
+2) Static preprocess:
+   - Always parse the APK locally (manifest, strings, certs).
+   - In combined mode, fetch Knox metadata (manifest/components/threat indicators) and let it override local manifest fields when present.
+3) APK-only decompile (opt-in):
+   - Decompile the APK with JADX into a temp directory and set a local search fallback (used only if DEX indexing yields no hits).
+4) Graph extraction:
+   - Build callgraph + per-method CFGs with Soot using Android platform jars.
+5) Sensitive API matching:
+   - Match callgraph edges against the sensitive API catalog and compute entrypoint reachability.
+6) Recon + seeding:
+   - Recon turns sensitive hits into investigation cases.
+   - Seeding produces a `SuspiciousApiIndex` from cases; if no cases, fall back to DEX invocation indexing, then Knox/JADX search.
+7) Context bundles + control-flow paths:
+   - Build backward CFG slices and branch conditions per seed.
+   - Derive entrypoint -> sink control-flow paths (method chain + callsite statements) and attach branch constraints.
+8) Tier1 + Verifier:
+   - Tier1 extracts behavior + constraints from slices.
+   - Verifier filters Tier1 facts against evidence.
+9) Optional FlowDroid:
+   - If enabled and verified seeds exist, run targeted taint analysis and pass the summary to Tier2 (data-flow evidence only).
+10) Tier2:
+   - Generates driver guidance grounded in the control-flow path, constraints, case context, and FlowDroid summary (if present).
+11) Reporting:
+   - Produce the final threat report + MITRE mappings + driver guidance.
 
 ## Detailed Workflow and Tool Usage
 
@@ -119,19 +96,22 @@ Stage F: Context bundles + CFG slices
 - **Control-flow paths**: derives entrypoint -> sink method chains using callgraph reachability + callsite statements, and attaches branch conditions from slices.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/graphs/slices/<seed_id>.json`, `graphs/context_bundles/<seed_id>.json`, `graphs/entrypoint_paths/<seed_id>.json`, `graphs/entrypoint_paths.json`.
 
-Stage G: Tiered LLM reasoning (dynamic-analysis focused)
+Stage G: Tier1 + Verifier (LLM grounding)
 - **Tier1**: summarizes behavior and extracts execution constraints (branch predicates, required inputs, triggers).
-- **Verifier**: enforces evidence grounding against slice units and context bundles.
-- **Tier2**: produces driver guidance (ADB/UI Automator/Frida-friendly) using Tier1 + control-flow paths + static context + case context + FlowDroid summary (if present).
+- **Verifier**: enforces evidence grounding against slice units and context bundles; only verified seeds advance.
 - LLM JSON is parsed with a tolerant parser (`src/apk_analyzer/utils/llm_json.py`) and falls back to safe defaults on invalid output.
-- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/*`, plus `llm_inputs/` and `llm_outputs/` for raw prompts/returns.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/tier1/*.json`, `llm/verifier/*.json`, plus `llm_inputs/` and `llm_outputs/` for raw prompts/returns.
 
 Stage H: Targeted taint analysis (optional)
 - **FlowDroid CLI jar** (`src/apk_analyzer/tools/flowdroid_tools.py`): runs taint analysis using a generated sources/sinks subset based on categories present in verified seeds.
-- **Usage**: summary is fed into Tier2 to suggest entrypoint triggers and taint-confirmation steps.
+- **Usage**: summary is fed into Tier2 as data-flow evidence (not required for driver paths).
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/taint/flowdroid_summary.json`.
 
-Stage I: Reporting + MITRE mapping
+Stage I: Tier2 intent + driver guidance
+- **Tier2**: produces driver guidance (ADB/UI Automator/Frida-friendly) using Tier1 + control-flow paths + static context + case context + FlowDroid summary (if present).
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/tier2/*.json`.
+
+Stage J: Reporting + MITRE mapping
 - **MITRE mapping** (`config/mitre/` + `src/apk_analyzer/analyzers/mitre_mapper.py`): maps extracted evidence to ATT&CK techniques.
 - **Report**: includes `driver_guidance` synthesized from Tier-2 outputs for dynamic analysis.
   - `artifacts/{analysis_id}/runs/{run_id}/report/threat_report.json` and `.md`.
