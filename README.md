@@ -37,7 +37,7 @@ Identifiers:
    - Decompile the APK with JADX into a temp directory and set a local search fallback (used only if DEX indexing yields no hits).
 4) Graph extraction:
    - Build callgraph + per-method CFGs with Soot using Android platform jars (target SDK -> nearest higher jar selection).
-   - Default callgraph algorithm is CHA for better coverage with framework stubs.
+   - Default callgraph algorithm is SPARK; use CHA only if you need extra coverage and can tolerate more noise.
 5) Sensitive API matching:
    - Match callgraph edges against the sensitive API catalog and compute entrypoint reachability.
 6) Recon + seeding:
@@ -370,7 +370,7 @@ Key settings live in `config/settings.yaml`:
 - `analysis.soot_extractor_jar_path`: Soot extractor jar path.
 - `analysis.jadx_path`: JADX binary or jar (used in apk-only mode).
 - `analysis.jadx_timeout_sec`: JADX decompile timeout.
-- `analysis.callgraph_algo`: `CHA` (default) or `SPARK`.
+- `analysis.callgraph_algo`: `SPARK` (default) or `CHA`.
 - `analysis.k_hop`: call graph neighborhood hops.
 - `analysis.max_seed_count`: maximum seeds to process.
 - `analysis.flowdroid_timeout_sec`: FlowDroid timeout in seconds.

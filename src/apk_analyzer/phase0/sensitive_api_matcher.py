@@ -49,12 +49,15 @@ def build_sensitive_api_hits(
     distances, predecessors = _bfs_from_entrypoints(adjacency, entrypoints)
     hierarchy_map = _build_hierarchy_map(class_hierarchy)
     compat_index = _build_compat_index(catalog) if hierarchy_map else {}
+    method_is_framework = _build_framework_index(callgraph)
 
     hits: List[Dict[str, Any]] = []
     for edge in callgraph.get("edges", []) or []:
         caller_sig = normalize_signature(edge.get("caller", ""))
         callee_sig = normalize_signature(edge.get("callee", ""))
         if not caller_sig or not callee_sig:
+            continue
+        if _is_framework_method(caller_sig, method_is_framework):
             continue
         categories = catalog.match_method(callee_sig)
         match_type = "exact" if categories else None
@@ -373,6 +376,32 @@ def _callgraph_summary(callgraph: Dict[str, Any], entrypoints: List[str], entryp
         "entrypoints": entrypoints[:50],
         "entrypoints_source": entrypoints_source,
     }
+
+
+def _build_framework_index(callgraph: Dict[str, Any]) -> Dict[str, bool]:
+    index: Dict[str, bool] = {}
+    for node in callgraph.get("nodes", []) or []:
+        method = normalize_signature(node.get("method", ""))
+        if not method:
+            continue
+        index[method] = bool(node.get("is_android_framework"))
+    return index
+
+
+def _is_framework_method(signature: str, method_is_framework: Dict[str, bool]) -> bool:
+    if signature in method_is_framework:
+        return method_is_framework[signature]
+    class_name = _class_name_from_signature(signature)
+    return class_name.startswith((
+        "android.",
+        "androidx.",
+        "java.",
+        "javax.",
+        "kotlin.",
+        "kotlinx.",
+        "dalvik.",
+        "sun.",
+    ))
 
 
 def _hit_sort_key(hit: Dict[str, Any]) -> Tuple[int, float]:
