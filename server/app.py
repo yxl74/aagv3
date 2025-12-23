@@ -11,7 +11,15 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 
 
-ARTIFACTS_DIR = Path(os.environ.get("ARTIFACTS_DIR", "/workspace/artifacts"))
+def _resolve_artifacts_dir() -> Path:
+    env_path = os.environ.get("ARTIFACTS_DIR")
+    if env_path:
+        return Path(env_path)
+    repo_root = Path(__file__).resolve().parents[1]
+    return repo_root / "artifacts"
+
+
+ARTIFACTS_DIR = _resolve_artifacts_dir()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app = FastAPI(title="APK Analysis Observability")
 
