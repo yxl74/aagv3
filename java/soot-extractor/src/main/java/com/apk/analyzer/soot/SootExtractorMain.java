@@ -104,6 +104,12 @@ public class SootExtractorMain {
 
         for (Iterator<Edge> it = cg.iterator(); it.hasNext(); ) {
             Edge edge = it.next();
+            if (edge.getSrc() == null || edge.getTgt() == null) {
+                continue;
+            }
+            if (edge.getSrc().method() == null || edge.getTgt().method() == null) {
+                continue;
+            }
             SootMethod src = edge.getSrc().method();
             SootMethod tgt = edge.getTgt().method();
             methodSet.add(src.getSignature());
