@@ -185,11 +185,15 @@ public class SootExtractorMain {
                     continue;
                 }
                 for (String methodName : entrypointMethods.get(baseEntry.getKey())) {
-                    if (cls.declaresMethodByName(methodName)) {
-                        for (SootMethod method : cls.getMethodsByName(methodName)) {
-                            if (method != null && method.isConcrete()) {
-                                entryPoints.add(method);
-                            }
+                    if (!cls.declaresMethodByName(methodName)) {
+                        continue;
+                    }
+                    for (SootMethod method : cls.getMethods()) {
+                        if (method == null || !method.isConcrete()) {
+                            continue;
+                        }
+                        if (methodName.equals(method.getName())) {
+                            entryPoints.add(method);
                         }
                     }
                 }
