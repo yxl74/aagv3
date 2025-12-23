@@ -26,8 +26,12 @@ class Tier2IntentAgent:
                 "intent_verdict": "likely_legitimate",
                 "rationale": ["LLM disabled; no intent inference."],
                 "evidence": [],
+                "driver_plan": [],
+                "environment_setup": [],
+                "execution_checks": [],
                 "taint_recommended": False,
                 "taint_question": "",
+                "flowdroid_summary": payload.get("flowdroid_summary") or {},
             }
         response = self.llm_client.complete(self.prompt, payload, model=self.model)
         fallback = {
@@ -35,8 +39,12 @@ class Tier2IntentAgent:
             "intent_verdict": "unknown",
             "rationale": ["LLM output invalid; no intent inference."],
             "evidence": [],
+            "driver_plan": [],
+            "environment_setup": [],
+            "execution_checks": [],
             "taint_recommended": False,
             "taint_question": "",
+            "flowdroid_summary": payload.get("flowdroid_summary") or {},
         }
         return coerce_llm_dict(
             response,
@@ -46,7 +54,11 @@ class Tier2IntentAgent:
                 "intent_verdict",
                 "rationale",
                 "evidence",
+                "driver_plan",
+                "environment_setup",
+                "execution_checks",
                 "taint_recommended",
                 "taint_question",
+                "flowdroid_summary",
             ),
         )

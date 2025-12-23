@@ -61,6 +61,15 @@ def _build_slice_from_cfg(cfg: Dict[str, Any], seed_match: str) -> Dict[str, Any
     return {"units": slice_units, "edges": edges}
 
 
+def _looks_like_branch(stmt: str) -> bool:
+    stmt = stmt.strip()
+    if stmt.startswith("if "):
+        return True
+    if stmt.startswith("switch "):
+        return True
+    return " goto " in stmt or " == " in stmt or " != " in stmt or " < " in stmt or " > " in stmt
+
+
 def _fcg_neighborhood(callgraph: Dict[str, Any], method_sig: str, k: int) -> Dict[str, Any]:
     edges = callgraph.get("edges", [])
     callers_map: Dict[str, List[str]] = {}
@@ -153,6 +162,11 @@ class ContextBundleBuilder:
             }
             self.artifact_store.write_json(f"graphs/slices/{callsite.seed_id}.json", slice_payload)
             validate_json(slice_payload, "config/schemas/BackwardSlice.schema.json")
+            branch_conditions = [
+                {"unit_id": u.get("unit_id"), "stmt": u.get("stmt", "")}
+                for u in sliced_cfg.get("units", [])
+                if _looks_like_branch(u.get("stmt", ""))
+            ]
             bundle = {
                 "seed_id": callsite.seed_id,
                 "api_category": callsite.category,
@@ -162,7 +176,18 @@ class ContextBundleBuilder:
                 "sliced_cfg": sliced_cfg,
                 "fcg_neighborhood": _fcg_neighborhood(callgraph, callsite.caller_method, k_hop),
                 "static_context": static_context,
+                "callsite_descriptor": callsite.callsite_descriptor,
+                "branch_conditions": branch_conditions,
             }
+            if isinstance(callsite.callsite_descriptor, dict):
+                case_context = {
+                    "case_id": callsite.callsite_descriptor.get("case_id"),
+                    "priority": callsite.callsite_descriptor.get("priority"),
+                    "component_context": callsite.callsite_descriptor.get("component_context"),
+                    "reachability": callsite.callsite_descriptor.get("reachability"),
+                }
+                if any(value is not None for value in case_context.values()):
+                    bundle["case_context"] = case_context
             self.artifact_store.write_json(f"graphs/context_bundles/{callsite.seed_id}.json", bundle)
             validate_json(bundle, "config/schemas/ContextBundle.schema.json")
             bundles.append(bundle)
