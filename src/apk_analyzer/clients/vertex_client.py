@@ -54,4 +54,9 @@ def _extract_text(payload: Dict[str, Any]) -> str:
             text = part.get("text")
             if text:
                 return text
-    raise ValueError("Vertex response contained no text")
+    fallback = {
+        "error": "vertex_no_text",
+        "prompt_feedback": payload.get("promptFeedback"),
+        "candidate_count": len(candidates),
+    }
+    return json.dumps(fallback, ensure_ascii=True)
