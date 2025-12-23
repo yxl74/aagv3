@@ -12,7 +12,7 @@ LLM-assisted Android APK malware analysis pipeline aligned to LAMD: deterministi
 - LLM agent stubs (Recon, Tier1, Verifier, Tier2, Report) with deterministic consistency checking.
 - Targeted FlowDroid execution via CLI jar + sources/sinks subset generation.
 - MITRE Mobile ATT&CK mapping via local rules and optional dataset fetch.
-- Artifacts are stored under `artifacts/{analysis_id}/` for traceability.
+- Artifacts are stored under `artifacts/{analysis_id}/runs/{run_id}/` for traceability, with per-run logs in `artifacts/{analysis_id}/observability/runs/{run_id}.jsonl`.
 
 ## Workflow
 
@@ -74,7 +74,7 @@ Stage A: Static preprocess (local APK + Knox)
 - **Androguard APK parser** (`src/apk_analyzer/analyzers/static_extractors.py`): extracts manifest metadata (package, version, permissions, components, SDK) from the APK.
 - **ZIP parsing** (built-in `zipfile`): extracts ASCII strings from `classes*.dex` and assets; extracts cert blobs from `META-INF/*.RSA|*.DSA|*.EC`.
 - **Knox Vision API** (`src/apk_analyzer/clients/knox_client.py`, combined mode): pulls full analysis, manifest, components, threat indicators; if present, Knox manifest overrides local manifest.
-- **Artifacts**: `artifacts/{analysis_id}/static/manifest.json`, `strings.json`, `cert.json`, `knox_full.json`, `components.json`, `permissions.json`.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/static/manifest.json`, `strings.json`, `cert.json`, `knox_full.json`, `components.json`, `permissions.json`.
 
 Stage A2: APK-only decompile (opt-in)
 - **JADX** (`src/apk_analyzer/analyzers/jadx_extractors.py`): decompiles APK to a temp directory for local search. The temp directory is deleted after analysis.
@@ -83,12 +83,12 @@ Stage A2: APK-only decompile (opt-in)
 
 Stage B: Graph extraction
 - **Soot extractor (Java)** (`java/soot-extractor`): builds call graph + per-method CFGs using Android platform jars.
-- **Outputs**: `artifacts/{analysis_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`.
+- **Outputs**: `artifacts/{analysis_id}/runs/{run_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`.
 
 Stage C: Sensitive API matching (catalog-driven)
 - **Sensitive API catalog** (`config/android_sensitive_api_catalog.json`): maps Soot signatures to categories, priorities, and tags.
 - **Matcher** (`src/apk_analyzer/phase0/sensitive_api_matcher.py`): walks callgraph edges, matches callees to catalog signatures, and emits `sensitive_api_hits.json` with reachability hints.
-- **Artifacts**: `artifacts/{analysis_id}/seeds/sensitive_api_hits.json`.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/seeds/sensitive_api_hits.json`.
 
 Stage D: Case-driven slices
 - **Recon** builds cases from `sensitive_api_hits.json` and requests slices only where required.
@@ -99,17 +99,17 @@ Stage D: LLM reasoning (dynamic-analysis focused)
 - **Tier1**: summarizes behavior **and** extracts execution constraints (branch predicates, required inputs, triggers).
 - **Verifier**: enforces evidence grounding (non-LLM consistency check).
 - **Tier2**: produces a driver plan (ADB/UI Automator/Frida friendly) and environment setup checklist.
-- **Artifacts**: `artifacts/{analysis_id}/llm/*` with JSON outputs.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/*` with JSON outputs.
 
 Stage E: Targeted taint analysis (optional)
 - **FlowDroid CLI jar** (`src/apk_analyzer/tools/flowdroid_tools.py`): runs taint analysis using a generated sources/sinks subset based on categories present in verified cases.
 - **Usage**: summary is fed into Tier2 to suggest entrypoint triggers and taint-confirmation steps.
-- **Artifacts**: `artifacts/{analysis_id}/taint/flowdroid_summary.json`.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/taint/flowdroid_summary.json`.
 
 Stage F: Reporting + MITRE mapping
 - **MITRE mapping** (`config/mitre/` + `src/apk_analyzer/analyzers/mitre_mapper.py`): maps extracted evidence to ATT&CK techniques.
 - **Report**: includes `driver_guidance` synthesized from Tier-2 outputs for dynamic analysis.
-  - `artifacts/{analysis_id}/report/threat_report.json` and `.md`.
+  - `artifacts/{analysis_id}/runs/{run_id}/report/threat_report.json` and `.md`.
 
 ## Repo Layout
 
@@ -166,7 +166,7 @@ APK-only mode (opt-in):
 python -m apk_analyzer.main --mode apk-only --apk /path/to/app.apk
 ```
 
-Artifacts are written under `artifacts/{analysis_id}/`.
+Artifacts are written under `artifacts/{analysis_id}/runs/{run_id}/` (the same APK hash yields the same `analysis_id`, while each run gets a new `run_id`).
 
 ## Docker Setup (Recommended for FlowDroid/Soot)
 
@@ -276,8 +276,8 @@ docker compose run --rm aag \
    - `stage`
    - `tool_name`
 4) For LLM calls, span events include:
-   - `llm.input` -> `artifacts/{analysis_id}/llm_inputs/...`
-   - `llm.output` -> `artifacts/{analysis_id}/llm_outputs/...`
+   - `llm.input` -> `artifacts/{analysis_id}/runs/{run_id}/llm_inputs/...`
+   - `llm.output` -> `artifacts/{analysis_id}/runs/{run_id}/llm_outputs/...`
 
 Notes:
 - Tempo stores traces; Loki is provisioned but log export is not enabled yet.
@@ -306,7 +306,7 @@ docker compose run --rm aag \
 - Run details: click an analysis/run ID to view stage timeline, seeding stats, recon output, Soot stats, API/tool events, and LLM I/O.
 
 Each run writes its own `observability/runs/<run_id>.jsonl` log, so reruns of the same APK no longer mix trace events.
-Artifacts are linked directly (e.g. `llm_inputs/`, `llm_outputs/`, `graphs/slices/`) so you can inspect the exact payloads.
+Artifacts are linked directly (e.g. `runs/<run_id>/llm_inputs/`, `runs/<run_id>/llm_outputs/`, `runs/<run_id>/graphs/slices/`) so you can inspect the exact payloads.
 
 ### Rebuild after FlowDroid changes
 
@@ -327,7 +327,7 @@ Notes:
 - `ANDROID_SDK_ROOT` is set to `/opt/android-sdk`, and `analysis.android_platforms_dir` auto-resolves to `/opt/android-sdk/platforms` if unset.
 - `jadx` is preinstalled at `/opt/jadx/bin/jadx` and available on `PATH`.
 - `KNOX_BASE_URL` defaults to `http://105.145.72.82:8081/api/v1` in `docker-compose.yml` and can be overridden via env.
-- Artifacts are written to `/workspace/artifacts/{analysis_id}/` on the host.
+- Artifacts are written to `/workspace/artifacts/{analysis_id}/runs/{run_id}/` on the host.
 
 ## Input Requirements
 
@@ -357,7 +357,7 @@ Key settings live in `config/settings.yaml`:
 - `llm.verify_ssl`: Set `false` to disable SSL verification for Vertex calls (PoC only).
 - `telemetry.enabled`: Enable OpenTelemetry export.
 - `telemetry.otlp_endpoint`: OTLP endpoint for traces (default `http://otel-collector:4317` in Docker).
-- `observability.enabled`: Enable the run ledger (`observability/run.jsonl`) consumed by the UI.
+- `observability.enabled`: Enable the run ledger (`observability/runs/<run_id>.jsonl`) consumed by the UI.
 
 Env overrides:
 
