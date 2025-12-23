@@ -15,8 +15,18 @@ def _resolve_artifacts_dir() -> Path:
     env_path = os.environ.get("ARTIFACTS_DIR")
     if env_path:
         return Path(env_path)
-    repo_root = Path(__file__).resolve().parents[1]
-    return repo_root / "artifacts"
+    candidates: List[Path] = []
+    try:
+        repo_root = Path(__file__).resolve().parents[1]
+        candidates.append(repo_root / "artifacts")
+    except Exception:
+        pass
+    candidates.append(Path.cwd() / "artifacts")
+    candidates.append(Path("/workspace/artifacts"))
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0] if candidates else Path("artifacts")
 
 
 ARTIFACTS_DIR = _resolve_artifacts_dir()
@@ -204,13 +214,13 @@ def _safe_artifact_path(analysis_id: str, rel_path: str) -> Path:
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     runs = _list_runs()
-    return templates.TemplateResponse("runs.html", {"request": request, "runs": runs})
+    return templates.TemplateResponse("runs.html", {"request": request, "runs": runs, "artifacts_dir": str(ARTIFACTS_DIR)})
 
 
 @app.get("/runs", response_class=HTMLResponse)
 def runs_page(request: Request):
     runs = _list_runs()
-    return templates.TemplateResponse("runs.html", {"request": request, "runs": runs})
+    return templates.TemplateResponse("runs.html", {"request": request, "runs": runs, "artifacts_dir": str(ARTIFACTS_DIR)})
 
 
 @app.get("/api/runs")
@@ -271,6 +281,7 @@ def _render_run_detail(
             "flowdroid": flowdroid,
             "llm_events": llm_events,
             "api_events": api_events,
+            "artifacts_dir": str(ARTIFACTS_DIR),
         },
     )
 
