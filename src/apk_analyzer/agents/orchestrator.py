@@ -143,12 +143,14 @@ class Orchestrator:
                 callgraph_path = None
                 callgraph_data = None
                 entrypoint_paths_ref = None
+                class_hierarchy = None
                 android_platforms = self.settings["analysis"].get("android_platforms_dir")
                 soot_jar = self.settings["analysis"].get("soot_extractor_jar_path") or "java/soot-extractor/build/libs/soot-extractor.jar"
                 if apk_path and android_platforms:
                     event_logger.stage_start("graphs")
                     with span("stage.graphs", stage="graphs"):
                         out_dir = artifact_store.path("graphs")
+                        target_sdk = _parse_target_sdk(manifest)
                         run_soot_extractor(
                             apk_path,
                             android_platforms,
@@ -156,15 +158,22 @@ class Orchestrator:
                             soot_jar,
                             cg_algo=self.settings["analysis"].get("callgraph_algo", "SPARK"),
                             k_hop=self.settings["analysis"].get("k_hop", 2),
+                            target_sdk=target_sdk,
                         )
                         callgraph_path = artifact_store.path("graphs/callgraph.json")
+                        class_hierarchy_path = artifact_store.path("graphs/class_hierarchy.json")
+                        if class_hierarchy_path.exists():
+                            class_hierarchy = load_callgraph(class_hierarchy_path)
                         callgraph_stats: Dict[str, Any] = {}
                         if callgraph_path.exists():
                             callgraph_data = load_callgraph(callgraph_path)
                             validate_json(callgraph_data, "config/schemas/CallGraph.schema.json")
+                            metadata = callgraph_data.get("metadata", {}) if isinstance(callgraph_data, dict) else {}
                             callgraph_stats = {
                                 "node_count": len(callgraph_data.get("nodes", [])),
                                 "edge_count": len(callgraph_data.get("edges", [])),
+                                "android_jar_api": metadata.get("android_jar_api"),
+                                "android_jar_reason": metadata.get("android_jar_reason"),
                             }
                     cfg_dir = artifact_store.path("graphs/cfg")
                     cfg_count = len(list(cfg_dir.glob("*.json"))) if cfg_dir.exists() else 0
@@ -173,6 +182,7 @@ class Orchestrator:
                         **callgraph_stats,
                         cfg_count=cfg_count,
                         callgraph_ref=artifact_store.relpath("graphs/callgraph.json") if callgraph_path else None,
+                        class_hierarchy_ref=artifact_store.relpath("graphs/class_hierarchy.json") if class_hierarchy else None,
                     )
                     event_logger.log(
                         "tool.soot",
@@ -181,6 +191,7 @@ class Orchestrator:
                         **callgraph_stats,
                         cfg_count=cfg_count,
                         callgraph_ref=artifact_store.relpath("graphs/callgraph.json") if callgraph_path else None,
+                        class_hierarchy_ref=artifact_store.relpath("graphs/class_hierarchy.json") if class_hierarchy else None,
                     )
 
                 sensitive_hits = None
@@ -193,6 +204,7 @@ class Orchestrator:
                             catalog,
                             manifest,
                             apk_path=apk_path,
+                            class_hierarchy=class_hierarchy,
                         )
                         artifact_store.write_json("seeds/sensitive_api_hits.json", sensitive_hits)
                         artifact_store.write_json(
@@ -472,6 +484,7 @@ class Orchestrator:
                         "sensitive_api_hits": artifact_store.relpath("seeds/sensitive_api_hits.json") if sensitive_hits else None,
                         "recon": artifact_store.relpath("llm/recon.json"),
                         "entrypoint_paths": entrypoint_paths_ref,
+                        "class_hierarchy": artifact_store.relpath("graphs/class_hierarchy.json") if class_hierarchy else None,
                     },
                     "mitre_candidates": mitre_candidates,
                     "driver_guidance": _build_driver_guidance(seed_summary_list),
@@ -660,6 +673,20 @@ def _build_driver_guidance(seed_summaries: List[Dict[str, Any]]) -> List[Dict[st
             "execution_checks": tier2.get("execution_checks", []),
         })
     return guidance
+
+
+def _parse_target_sdk(manifest: Dict[str, Any]) -> Optional[int]:
+    if not manifest:
+        return None
+    for key in ("target_sdk_version", "target_sdk", "targetSdkVersion"):
+        value = manifest.get(key)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 class _noop_context:

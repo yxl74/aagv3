@@ -36,7 +36,7 @@ Identifiers:
 3) APK-only decompile (opt-in):
    - Decompile the APK with JADX into a temp directory and set a local search fallback (used only if DEX indexing yields no hits).
 4) Graph extraction:
-   - Build callgraph + per-method CFGs with Soot using Android platform jars.
+   - Build callgraph + per-method CFGs with Soot using Android platform jars (target SDK -> nearest higher jar selection).
 5) Sensitive API matching:
    - Match callgraph edges against the sensitive API catalog and compute entrypoint reachability.
 6) Recon + seeding:
@@ -71,12 +71,16 @@ Stage A2: APK-only decompile (opt-in)
 Stage B: Graph extraction
 - **Soot extractor (Java)** (`java/soot-extractor`): builds call graph + per-method CFGs using Android platform jars.
 - Entry points are derived from Android component lifecycles (Activity/Service/Receiver/Provider/Application/AccessibilityService) across application classes.
-- The extractor forces the highest available `android.jar` under `analysis.android_platforms_dir` to stabilize call graph building.
-- **Outputs**: `artifacts/{analysis_id}/runs/{run_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`.
+- Android jar selection uses the APK target SDK when available:
+  - exact match if present,
+  - otherwise nearest higher available,
+  - otherwise highest available as fallback.
+- **Outputs**: `artifacts/{analysis_id}/runs/{run_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`, `graphs/class_hierarchy.json`.
 
 Stage C: Sensitive API matching (catalog-driven)
 - **Sensitive API catalog** (`config/android_sensitive_api_catalog.json`): maps Soot signatures to categories, priorities, and tags.
 - **Matcher** (`src/apk_analyzer/phase0/sensitive_api_matcher.py`): walks callgraph edges, matches callees to catalog signatures, maps callers to manifest components, and computes reachability from entrypoints.
+- If the callgraph resolves an interface/superclass instead of the catalog class, the matcher uses `class_hierarchy.json` to accept compatible classes with the same method signature.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/seeds/sensitive_api_hits.json`.
 
 Stage D: Recon + case creation (LLM)

@@ -559,8 +559,11 @@
       "signatures": {
         "methods": [
           "<android.view.WindowManager: void addView(android.view.View,android.view.ViewGroup$LayoutParams)>",
+          "<android.view.ViewManager: void addView(android.view.View,android.view.ViewGroup$LayoutParams)>",
           "<android.view.WindowManager: void updateViewLayout(android.view.View,android.view.ViewGroup$LayoutParams)>",
+          "<android.view.ViewManager: void updateViewLayout(android.view.View,android.view.ViewGroup$LayoutParams)>",
           "<android.view.WindowManager: void removeView(android.view.View)>",
+          "<android.view.ViewManager: void removeView(android.view.View)>",
           "<android.provider.Settings: boolean canDrawOverlays(android.content.Context)>"
         ],
         "fields": [],

@@ -13,6 +13,8 @@ def run_soot_extractor(
     jar_path: str | Path,
     cg_algo: str = "SPARK",
     k_hop: int = 2,
+    target_sdk: int | None = None,
+    android_jar: str | Path | None = None,
     timeout_sec: int = 600,
 ) -> Optional[Path]:
     apk_path = Path(apk_path)
@@ -37,6 +39,10 @@ def run_soot_extractor(
         "--k-hop",
         str(k_hop),
     ]
+    if target_sdk:
+        cmd.extend(["--target-sdk", str(target_sdk)])
+    if android_jar:
+        cmd.extend(["--android-jar", str(android_jar)])
     with span("tool.soot", tool_name="soot", cg_algo=cg_algo, k_hop=k_hop, timeout_sec=timeout_sec):
         subprocess.run(cmd, check=True, timeout=timeout_sec)
     return out_dir

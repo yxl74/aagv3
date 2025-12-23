@@ -119,6 +119,9 @@
       {% if graphs.callgraph_ref %}
       <p><a href="/runs/{{ analysis_id }}/artifact/{{ graphs.callgraph_ref }}">View callgraph JSON</a></p>
       {% endif %}
+      {% if graphs.class_hierarchy_ref %}
+      <p><a href="/runs/{{ analysis_id }}/artifact/{{ graphs.class_hierarchy_ref }}">View class hierarchy JSON</a></p>
+      {% endif %}
     {% else %}
       <p>No callgraph stats recorded.</p>
     {% endif %}
