@@ -5,11 +5,13 @@ LLM-assisted Android APK malware analysis pipeline aligned to LAMD: deterministi
 ## What This Implements
 
 - Knox Vision API client for static metadata, decompiled source access, bytecode method lookup, and APK download.
-- Local static extractors (manifest, strings, certs) using androguard + ZIP parsing.
-- Suspicious API catalog + DEX invocation indexing (androguard) with Knox search fallback.
-- Java-based Soot extractor that exports call graph JSON and per-method CFG JSON.
-- Context bundle builder + basic backward slice for seed context.
-- LLM agent stubs (Recon, Tier1, Verifier, Tier2, Report) with deterministic consistency checking.
+- Local static extractors (manifest, strings, certs) using Androguard + ZIP parsing.
+- Callgraph-sensitive API matcher (catalog-driven) with reachability from Android entrypoints.
+- Recon agent with tool runner to build investigation cases from sensitive API hits.
+- Suspicious API seeding via recon cases or DEX invocation indexing (Androguard 4.x tested), with Knox/JADX fallback.
+- Java-based Soot extractor that exports call graph JSON and per-method CFG JSON, using component lifecycle entrypoints and the latest `android.jar`.
+- Context bundle builder with backward CFG slices, branch conditions, and k-hop callgraph neighborhoods.
+- Tiered LLM reasoning (Recon -> Tier1 -> Verifier -> Tier2 -> Report) with tolerant JSON parsing and driver guidance output.
 - Targeted FlowDroid execution via CLI jar + sources/sinks subset generation.
 - MITRE Mobile ATT&CK mapping via local rules and optional dataset fetch.
 - Artifacts are stored under `artifacts/{analysis_id}/runs/{run_id}/` for traceability, with per-run logs in `artifacts/{analysis_id}/observability/runs/{run_id}.jsonl`.
@@ -21,6 +23,10 @@ The pipeline has two modes:
 - **Combined (default):** requires the local APK path + Knox APK ID.
 - **APK-only (opt-in):** requires the local APK path only, uses JADX to decompile into a temp dir, and falls back to local source search when Knox is unavailable. The temp dir is deleted after analysis.
 
+Identifiers:
+- `analysis_id` is the APK SHA-256 hash (or the Knox ID if no APK is provided).
+- `run_id` is generated per run; artifacts live under `artifacts/{analysis_id}/runs/{run_id}/` and logs under `artifacts/{analysis_id}/observability/runs/{run_id}.jsonl`.
+
 ### Combined workflow
 
 ```mermaid
@@ -29,15 +35,16 @@ flowchart TD
   B --> C[Stage B: Graph Extraction<br/>Soot callgraph + CFGs]
   C --> D[Stage C: Sensitive API Matching<br/>catalog-driven hits]
   D --> E[Stage D: Recon Agent<br/>build cases]
-  E --> F[Stage E: Slice Extraction<br/>case-driven CFG slices]
-  F --> G[Tier-1 Summarizer<br/>function behavior]
-  G --> H[Verifier<br/>consistency_check]
-  H --> I[Tier-2 Intent<br/>graph reasoning]
-  I --> J{Need taint confirmation?}
-  J -- yes --> K[Targeted FlowDroid<br/>sources/sinks subset]
-  J -- no --> L[Report Agent<br/>JSON + markdown]
+  E --> F[Stage E: Seeding<br/>SuspiciousApiIndex]
+  F --> G[Stage F: Context Bundles + Slices]
+  G --> H[Tier-1 Summarizer]
+  H --> I[Verifier]
+  I --> J{FlowDroid available + verified seeds?}
+  J -- yes --> K[Targeted FlowDroid]
+  J -- no --> L[Tier-2 Intent]
   K --> L
-  L --> M[Threat Report + MITRE Mapping]
+  L --> M[Report Agent]
+  M --> N[Threat Report + MITRE Mapping]
 ```
 
 ### APK-only workflow
@@ -49,23 +56,25 @@ flowchart TD
   C --> D[Stage B: Graph Extraction<br/>Soot callgraph + CFGs]
   D --> E[Stage C: Sensitive API Matching<br/>catalog-driven hits]
   E --> F[Stage D: Recon Agent<br/>build cases]
-  F --> G[Stage E: Slice Extraction<br/>case-driven CFG slices]
-  G --> H[Tier-1 Summarizer<br/>function behavior]
-  H --> I[Verifier<br/>consistency_check]
-  I --> J[Tier-2 Intent<br/>graph reasoning]
-  J --> K{Need taint confirmation?}
-  K -- yes --> L[Targeted FlowDroid<br/>sources/sinks subset]
-  K -- no --> M[Report Agent<br/>JSON + markdown]
+  F --> G[Stage E: Seeding<br/>SuspiciousApiIndex]
+  G --> H[Stage F: Context Bundles + Slices]
+  H --> I[Tier-1 Summarizer]
+  I --> J[Verifier]
+  J --> K{FlowDroid available + verified seeds?}
+  K -- yes --> L[Targeted FlowDroid]
+  K -- no --> M[Tier-2 Intent]
   L --> M
-  M --> N[Threat Report + MITRE Mapping]
+  M --> N[Report Agent]
+  N --> O[Threat Report + MITRE Mapping]
 ```
 
 High-level steps:
 - Build static artifacts (manifest, permissions, strings, certs, Knox indicators).
-- Match sensitive API callsites from the callgraph using the catalog.
-- Build callgraph and CFG slices for each seed and create context bundles.
+- Build callgraph + CFGs with Soot and match sensitive API callsites via the catalog.
+- Build recon cases and seed suspicious APIs (cases first, then DEX indexing fallback).
+- Build CFG slices + context bundles for each seed.
 - Run LLM agents (Recon -> Tier1 -> Verifier -> Tier2) with evidence gating.
-- Run FlowDroid only if Tier2 requests taint confirmation.
+- Run FlowDroid after verified seeds are identified (optional, if jars are present).
 - Emit report with evidence supports and MITRE mappings.
 
 ## Detailed Workflow and Tool Usage
@@ -73,7 +82,7 @@ High-level steps:
 Stage A: Static preprocess (local APK + Knox)
 - **Androguard APK parser** (`src/apk_analyzer/analyzers/static_extractors.py`): extracts manifest metadata (package, version, permissions, components, SDK) from the APK.
 - **ZIP parsing** (built-in `zipfile`): extracts ASCII strings from `classes*.dex` and assets; extracts cert blobs from `META-INF/*.RSA|*.DSA|*.EC`.
-- **Knox Vision API** (`src/apk_analyzer/clients/knox_client.py`, combined mode): pulls full analysis, manifest, components, threat indicators; if present, Knox manifest overrides local manifest.
+- **Knox Vision API** (`src/apk_analyzer/clients/knox_client.py`, combined mode): pulls full analysis, manifest, components, threat indicators; if present, Knox manifest overrides the local manifest.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/static/manifest.json`, `strings.json`, `cert.json`, `knox_full.json`, `components.json`, `permissions.json`.
 
 Stage A2: APK-only decompile (opt-in)
@@ -83,30 +92,44 @@ Stage A2: APK-only decompile (opt-in)
 
 Stage B: Graph extraction
 - **Soot extractor (Java)** (`java/soot-extractor`): builds call graph + per-method CFGs using Android platform jars.
+- Entry points are derived from Android component lifecycles (Activity/Service/Receiver/Provider/Application/AccessibilityService) across application classes.
+- The extractor forces the highest available `android.jar` under `analysis.android_platforms_dir` to stabilize call graph building.
 - **Outputs**: `artifacts/{analysis_id}/runs/{run_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`.
 
 Stage C: Sensitive API matching (catalog-driven)
 - **Sensitive API catalog** (`config/android_sensitive_api_catalog.json`): maps Soot signatures to categories, priorities, and tags.
-- **Matcher** (`src/apk_analyzer/phase0/sensitive_api_matcher.py`): walks callgraph edges, matches callees to catalog signatures, and emits `sensitive_api_hits.json` with reachability hints.
+- **Matcher** (`src/apk_analyzer/phase0/sensitive_api_matcher.py`): walks callgraph edges, matches callees to catalog signatures, maps callers to manifest components, and computes reachability from entrypoints.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/seeds/sensitive_api_hits.json`.
 
-Stage D: Case-driven slices
-- **Recon** builds cases from `sensitive_api_hits.json` and requests slices only where required.
-- **Context bundles** (`src/apk_analyzer/analyzers/context_bundle_builder.py`): creates per-case slices and FCG neighborhoods for LLM prompts.
+Stage D: Recon + case creation (LLM)
+- **Recon agent** (`src/apk_analyzer/agents/recon.py`): consumes manifest summary + callgraph summary + sensitive hits and returns `cases` for investigation.
+- **Recon tools** (`src/apk_analyzer/agents/recon_tools.py`): LLM may call `get_hit`, `list_hits`, `get_summary`, `get_entrypoints` to refine cases.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/recon.json`.
 
-Stage D: LLM reasoning (dynamic-analysis focused)
-- **Recon**: builds investigation cases from `sensitive_api_hits.json`.
-- **Tier1**: summarizes behavior **and** extracts execution constraints (branch predicates, required inputs, triggers).
-- **Verifier**: enforces evidence grounding (non-LLM consistency check).
-- **Tier2**: produces a driver plan (ADB/UI Automator/Frida friendly) and environment setup checklist.
-- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/*` with JSON outputs.
+Stage E: Seeding (SuspiciousApiIndex)
+- If recon cases exist, they are converted into a `SuspiciousApiIndex` (high-confidence callsites).
+- Otherwise, **DEX invocation indexing** (`src/apk_analyzer/analyzers/dex_invocation_indexer.py`) scans DEX with Androguard (4.x tested) and matches `config/suspicious_api_catalog.json`.
+- If DEX parsing fails or yields no hits, fallback seeding uses Knox source search (combined mode) or JADX local search (apk-only mode), with lower confidence.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/seeds/suspicious_api_index.json`.
 
-Stage E: Targeted taint analysis (optional)
-- **FlowDroid CLI jar** (`src/apk_analyzer/tools/flowdroid_tools.py`): runs taint analysis using a generated sources/sinks subset based on categories present in verified cases.
+Stage F: Context bundles + CFG slices
+- **Context bundle builder** (`src/apk_analyzer/analyzers/context_bundle_builder.py`): builds per-seed backward slices from Soot CFGs, extracts branch conditions, and computes k-hop callgraph neighborhoods.
+- Bundles include static context (permissions, receiver triggers, string hints) and case context (priority, reachability).
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/graphs/slices/<seed_id>.json`, `graphs/context_bundles/<seed_id>.json`.
+
+Stage G: Tiered LLM reasoning (dynamic-analysis focused)
+- **Tier1**: summarizes behavior and extracts execution constraints (branch predicates, required inputs, triggers).
+- **Verifier**: enforces evidence grounding against slice units and context bundles.
+- **Tier2**: produces driver guidance (ADB/UI Automator/Frida-friendly) using Tier1 + static context + case context + FlowDroid summary (if present).
+- LLM JSON is parsed with a tolerant parser (`src/apk_analyzer/utils/llm_json.py`) and falls back to safe defaults on invalid output.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/*`, plus `llm_inputs/` and `llm_outputs/` for raw prompts/returns.
+
+Stage H: Targeted taint analysis (optional)
+- **FlowDroid CLI jar** (`src/apk_analyzer/tools/flowdroid_tools.py`): runs taint analysis using a generated sources/sinks subset based on categories present in verified seeds.
 - **Usage**: summary is fed into Tier2 to suggest entrypoint triggers and taint-confirmation steps.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/taint/flowdroid_summary.json`.
 
-Stage F: Reporting + MITRE mapping
+Stage I: Reporting + MITRE mapping
 - **MITRE mapping** (`config/mitre/` + `src/apk_analyzer/analyzers/mitre_mapper.py`): maps extracted evidence to ATT&CK techniques.
 - **Report**: includes `driver_guidance` synthesized from Tier-2 outputs for dynamic analysis.
   - `artifacts/{analysis_id}/runs/{run_id}/report/threat_report.json` and `.md`.
@@ -115,9 +138,11 @@ Stage F: Reporting + MITRE mapping
 
 - `src/apk_analyzer/`: Python pipeline and agent logic
 - `java/soot-extractor/`: Java Soot extractor (Gradle)
-- `config/`: settings, schemas, suspicious API catalog, SourcesAndSinks, MITRE mapping
+- `config/`: settings, schemas, suspicious API catalogs, SourcesAndSinks, MITRE mapping
 - `config/android_sensitive_api_catalog.json`: catalog-driven sensitive API definitions for recon
+- `config/suspicious_api_catalog.json`: fallback catalog for DEX-based seeding
 - `scripts/`: entrypoints and helpers
+- `server/`: FastAPI observability UI (runs at `http://localhost:8000`)
 - `tests/`: unit tests
 - `FlowDroid/`: upstream FlowDroid repo (for CLI build)
 
@@ -133,7 +158,14 @@ Stage F: Reporting + MITRE mapping
 1) Install Python deps:
 
 ```bash
-python -m pip install -e .
+python -m pip install -r requirements.txt
+export PYTHONPATH="$(pwd)/src"
+```
+
+Optional (instead of setting `PYTHONPATH`):
+
+```bash
+python -m pip install .
 ```
 
 2) Build the Soot extractor:
@@ -344,6 +376,7 @@ APK-only mode requires:
 Key settings live in `config/settings.yaml`:
 
 - `knox.base_url`: Knox Vision API base URL.
+- `analysis.artifacts_dir`: Base artifacts folder (default `artifacts/`).
 - `analysis.android_platforms_dir`: Android SDK platforms folder.
 - `analysis.flowdroid_jar_path`: FlowDroid CLI jar path.
 - `analysis.soot_extractor_jar_path`: Soot extractor jar path.
@@ -352,9 +385,19 @@ Key settings live in `config/settings.yaml`:
 - `analysis.callgraph_algo`: `SPARK` or `CHA`.
 - `analysis.k_hop`: call graph neighborhood hops.
 - `analysis.max_seed_count`: maximum seeds to process.
+- `analysis.flowdroid_timeout_sec`: FlowDroid timeout in seconds.
+- `llm.enabled`: Enable or disable LLM calls.
 - `llm.provider`: LLM provider (use `vertex` for API key auth).
 - `llm.api_key`: API key (or use `VERTEX_API_KEY` / `GOOGLE_API_KEY` env).
+- `llm.base_url`: Vertex API base URL.
 - `llm.verify_ssl`: Set `false` to disable SSL verification for Vertex calls (PoC only).
+- `llm.timeout_sec`: HTTP timeout for LLM calls.
+- `llm.model_orchestrator`: Default model if a stage-specific model is not set.
+- `llm.model_recon`: Recon model.
+- `llm.model_tier1`: Tier-1 summarizer model.
+- `llm.model_verifier`: Verifier model.
+- `llm.model_tier2`: Tier-2 intent model.
+- `llm.model_report`: Report model.
 - `telemetry.enabled`: Enable OpenTelemetry export.
 - `telemetry.otlp_endpoint`: OTLP endpoint for traces (default `http://otel-collector:4317` in Docker).
 - `observability.enabled`: Enable the run ledger (`observability/runs/<run_id>.jsonl`) consumed by the UI.
@@ -389,12 +432,12 @@ llm:
   enabled: true
   provider: "vertex"
   api_key: ""  # optional if VERTEX_API_KEY is set
-  model_orchestrator: "gemini-2.5-flash-lite"
-  model_recon: "gemini-2.5-flash-lite"
-  model_tier1: "gemini-2.5-flash-lite"
-  model_verifier: "gemini-2.5-flash-lite"
-  model_tier2: "gemini-2.5-flash-lite"
-  model_report: "gemini-2.5-flash-lite"
+  model_orchestrator: "gemini-3-pro-preview"
+  model_recon: "gemini-3-flash-preview"
+  model_tier1: "gemini-3-flash-preview"
+  model_verifier: "gemini-3-pro-preview"
+  model_tier2: "gemini-3-flash-preview"
+  model_report: "gemini-3-flash-preview"
 ```
 
 ### Option B) Service account (not wired in this PoC)
