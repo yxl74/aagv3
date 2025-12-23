@@ -24,6 +24,10 @@ class Tier1SummarizerAgent:
             return {
                 "seed_id": payload.get("seed_id"),
                 "function_summary": "LLM disabled; no summary generated.",
+                "path_constraints": [],
+                "required_inputs": [],
+                "trigger_surface": {},
+                "observable_effects": [],
                 "facts": [],
                 "uncertainties": ["LLM disabled"],
                 "confidence": 0.0,
@@ -32,6 +36,10 @@ class Tier1SummarizerAgent:
         fallback = {
             "seed_id": payload.get("seed_id"),
             "function_summary": "LLM output invalid; no summary generated.",
+            "path_constraints": [],
+            "required_inputs": [],
+            "trigger_surface": {},
+            "observable_effects": [],
             "facts": [],
             "uncertainties": ["LLM output invalid"],
             "confidence": 0.0,
@@ -39,5 +47,15 @@ class Tier1SummarizerAgent:
         return coerce_llm_dict(
             response,
             fallback,
-            required_keys=("seed_id", "function_summary", "facts", "uncertainties", "confidence"),
+            required_keys=(
+                "seed_id",
+                "function_summary",
+                "path_constraints",
+                "required_inputs",
+                "trigger_surface",
+                "observable_effects",
+                "facts",
+                "uncertainties",
+                "confidence",
+            ),
         )

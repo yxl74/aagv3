@@ -94,15 +94,16 @@ Stage D: Case-driven slices
 - **Recon** builds cases from `sensitive_api_hits.json` and requests slices only where required.
 - **Context bundles** (`src/apk_analyzer/analyzers/context_bundle_builder.py`): creates per-case slices and FCG neighborhoods for LLM prompts.
 
-Stage D: LLM reasoning
-- **Recon**: summarizes manifest + indicators + seed counts, prioritizes seeds.
-- **Tier1**: summarizes behavior of a seed using the sliced CFG.
+Stage D: LLM reasoning (dynamic-analysis focused)
+- **Recon**: builds investigation cases from `sensitive_api_hits.json`.
+- **Tier1**: summarizes behavior **and** extracts execution constraints (branch predicates, required inputs, triggers).
 - **Verifier**: enforces evidence grounding (non-LLM consistency check).
-- **Tier2**: higher-level intent reasoning using callgraph neighborhood.
+- **Tier2**: produces a driver plan (ADB/UI Automator/Frida friendly) and environment setup checklist.
 - **Artifacts**: `artifacts/{analysis_id}/llm/*` with JSON outputs.
 
 Stage E: Targeted taint analysis (optional)
-- **FlowDroid CLI jar** (`src/apk_analyzer/tools/flowdroid_tools.py`): runs taint analysis using a generated sources/sinks subset based on categories present in the seed list.
+- **FlowDroid CLI jar** (`src/apk_analyzer/tools/flowdroid_tools.py`): runs taint analysis using a generated sources/sinks subset based on categories present in verified cases.
+- **Usage**: summary is fed into Tier2 to suggest entrypoint triggers and taint-confirmation steps.
 - **Artifacts**: `artifacts/{analysis_id}/taint/flowdroid_summary.json`.
 
 Stage F: Reporting + MITRE mapping

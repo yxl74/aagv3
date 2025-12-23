@@ -336,31 +336,24 @@ class Orchestrator:
                 )
 
                 case_lookup = _case_lookup(cases)
-                seed_summaries = []
+                seed_summaries: Dict[str, Dict[str, Any]] = {}
+                bundle_map: Dict[str, Dict[str, Any]] = {}
+                verified_ids: List[str] = []
                 evidence_support_index: Dict[str, Any] = {}
                 verified_count = 0
                 processed_count = 0
+
                 for bundle in bundles[: self.settings["analysis"].get("max_seed_count", 20)]:
                     seed_id = bundle["seed_id"]
                     case_info = case_lookup.get(seed_id, {})
                     processed_count += 1
+                    bundle_map[seed_id] = bundle
                     with span("llm.seed", stage="seed_processing", seed_id=seed_id, api_category=bundle.get("api_category")):
                         with llm_context("tier1", seed_id=seed_id):
                             tier1 = tier1_agent.run(bundle)
                         artifact_store.write_json(f"llm/tier1/{seed_id}.json", tier1)
                         verifier = verifier_agent.run(tier1, bundle)
                         artifact_store.write_json(f"llm/verifier/{seed_id}.json", verifier)
-                        if verifier.get("status") != "VERIFIED":
-                            continue
-                        verified_count += 1
-                        with llm_context("tier2", seed_id=seed_id):
-                            tier2 = tier2_agent.run({
-                                "seed_id": seed_id,
-                                "tier1": tier1,
-                                "fcg": bundle.get("fcg_neighborhood"),
-                                "static_context": bundle.get("static_context"),
-                            })
-                        artifact_store.write_json(f"llm/tier2/{seed_id}.json", tier2)
 
                     for idx, fact in enumerate(tier1.get("facts", [])):
                         ev_id = f"ev-{bundle['seed_id']}-{idx}"
@@ -369,14 +362,18 @@ class Orchestrator:
                             "artifact": f"graphs/slices/{bundle['seed_id']}.json",
                         }
 
-                    seed_summaries.append({
-                        "seed_id": bundle["seed_id"],
+                    seed_summaries[seed_id] = {
+                        "seed_id": seed_id,
                         "case_id": case_info.get("case_id"),
                         "case_priority": case_info.get("priority"),
                         "category_id": case_info.get("category_id") or bundle.get("api_category"),
                         "tier1": tier1,
-                        "tier2": tier2,
-                    })
+                        "tier2": None,
+                    }
+
+                    if verifier.get("status") == "VERIFIED":
+                        verified_count += 1
+                        verified_ids.append(seed_id)
 
                 event_logger.log(
                     "seed.summary",
@@ -385,8 +382,8 @@ class Orchestrator:
                 )
 
                 flowdroid_summary = None
-                if seed_summaries and apk_path:
-                    categories_present = {b["api_category"] for b in bundles}
+                if verified_ids and apk_path:
+                    categories_present = {bundle_map[sid]["api_category"] for sid in verified_ids if sid in bundle_map}
                     sources_sinks_subset = generate_subset(
                         "config/SourcesAndSinks.txt",
                         artifact_store.path("taint/sources_sinks_subset.txt"),
@@ -418,10 +415,29 @@ class Orchestrator:
                             ref="taint/flowdroid_summary.json",
                         )
 
+                for seed_id in verified_ids:
+                    bundle = bundle_map.get(seed_id)
+                    if not bundle:
+                        continue
+                    tier1 = seed_summaries[seed_id]["tier1"]
+                    case_info = case_lookup.get(seed_id, {})
+                    with llm_context("tier2", seed_id=seed_id):
+                        tier2 = tier2_agent.run({
+                            "seed_id": seed_id,
+                            "tier1": tier1,
+                            "fcg": bundle.get("fcg_neighborhood"),
+                            "static_context": bundle.get("static_context"),
+                            "case_context": bundle.get("case_context"),
+                            "flowdroid_summary": flowdroid_summary or {},
+                        })
+                    artifact_store.write_json(f"llm/tier2/{seed_id}.json", tier2)
+                    seed_summaries[seed_id]["tier2"] = tier2
+
+                seed_summary_list = list(seed_summaries.values())
                 mitre_rules = load_rules("config/mitre/mapping_rules.json")
                 technique_index = load_technique_index("config/mitre/technique_index.json")
                 mitre_candidates = map_evidence(
-                    [fact for seed in seed_summaries for fact in seed.get("tier1", {}).get("facts", [])],
+                    [fact for seed in seed_summary_list for fact in seed.get("tier1", {}).get("facts", [])],
                     mitre_rules,
                     technique_index,
                 )
@@ -430,7 +446,7 @@ class Orchestrator:
                     "analysis_id": artifact_store.analysis_id,
                     "verdict": recon_result.get("threat_level", "UNKNOWN"),
                     "summary": "Static analysis completed. LLM summaries may be partial.",
-                    "seed_summaries": seed_summaries,
+                    "seed_summaries": seed_summary_list,
                     "evidence_support_index": evidence_support_index,
                     "analysis_artifacts": {
                         "callgraph": "graphs/callgraph.json" if callgraph_path else None,
@@ -575,6 +591,8 @@ def _callsites_from_cases(
                 continue
             seen.add(hit_id)
             caller = hit.get("caller", {}) or {}
+            component_context = hit.get("component_context")
+            reachability = hit.get("reachability")
             callsites.append(
                 ApiCallSite(
                     seed_id=hit_id,
@@ -587,6 +605,8 @@ def _callsites_from_cases(
                         "case_id": case_id,
                         "priority": priority,
                         "source": "sensitive_api_hits",
+                        "component_context": component_context,
+                        "reachability": reachability,
                     },
                     confidence=1.0,
                 )
