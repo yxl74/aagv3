@@ -142,6 +142,7 @@ class Orchestrator:
 
                 callgraph_path = None
                 callgraph_data = None
+                entrypoint_paths_ref = None
                 android_platforms = self.settings["analysis"].get("android_platforms_dir")
                 soot_jar = self.settings["analysis"].get("soot_extractor_jar_path") or "java/soot-extractor/build/libs/soot-extractor.jar"
                 if apk_path and android_platforms:
@@ -309,6 +310,19 @@ class Orchestrator:
                 slice_sizes = [
                     len(bundle.get("sliced_cfg", {}).get("units", [])) for bundle in bundles
                 ]
+                entrypoint_paths = [
+                    bundle.get("control_flow_path")
+                    for bundle in bundles
+                    if bundle.get("control_flow_path", {}).get("path_methods")
+                ]
+                if entrypoint_paths:
+                    artifact_store.write_json("graphs/entrypoint_paths.json", entrypoint_paths)
+                    entrypoint_paths_ref = artifact_store.relpath("graphs/entrypoint_paths.json")
+                sample_path_refs = [
+                    artifact_store.relpath(ref)
+                    for ref in (bundle.get("control_flow_path_ref") for bundle in bundles[:5])
+                    if ref
+                ]
                 event_logger.stage_end(
                     "context_bundles",
                     bundle_count=len(bundles),
@@ -317,6 +331,8 @@ class Orchestrator:
                         artifact_store.relpath(f"graphs/slices/{bundle['seed_id']}.json")
                         for bundle in bundles[:5]
                     ],
+                    sample_path_refs=sample_path_refs,
+                    entrypoint_paths_ref=entrypoint_paths_ref,
                 )
 
                 tier1_agent = Tier1SummarizerAgent(
@@ -429,6 +445,7 @@ class Orchestrator:
                             "fcg": bundle.get("fcg_neighborhood"),
                             "static_context": bundle.get("static_context"),
                             "case_context": bundle.get("case_context"),
+                            "control_flow_path": bundle.get("control_flow_path"),
                             "flowdroid_summary": flowdroid_summary or {},
                         })
                     artifact_store.write_json(f"llm/tier2/{seed_id}.json", tier2)
@@ -454,6 +471,7 @@ class Orchestrator:
                         "flowdroid": artifact_store.relpath("taint/flowdroid_summary.json") if flowdroid_summary else None,
                         "sensitive_api_hits": artifact_store.relpath("seeds/sensitive_api_hits.json") if sensitive_hits else None,
                         "recon": artifact_store.relpath("llm/recon.json"),
+                        "entrypoint_paths": entrypoint_paths_ref,
                     },
                     "mitre_candidates": mitre_candidates,
                     "driver_guidance": _build_driver_guidance(seed_summary_list),

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from apk_analyzer.analyzers.dex_invocation_indexer import SuspiciousApiIndex
-from apk_analyzer.utils.signature_normalize import method_name_from_signature
+from apk_analyzer.utils.signature_normalize import method_name_from_signature, normalize_signature
 from apk_analyzer.utils.artifact_store import ArtifactStore
 from apk_analyzer.utils.json_schema import validate_json
 
@@ -59,6 +59,78 @@ def _build_slice_from_cfg(cfg: Dict[str, Any], seed_match: str) -> Dict[str, Any
             if pred in visited:
                 edges.append({"from": pred, "to": child, "type": "control_dep"})
     return {"units": slice_units, "edges": edges}
+
+
+def _build_callsite_map(callgraph: Dict[str, Any]) -> Dict[tuple[str, str], Optional[str]]:
+    mapping: Dict[tuple[str, str], Optional[str]] = {}
+    for edge in callgraph.get("edges", []) or []:
+        caller = normalize_signature(edge.get("caller", ""))
+        callee = normalize_signature(edge.get("callee", ""))
+        if not caller or not callee:
+            continue
+        if (caller, callee) in mapping:
+            continue
+        callsite = None
+        callsite_obj = edge.get("callsite")
+        if isinstance(callsite_obj, dict):
+            callsite = callsite_obj.get("unit")
+        elif isinstance(callsite_obj, str):
+            callsite = callsite_obj
+        mapping[(caller, callee)] = callsite
+    return mapping
+
+
+def _build_control_flow_path(
+    callsite,
+    callsite_map: Dict[tuple[str, str], Optional[str]],
+    branch_conditions: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    descriptor = callsite.callsite_descriptor if isinstance(callsite.callsite_descriptor, dict) else {}
+    component_context = descriptor.get("component_context") or {}
+    reachability = descriptor.get("reachability") or {}
+    example_path = reachability.get("example_path")
+
+    path_methods: List[str] = []
+    if isinstance(example_path, list) and example_path:
+        for method in example_path:
+            method = normalize_signature(str(method))
+            if method:
+                path_methods.append(method)
+    else:
+        caller = normalize_signature(callsite.caller_method)
+        if caller:
+            path_methods.append(caller)
+        callee = normalize_signature(callsite.signature)
+        if callee and (not path_methods or callee != path_methods[-1]):
+            path_methods.append(callee)
+
+    edges: List[Dict[str, Any]] = []
+    for idx in range(len(path_methods) - 1):
+        caller = path_methods[idx]
+        callee = path_methods[idx + 1]
+        edges.append({
+            "caller": caller,
+            "callee": callee,
+            "callsite": callsite_map.get((caller, callee)),
+        })
+
+    status = "full" if isinstance(example_path, list) and example_path else "partial"
+    return {
+        "seed_id": callsite.seed_id,
+        "category_id": callsite.category,
+        "hit_id": descriptor.get("hit_id"),
+        "priority": descriptor.get("priority"),
+        "component_context": component_context,
+        "reachability": reachability,
+        "path_methods": path_methods,
+        "edges": edges,
+        "sink": {
+            "caller_method": callsite.caller_method,
+            "callee_signature": callsite.signature,
+        },
+        "branch_conditions": branch_conditions,
+        "status": status,
+    }
 
 
 def _looks_like_branch(stmt: str) -> bool:
@@ -117,6 +189,7 @@ class ContextBundleBuilder:
         callgraph = {}
         if callgraph_path and callgraph_path.exists():
             callgraph = _load_json(callgraph_path)
+        callsite_map = _build_callsite_map(callgraph) if callgraph else {}
         bundles = []
         method_index_path = self.artifact_store.path("graphs/method_index.json")
         method_index = {}
@@ -167,6 +240,11 @@ class ContextBundleBuilder:
                 for u in sliced_cfg.get("units", [])
                 if _looks_like_branch(u.get("stmt", ""))
             ]
+            control_flow_path = _build_control_flow_path(callsite, callsite_map, branch_conditions)
+            path_ref = None
+            if control_flow_path.get("path_methods"):
+                path_ref = f"graphs/entrypoint_paths/{callsite.seed_id}.json"
+                self.artifact_store.write_json(path_ref, control_flow_path)
             bundle = {
                 "seed_id": callsite.seed_id,
                 "api_category": callsite.category,
@@ -178,6 +256,8 @@ class ContextBundleBuilder:
                 "static_context": static_context,
                 "callsite_descriptor": callsite.callsite_descriptor,
                 "branch_conditions": branch_conditions,
+                "control_flow_path": control_flow_path,
+                "control_flow_path_ref": path_ref,
             }
             if isinstance(callsite.callsite_descriptor, dict):
                 case_context = {

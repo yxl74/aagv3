@@ -135,6 +135,17 @@
         {% endfor %}
         </ul>
       {% endif %}
+      {% if bundles.sample_path_refs %}
+        <p>Sample entrypoint paths:</p>
+        <ul>
+        {% for ref in bundles.sample_path_refs %}
+          <li><a href="/runs/{{ analysis_id }}/artifact/{{ ref }}">{{ ref }}</a></li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+      {% if bundles.entrypoint_paths_ref %}
+        <p><a href="/runs/{{ analysis_id }}/artifact/{{ bundles.entrypoint_paths_ref }}">View entrypoint paths summary</a></p>
+      {% endif %}
     {% else %}
       <p>No context bundle stats recorded.</p>
     {% endif %}
