@@ -12,6 +12,16 @@ from apk_analyzer.utils.signature_normalize import method_name_from_signature, n
 
 
 _SOOT_SIG_RE = re.compile(r"^<([^:]+):\s+([^\s]+)\s+([^(]+)\((.*)\)>$")
+_LIBRARY_PREFIXES = (
+    "android.",
+    "androidx.",
+    "java.",
+    "javax.",
+    "kotlin.",
+    "kotlinx.",
+    "dalvik.",
+    "sun.",
+)
 
 
 ENTRYPOINT_METHODS: Dict[str, set[str]] = {
@@ -395,11 +405,13 @@ def _build_app_prefixes(manifest: Dict[str, Any], component_map: Dict[str, Dict[
     if package_name:
         prefixes.append(package_name)
         prefixes.append(f"{package_name}.")
+        return list(dict.fromkeys([p for p in prefixes if p]))
     for class_name in component_map.keys():
-        if class_name and class_name not in prefixes:
-            prefixes.append(class_name)
-            if "." in class_name:
-                prefixes.append(class_name.rsplit(".", 1)[0] + ".")
+        if not class_name or class_name.startswith(_LIBRARY_PREFIXES):
+            continue
+        prefixes.append(class_name)
+        if "." in class_name:
+            prefixes.append(class_name.rsplit(".", 1)[0] + ".")
     return list(dict.fromkeys([p for p in prefixes if p]))
 
 
@@ -410,8 +422,6 @@ def _is_app_caller(
 ) -> bool:
     if not caller_class:
         return False
-    if caller_class in component_map:
-        return True
     for prefix in app_prefixes:
         if caller_class == prefix or caller_class.startswith(prefix):
             return True
@@ -432,16 +442,7 @@ def _is_framework_method(signature: str, method_is_framework: Dict[str, bool]) -
     if signature in method_is_framework:
         return method_is_framework[signature]
     class_name = _class_name_from_signature(signature)
-    return class_name.startswith((
-        "android.",
-        "androidx.",
-        "java.",
-        "javax.",
-        "kotlin.",
-        "kotlinx.",
-        "dalvik.",
-        "sun.",
-    ))
+    return class_name.startswith(_LIBRARY_PREFIXES)
 
 
 def _hit_sort_key(hit: Dict[str, Any]) -> Tuple[int, float]:
