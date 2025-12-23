@@ -40,9 +40,11 @@ def build_sensitive_api_hits(
     apk_path: Optional[str | Path] = None,
     max_example_path: int = 20,
     class_hierarchy: Optional[Dict[str, Any]] = None,
+    entrypoints_override: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     component_map = _extract_component_map(manifest)
-    entrypoints = _entrypoints_from_callgraph(callgraph, component_map)
+    entrypoints = entrypoints_override or _entrypoints_from_callgraph(callgraph, component_map)
+    entrypoints_source = "soot" if entrypoints_override else "manifest"
     adjacency = _build_adjacency(callgraph.get("edges", []))
     distances, predecessors = _bfs_from_entrypoints(adjacency, entrypoints)
     hierarchy_map = _build_hierarchy_map(class_hierarchy)
@@ -120,7 +122,7 @@ def build_sensitive_api_hits(
         "apk": _apk_summary(manifest, apk_path),
         "summary": summary,
         "hits": hits,
-        "callgraph_summary": _callgraph_summary(callgraph, entrypoints),
+        "callgraph_summary": _callgraph_summary(callgraph, entrypoints, entrypoints_source),
     }
 
 
@@ -361,7 +363,7 @@ def _apk_summary(manifest: Dict[str, Any], apk_path: Optional[str | Path]) -> Di
     return summary
 
 
-def _callgraph_summary(callgraph: Dict[str, Any], entrypoints: List[str]) -> Dict[str, Any]:
+def _callgraph_summary(callgraph: Dict[str, Any], entrypoints: List[str], entrypoints_source: str) -> Dict[str, Any]:
     nodes = callgraph.get("nodes", []) or []
     edges = callgraph.get("edges", []) or []
     return {
@@ -369,6 +371,7 @@ def _callgraph_summary(callgraph: Dict[str, Any], entrypoints: List[str]) -> Dic
         "edge_count": len(edges),
         "entrypoint_count": len(entrypoints),
         "entrypoints": entrypoints[:50],
+        "entrypoints_source": entrypoints_source,
     }
 
 

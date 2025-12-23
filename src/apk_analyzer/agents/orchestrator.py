@@ -144,6 +144,7 @@ class Orchestrator:
                 callgraph_data = None
                 entrypoint_paths_ref = None
                 class_hierarchy = None
+                entrypoints_override = None
                 android_platforms = self.settings["analysis"].get("android_platforms_dir")
                 soot_jar = self.settings["analysis"].get("soot_extractor_jar_path") or "java/soot-extractor/build/libs/soot-extractor.jar"
                 if apk_path and android_platforms:
@@ -164,6 +165,11 @@ class Orchestrator:
                         class_hierarchy_path = artifact_store.path("graphs/class_hierarchy.json")
                         if class_hierarchy_path.exists():
                             class_hierarchy = load_callgraph(class_hierarchy_path)
+                        entrypoints_path = artifact_store.path("graphs/entrypoints.json")
+                        if entrypoints_path.exists():
+                            entrypoints_payload = load_callgraph(entrypoints_path)
+                            if isinstance(entrypoints_payload, dict):
+                                entrypoints_override = entrypoints_payload.get("entrypoints")
                         callgraph_stats: Dict[str, Any] = {}
                         if callgraph_path.exists():
                             callgraph_data = load_callgraph(callgraph_path)
@@ -183,6 +189,7 @@ class Orchestrator:
                         cfg_count=cfg_count,
                         callgraph_ref=artifact_store.relpath("graphs/callgraph.json") if callgraph_path else None,
                         class_hierarchy_ref=artifact_store.relpath("graphs/class_hierarchy.json") if class_hierarchy else None,
+                        entrypoints_ref=artifact_store.relpath("graphs/entrypoints.json") if entrypoints_override else None,
                     )
                     event_logger.log(
                         "tool.soot",
@@ -192,6 +199,7 @@ class Orchestrator:
                         cfg_count=cfg_count,
                         callgraph_ref=artifact_store.relpath("graphs/callgraph.json") if callgraph_path else None,
                         class_hierarchy_ref=artifact_store.relpath("graphs/class_hierarchy.json") if class_hierarchy else None,
+                        entrypoints_ref=artifact_store.relpath("graphs/entrypoints.json") if entrypoints_override else None,
                     )
 
                 sensitive_hits = None
@@ -205,6 +213,7 @@ class Orchestrator:
                             manifest,
                             apk_path=apk_path,
                             class_hierarchy=class_hierarchy,
+                            entrypoints_override=entrypoints_override if isinstance(entrypoints_override, list) else None,
                         )
                         artifact_store.write_json("seeds/sensitive_api_hits.json", sensitive_hits)
                         artifact_store.write_json(

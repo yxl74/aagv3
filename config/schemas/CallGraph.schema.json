@@ -23,7 +23,8 @@
         "properties": {
           "caller": {"type": "string"},
           "callee": {"type": "string"},
-          "callsite": {"type": "object"}
+          "callsite": {"type": "object"},
+          "edge_source": {"type": "string"}
         }
       }
     },
