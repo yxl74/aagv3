@@ -108,7 +108,8 @@ Stage E: Targeted taint analysis (optional)
 
 Stage F: Reporting + MITRE mapping
 - **MITRE mapping** (`config/mitre/` + `src/apk_analyzer/analyzers/mitre_mapper.py`): maps extracted evidence to ATT&CK techniques.
-- **Report**: `artifacts/{analysis_id}/report/threat_report.json` and `.md`.
+- **Report**: includes `driver_guidance` synthesized from Tier-2 outputs for dynamic analysis.
+  - `artifacts/{analysis_id}/report/threat_report.json` and `.md`.
 
 ## Repo Layout
 

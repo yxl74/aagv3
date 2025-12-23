@@ -451,8 +451,11 @@ class Orchestrator:
                     "analysis_artifacts": {
                         "callgraph": "graphs/callgraph.json" if callgraph_path else None,
                         "flowdroid": "taint/flowdroid_summary.json" if flowdroid_summary else None,
+                        "sensitive_api_hits": "seeds/sensitive_api_hits.json" if sensitive_hits else None,
+                        "recon": "llm/recon.json",
                     },
                     "mitre_candidates": mitre_candidates,
+                    "driver_guidance": _build_driver_guidance(seed_summary_list),
                 }
                 event_logger.stage_start("report")
                 with span("stage.report", stage="report"):
@@ -623,6 +626,21 @@ def _write_suspicious_index(store: ArtifactStore, index: SuspiciousApiIndex) -> 
             "callsites": [asdict(site) for site in index.callsites],
         },
     )
+
+
+def _build_driver_guidance(seed_summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    guidance = []
+    for summary in seed_summaries:
+        tier2 = summary.get("tier2") or {}
+        guidance.append({
+            "seed_id": summary.get("seed_id"),
+            "case_id": summary.get("case_id"),
+            "category_id": summary.get("category_id"),
+            "driver_plan": tier2.get("driver_plan", []),
+            "environment_setup": tier2.get("environment_setup", []),
+            "execution_checks": tier2.get("execution_checks", []),
+        })
+    return guidance
 
 
 class _noop_context:

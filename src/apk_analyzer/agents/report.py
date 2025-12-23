@@ -28,6 +28,8 @@ class ReportAgent:
                 "seed_summaries": payload.get("seed_summaries", []),
                 "evidence_support_index": payload.get("evidence_support_index", {}),
                 "analysis_artifacts": payload.get("analysis_artifacts", {}),
+                "mitre_candidates": payload.get("mitre_candidates", []),
+                "driver_guidance": payload.get("driver_guidance", []),
             }
         response = self.llm_client.complete(self.prompt, payload, model=self.model)
         fallback = {
@@ -37,6 +39,8 @@ class ReportAgent:
             "seed_summaries": payload.get("seed_summaries", []),
             "evidence_support_index": payload.get("evidence_support_index", {}),
             "analysis_artifacts": payload.get("analysis_artifacts", {}),
+            "mitre_candidates": payload.get("mitre_candidates", []),
+            "driver_guidance": payload.get("driver_guidance", []),
         }
         return coerce_llm_dict(
             response,
@@ -48,5 +52,7 @@ class ReportAgent:
                 "seed_summaries",
                 "evidence_support_index",
                 "analysis_artifacts",
+                "mitre_candidates",
+                "driver_guidance",
             ),
         )
