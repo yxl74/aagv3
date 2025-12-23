@@ -51,6 +51,7 @@ def build_sensitive_api_hits(
     max_example_path: int = 20,
     class_hierarchy: Optional[Dict[str, Any]] = None,
     entrypoints_override: Optional[List[str]] = None,
+    allow_third_party_callers: bool = True,
 ) -> Dict[str, Any]:
     component_map = _extract_component_map(manifest)
     app_prefixes = _build_app_prefixes(manifest, component_map)
@@ -74,9 +75,10 @@ def build_sensitive_api_hits(
             filtered_framework += 1
             continue
         caller_class = _class_name_from_signature(caller_sig)
-        if app_prefixes and not _is_app_caller(caller_class, component_map, app_prefixes):
-            filtered_non_app += 1
-            continue
+        if not allow_third_party_callers:
+            if app_prefixes and not _is_app_caller(caller_class, component_map, app_prefixes):
+                filtered_non_app += 1
+                continue
         categories = catalog.match_method(callee_sig)
         match_type = "exact" if categories else None
         if not categories and hierarchy_map:
@@ -139,7 +141,8 @@ def build_sensitive_api_hits(
     summary = _summarize_hits(hits, catalog)
     summary["filters"] = {
         "framework_callers": filtered_framework,
-        "non_app_callers": filtered_non_app,
+        "non_app_callers": filtered_non_app if not allow_third_party_callers else 0,
+        "third_party_callers_allowed": allow_third_party_callers,
     }
     return {
         "catalog_version": catalog.version,
