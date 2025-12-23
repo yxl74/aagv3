@@ -5,8 +5,11 @@
   "properties": {
     "analysis_id": {"type": "string"},
     "verdict": {"type": "string"},
+    "summary": {"type": "string"},
     "seed_summaries": {"type": "array", "items": {"type": "object"}},
     "evidence_support_index": {"type": "object"},
-    "analysis_artifacts": {"type": "object"}
+    "analysis_artifacts": {"type": "object"},
+    "mitre_candidates": {"type": "array"},
+    "driver_guidance": {"type": "array"}
   }
 }

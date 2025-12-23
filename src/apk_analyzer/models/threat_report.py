@@ -12,3 +12,5 @@ class ThreatReport:
     seed_summaries: List[Dict[str, Any]] = field(default_factory=list)
     evidence_support_index: Dict[str, Any] = field(default_factory=dict)
     analysis_artifacts: Dict[str, Any] = field(default_factory=dict)
+    mitre_candidates: List[Dict[str, Any]] = field(default_factory=list)
+    driver_guidance: List[Dict[str, Any]] = field(default_factory=list)

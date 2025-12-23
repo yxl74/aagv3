@@ -10,6 +10,9 @@
     "caller_class": {"type": "string"},
     "sliced_cfg": {"type": "object"},
     "fcg_neighborhood": {"type": "object"},
-    "static_context": {"type": "object"}
+    "static_context": {"type": "object"},
+    "callsite_descriptor": {"type": "object"},
+    "branch_conditions": {"type": "array"},
+    "case_context": {"type": "object"}
   }
 }
