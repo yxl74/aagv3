@@ -43,6 +43,7 @@ def build_sensitive_api_hits(
     entrypoints_override: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     component_map = _extract_component_map(manifest)
+    app_prefixes = _build_app_prefixes(manifest, component_map)
     entrypoints = entrypoints_override or _entrypoints_from_callgraph(callgraph, component_map)
     entrypoints_source = "soot" if entrypoints_override else "manifest"
     adjacency = _build_adjacency(callgraph.get("edges", []))
@@ -52,12 +53,19 @@ def build_sensitive_api_hits(
     method_is_framework = _build_framework_index(callgraph)
 
     hits: List[Dict[str, Any]] = []
+    filtered_framework = 0
+    filtered_non_app = 0
     for edge in callgraph.get("edges", []) or []:
         caller_sig = normalize_signature(edge.get("caller", ""))
         callee_sig = normalize_signature(edge.get("callee", ""))
         if not caller_sig or not callee_sig:
             continue
         if _is_framework_method(caller_sig, method_is_framework):
+            filtered_framework += 1
+            continue
+        caller_class = _class_name_from_signature(caller_sig)
+        if app_prefixes and not _is_app_caller(caller_class, component_map, app_prefixes):
+            filtered_non_app += 1
             continue
         categories = catalog.match_method(callee_sig)
         match_type = "exact" if categories else None
@@ -84,7 +92,6 @@ def build_sensitive_api_hits(
             continue
         for category in categories:
             hit_id = _hit_id(category.category_id, caller_sig, callee_sig)
-            caller_class = _class_name_from_signature(caller_sig)
             component_context = _component_context(caller_class, component_map, entrypoints)
             example_path, reachable, path_len = _reachability_path(
                 caller_sig,
@@ -120,6 +127,10 @@ def build_sensitive_api_hits(
 
     hits.sort(key=_hit_sort_key)
     summary = _summarize_hits(hits, catalog)
+    summary["filters"] = {
+        "framework_callers": filtered_framework,
+        "non_app_callers": filtered_non_app,
+    }
     return {
         "catalog_version": catalog.version,
         "apk": _apk_summary(manifest, apk_path),
@@ -376,6 +387,35 @@ def _callgraph_summary(callgraph: Dict[str, Any], entrypoints: List[str], entryp
         "entrypoints": entrypoints[:50],
         "entrypoints_source": entrypoints_source,
     }
+
+
+def _build_app_prefixes(manifest: Dict[str, Any], component_map: Dict[str, Dict[str, str]]) -> List[str]:
+    prefixes: List[str] = []
+    package_name = manifest.get("package_name") or manifest.get("package") or ""
+    if package_name:
+        prefixes.append(package_name)
+        prefixes.append(f"{package_name}.")
+    for class_name in component_map.keys():
+        if class_name and class_name not in prefixes:
+            prefixes.append(class_name)
+            if "." in class_name:
+                prefixes.append(class_name.rsplit(".", 1)[0] + ".")
+    return list(dict.fromkeys([p for p in prefixes if p]))
+
+
+def _is_app_caller(
+    caller_class: str,
+    component_map: Dict[str, Dict[str, str]],
+    app_prefixes: List[str],
+) -> bool:
+    if not caller_class:
+        return False
+    if caller_class in component_map:
+        return True
+    for prefix in app_prefixes:
+        if caller_class == prefix or caller_class.startswith(prefix):
+            return True
+    return False
 
 
 def _build_framework_index(callgraph: Dict[str, Any]) -> Dict[str, bool]:
