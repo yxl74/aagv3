@@ -83,6 +83,7 @@ Stage C: Sensitive API matching (catalog-driven)
 - **Sensitive API catalog** (`config/android_sensitive_api_catalog.json`): maps Soot signatures to categories, priorities, and tags.
 - **Matcher** (`src/apk_analyzer/phase0/sensitive_api_matcher.py`): walks callgraph edges, matches callees to catalog signatures, maps callers to manifest components, and computes reachability from entrypoints.
 - If the callgraph resolves an interface/superclass instead of the catalog class, the matcher uses `class_hierarchy.json` to accept compatible classes with the same method signature.
+- Caller filtering: by default, only app-owned callers (manifest package or components) are kept to avoid AndroidX/Kotlin library noise.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/seeds/sensitive_api_hits.json`.
 
 Stage D: Recon + case creation (LLM)
