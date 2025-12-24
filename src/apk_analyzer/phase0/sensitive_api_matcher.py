@@ -152,6 +152,7 @@ def build_sensitive_api_hits(
                     "class": caller_class,
                     "method": caller_sig,
                 },
+                "caller_is_app": _is_app_caller(caller_class, component_map, app_prefixes),
                 "component_context": component_context,
                 "reachability": {
                     "reachable_from_entrypoint": reachable,

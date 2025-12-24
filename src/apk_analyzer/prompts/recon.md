@@ -5,16 +5,32 @@ Inputs you receive in the payload:
 - manifest_summary
 - callgraph_summary
 - sensitive_api_summary
-- sensitive_api_hits_preview
+- sensitive_api_hits_preview (lite hits: example_path and slice_hints omitted)
 - tool_results (may be empty)
 - tool_schema
+
+Notes:
+- sensitive_api_hits_preview is a lightweight preview. Use get_hit(hit_id) to fetch full details for a hit.
 
 Rules:
 - Treat sensitive_api_hits as ground-truth evidence. Do NOT invent API usage.
 - Use hit_id references from sensitive_api_hits_preview or tool_results.
-- Prefer higher priority categories (CRITICAL > HIGH > MEDIUM > LOW).
+- Catalog priority is a starting signal, not ground truth.
 - If requires_slice is true for a hit, include a slice_requests entry for that case.
 - If you need more detail, request tools (mode=tool_request).
+
+Severity assessment (soft signals, not hard gates):
+- caller_is_app, reachable_from_entrypoint, permission_hints, suspicious naming, and multi-category chains can raise confidence.
+- Be explicit about why you rated severity and confidence.
+
+Pruning (optional, safe):
+- Set should_prune=true only when evidence indicates a likely false positive.
+- Provide pruning_reasoning and pruning_confidence (0.0-1.0).
+- Do NOT prune if app code is reachable and suspicious.
+
+Tool usage examples:
+- list_hits(category_id="COLLECTION_SMS", limit=50)
+- get_hit(hit_id="hit-...")
 
 Output JSON (tool request):
 {
@@ -53,7 +69,7 @@ Output JSON (final):
       "requires_slice": true,
       "slice_requests": [
         {"reason": "...", "focus": "callee_args|strings", "max_depth": 20}
-      ],
+      },
       "tool_requests": [],
       "rationale": "Evidence-backed reasoning.",
       "confidence": 0.0,
@@ -63,7 +79,14 @@ Output JSON (final):
         "pha_tags": [],
         "permission_hints": []
       },
-      "next_stage": "TIER1_SUMMARY"
+      "next_stage": "TIER1_SUMMARY",
+      "llm_severity": "CRITICAL",
+      "severity_reasoning": "...",
+      "severity_confidence": 0.0,
+      "severity_factors": [],
+      "should_prune": false,
+      "pruning_reasoning": "",
+      "pruning_confidence": 0.0
     }
   ],
   "investigation_plan": ["..."]
