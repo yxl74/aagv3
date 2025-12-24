@@ -58,3 +58,36 @@ def _candidate_json_strings(text: str) -> Iterable[str]:
         end = text.rfind("}")
         if end != -1:
             yield text[obj_start : end + 1]
+
+
+def describe_llm_failure(response: Any, required_keys: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+    data = parse_llm_json(response)
+    if not isinstance(data, dict) or data.get("_error"):
+        raw_text = ""
+        error_type = "invalid_type"
+        if isinstance(data, dict):
+            error_type = data.get("_error") or "invalid_type"
+            raw_text = data.get("_raw_text") or ""
+        else:
+            raw_text = str(response)
+        return {
+            "error_type": error_type,
+            "raw_len": len(raw_text),
+            "raw_sample": _trim_text(raw_text),
+        }
+    if required_keys:
+        missing = [key for key in required_keys if key not in data]
+        if missing:
+            return {
+                "error_type": "missing_keys",
+                "missing_keys": missing,
+            }
+    return {}
+
+
+def _trim_text(text: str, limit: int = 800) -> str:
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[:limit]

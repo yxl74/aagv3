@@ -10,12 +10,41 @@
     th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; }
     a { color: #2563eb; text-decoration: none; }
     .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: 12px; }
+    .form-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+    .form-row label { display: flex; flex-direction: column; font-size: 13px; gap: 4px; }
+    .form-row input, .form-row select { padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; min-width: 240px; }
+    .form-actions { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
+    .btn { padding: 8px 14px; border-radius: 8px; border: none; background: #2563eb; color: #fff; cursor: pointer; }
+    .status { font-size: 13px; color: #6b7280; }
   </style>
 </head>
 <body>
   <h1>APK Analysis Runs</h1>
   <div class="pill">Total runs: {{ runs|length }}</div>
   <p>Artifacts dir: {{ artifacts_dir }}</p>
+  <form id="start-run-form">
+    <div class="form-row">
+      <label>
+        APK path
+        <input type="text" id="apk-path" placeholder="/workspace/app.apk" required>
+      </label>
+      <label>
+        Mode
+        <select id="run-mode">
+          <option value="apk-only" selected>apk-only</option>
+          <option value="combined">combined</option>
+        </select>
+      </label>
+      <label>
+        Knox APK ID (combined only)
+        <input type="text" id="knox-id" placeholder="optional">
+      </label>
+    </div>
+    <div class="form-actions">
+      <button class="btn" type="submit">Start run</button>
+      <span class="status" id="start-run-status">Idle</span>
+    </div>
+  </form>
   {% if runs|length == 0 %}
   <p>No runs found. Check that ARTIFACTS_DIR points to your `artifacts/` folder.</p>
   {% endif %}
@@ -44,5 +73,43 @@
       {% endfor %}
     </tbody>
   </table>
+  <script>
+    const form = document.getElementById('start-run-form');
+    const statusEl = document.getElementById('start-run-status');
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const apkPath = document.getElementById('apk-path').value.trim();
+      const mode = document.getElementById('run-mode').value;
+      const knoxId = document.getElementById('knox-id').value.trim();
+      if (!apkPath) {
+        statusEl.textContent = 'APK path is required.';
+        return;
+      }
+      statusEl.textContent = 'Starting...';
+      try {
+        const response = await fetch('/api/runs/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            apk_path: apkPath,
+            mode,
+            knox_apk_id: knoxId || null,
+          }),
+        });
+        if (!response.ok) {
+          const err = await response.json();
+          statusEl.textContent = err.detail || 'Failed to start run.';
+          return;
+        }
+        const data = await response.json();
+        statusEl.textContent = `Started: ${data.analysis_id}`;
+        if (data.analysis_id && data.run_id) {
+          window.location.href = `/runs/${data.analysis_id}/${data.run_id}`;
+        }
+      } catch (err) {
+        statusEl.textContent = 'Failed to start run.';
+      }
+    });
+  </script>
 </body>
 </html>

@@ -253,17 +253,21 @@ class Orchestrator:
                         llm_client,
                         model=llm_conf.get("model_recon"),
                         tool_runner=tool_runner,
+                        event_logger=event_logger,
                     )
                     event_logger.stage_start("recon")
                     with span("stage.recon", stage="recon"):
                         with llm_context("recon"):
                             recon_result = recon_agent.run(recon_payload)
                         artifact_store.write_json("llm/recon.json", recon_result)
+                    recon_meta = recon_result.get("_meta") if isinstance(recon_result, dict) else {}
                     case_count = len(recon_result.get("cases", []) or [])
                     event_logger.stage_end(
                         "recon",
                         threat_level=recon_result.get("threat_level"),
                         case_count=case_count,
+                        llm_valid=(recon_meta or {}).get("llm_valid"),
+                        fallback_reason=(recon_meta or {}).get("fallback_reason"),
                         ref=artifact_store.relpath("llm/recon.json"),
                     )
                     cases = recon_result.get("cases", []) or []
@@ -362,17 +366,20 @@ class Orchestrator:
                     self.prompt_dir / "tier1_summarize.md",
                     llm_client,
                     model=llm_conf.get("model_tier1"),
+                    event_logger=event_logger,
                 )
                 verifier_agent = VerifierAgent(self.prompt_dir / "verifier.md", llm_client)
                 tier2_agent = Tier2IntentAgent(
                     self.prompt_dir / "tier2_intent.md",
                     llm_client,
                     model=llm_conf.get("model_tier2"),
+                    event_logger=event_logger,
                 )
                 report_agent = ReportAgent(
                     self.prompt_dir / "tier3_final.md",
                     llm_client,
                     model=llm_conf.get("model_report"),
+                    event_logger=event_logger,
                 )
 
                 case_lookup = _case_lookup(cases)
