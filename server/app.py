@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import subprocess
+import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
+
+from apk_analyzer.utils.artifact_store import ArtifactStore
 
 
 def _resolve_artifacts_dir() -> Path:
@@ -18,6 +25,14 @@ def _resolve_artifacts_dir() -> Path:
 ARTIFACTS_DIR = _resolve_artifacts_dir()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app = FastAPI(title="APK Analysis Observability")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+class StartRunRequest(BaseModel):
+    apk_path: str = Field(..., description="Filesystem path to the APK")
+    mode: str = Field("apk-only", description="Analysis mode")
+    knox_apk_id: Optional[str] = Field(None, description="Knox APK ID for combined mode")
+    settings_path: Optional[str] = Field(None, description="Settings YAML path")
 
 
 def _parse_ts(ts: str | None) -> datetime | None:
@@ -187,6 +202,80 @@ def _format_api_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return formatted
 
 
+def _format_execution_flow(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    enriched: List[Dict[str, Any]] = []
+    for idx, event in enumerate(events):
+        ts = event.get("ts")
+        parsed = _parse_ts(ts)
+        sort_key = parsed.timestamp() if parsed else float(idx)
+        event_type = event.get("event_type", "")
+        stage = event.get("stage")
+        is_stage = event_type.startswith("stage.") or event_type in {"run.start", "run.end"}
+        level = _event_level(event)
+        summary = _event_summary(event)
+        extra = {
+            k: v for k, v in event.items()
+            if k not in {
+                "ts",
+                "event_type",
+                "analysis_id",
+                "run_id",
+                "stage",
+                "ref",
+            }
+        }
+        enriched.append({
+            "ts": ts,
+            "event_type": event_type,
+            "stage": stage,
+            "summary": summary,
+            "ref": event.get("ref"),
+            "details": json.dumps(extra, indent=2, ensure_ascii=True) if extra else "",
+            "is_stage": is_stage,
+            "level": level,
+            "sort_key": sort_key,
+        })
+    return sorted(enriched, key=lambda item: item["sort_key"])
+
+
+def _event_level(event: Dict[str, Any]) -> str:
+    status = event.get("status") or event.get("status_code")
+    if event.get("error"):
+        return "error"
+    if isinstance(status, str) and status.lower() in {"error", "failed"}:
+        return "error"
+    if isinstance(status, int) and status >= 400:
+        return "error"
+    return "info"
+
+
+def _event_summary(event: Dict[str, Any]) -> str:
+    event_type = event.get("event_type", "")
+    stage = event.get("stage")
+    if event_type == "run.start":
+        return f"run.start mode={event.get('mode') or '-'}"
+    if event_type == "run.end":
+        return f"run.end status={event.get('status') or '-'}"
+    if event_type.startswith("stage."):
+        status = event.get("status")
+        if status:
+            return f"{stage or '-'} status={status}"
+        return f"{stage or '-'}"
+    if event_type.startswith("llm."):
+        step = event.get("llm_step") or "-"
+        seed = event.get("seed_id") or "-"
+        if event_type == "llm.fallback":
+            return f"llm.fallback step={step} seed={seed} reason={event.get('error_type') or '-'}"
+        if event_type == "llm.parse_error":
+            return f"llm.parse_error step={step} seed={seed} type={event.get('error_type') or '-'}"
+        return f"{event_type} step={step} seed={seed}"
+    if event_type.startswith("api."):
+        return f"{event.get('http_method') or '-'} {event.get('path') or '-'}"
+    if event_type.startswith("tool."):
+        return f"{event.get('tool') or event_type}"
+    return event_type or "-"
+
+
 def _safe_artifact_path(analysis_id: str, rel_path: str) -> Path:
     base = (ARTIFACTS_DIR / analysis_id).resolve()
     candidate = (base / rel_path).resolve()
@@ -248,6 +337,7 @@ def _render_run_detail(
     flowdroid = next((e for e in events if e.get("event_type") in {"flowdroid.summary", "tool.flowdroid"}), None)
     llm_events = [e for e in events if e.get("event_type", "").startswith("llm.")]
     api_events = _format_api_events(events)
+    execution_flow = _format_execution_flow(events)
     run_id = run_id_override or next((e.get("run_id") for e in events if e.get("run_id")), None)
     if not run_id and events_path:
         run_id = _run_id_from_path(events_path)
@@ -267,6 +357,7 @@ def _render_run_detail(
             "flowdroid": flowdroid,
             "llm_events": llm_events,
             "api_events": api_events,
+            "execution_flow": execution_flow,
             "artifacts_dir": str(ARTIFACTS_DIR),
         },
     )
@@ -334,6 +425,90 @@ def _latest_run_entry(analysis_id: str) -> tuple[Path | None, str | None]:
         return None, None
     _, events_path, run_id = max(candidates, key=lambda entry: entry[0])
     return events_path, run_id
+
+
+async def _event_stream(
+    analysis_id: str,
+    run_id: str | None,
+    from_start: bool,
+    heartbeat_sec: float = 5.0,
+):
+    last_heartbeat = asyncio.get_event_loop().time()
+    events_path: Path | None = None
+    while not events_path:
+        if run_id:
+            events_path = _resolve_run_path(analysis_id, run_id)
+        else:
+            events_path = _latest_run_path(analysis_id)
+        if events_path:
+            break
+        yield ": waiting-for-events\n\n"
+        await asyncio.sleep(0.5)
+
+    if not events_path:
+        return
+
+    with events_path.open("r", encoding="utf-8") as handle:
+        if not from_start:
+            handle.seek(0, os.SEEK_END)
+        while True:
+            line = handle.readline()
+            if line:
+                payload = line.strip()
+                if payload:
+                    yield f"data: {payload}\n\n"
+                continue
+            now = asyncio.get_event_loop().time()
+            if now - last_heartbeat >= heartbeat_sec:
+                yield ": heartbeat\n\n"
+                last_heartbeat = now
+            await asyncio.sleep(0.5)
+
+
+@app.post("/api/runs/start")
+def start_run(payload: StartRunRequest):
+    mode = payload.mode or "apk-only"
+    if mode not in {"apk-only", "combined"}:
+        raise HTTPException(status_code=400, detail="mode must be apk-only or combined")
+    if mode == "combined" and not payload.knox_apk_id:
+        raise HTTPException(status_code=400, detail="knox_apk_id is required for combined mode")
+    apk_path = Path(payload.apk_path)
+    if not apk_path.exists():
+        raise HTTPException(status_code=400, detail=f"APK path not found: {apk_path}")
+    analysis_id = ArtifactStore.compute_analysis_id(str(apk_path), payload.knox_apk_id)
+    run_id = uuid.uuid4().hex
+    log_path = ARTIFACTS_DIR / analysis_id / "runs" / run_id / "process.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, "-m", "apk_analyzer.main", "--mode", mode, "--apk", str(apk_path)]
+    if payload.knox_apk_id:
+        cmd.extend(["--knox-id", payload.knox_apk_id])
+    if payload.settings_path:
+        cmd.extend(["--settings", payload.settings_path])
+    env = os.environ.copy()
+    env["AAG_RUN_ID"] = run_id
+    log_handle = log_path.open("a", encoding="utf-8")
+    process = subprocess.Popen(
+        cmd,
+        cwd=str(REPO_ROOT),
+        env=env,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+    )
+    log_handle.close()
+    return {
+        "analysis_id": analysis_id,
+        "run_id": run_id,
+        "pid": process.pid,
+        "log_ref": str(Path("runs") / run_id / "process.log"),
+    }
+
+
+@app.get("/api/runs/stream/{analysis_id}")
+def stream_run(analysis_id: str, run_id: str | None = None, from_start: bool = False):
+    return StreamingResponse(
+        _event_stream(analysis_id, run_id, from_start=from_start),
+        media_type="text/event-stream",
+    )
 
 
 @app.get("/runs/{analysis_id}/artifact/{rel_path:path}")

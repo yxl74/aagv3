@@ -36,8 +36,8 @@ def init_telemetry(settings: Dict[str, Any]) -> None:
     trace.set_tracer_provider(provider)
 
 
-def set_run_context(analysis_id: str, mode: str | None = None) -> str:
-    run_id = uuid.uuid4().hex
+def set_run_context(analysis_id: str, mode: str | None = None, run_id: str | None = None) -> str:
+    run_id = run_id or os.environ.get("AAG_RUN_ID") or uuid.uuid4().hex
     _ANALYSIS_ID.set(analysis_id)
     _RUN_ID.set(run_id)
     if mode:

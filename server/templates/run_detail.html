@@ -15,6 +15,13 @@
     .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: 12px; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
     .card { border: 1px solid #e5e7eb; padding: 12px; border-radius: 8px; }
+    .flow-toggle { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; font-size: 14px; }
+    .level-error { background: #fee2e2; }
+    .level-info { background: #fff; }
+    details > summary { cursor: pointer; color: #2563eb; }
+    .status-pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+    .status-live { background: #dcfce7; color: #166534; }
+    .status-off { background: #f3f4f6; color: #374151; }
   </style>
 </head>
 <body>
@@ -49,6 +56,60 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  <div class="section">
+    <h2>Execution Flow</h2>
+    <div class="flow-toggle">
+      <label>
+        <input type="checkbox" id="toggle-all-events">
+        Show all events
+      </label>
+      <label>
+        <input type="checkbox" id="toggle-live" checked>
+        Live
+      </label>
+      <span id="live-status" class="status-pill status-live">Connecting</span>
+    </div>
+    {% if execution_flow %}
+    <table id="flow-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Event</th>
+          <th>Stage</th>
+          <th>Summary</th>
+          <th>Ref</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in execution_flow %}
+        <tr data-kind="{{ 'stage' if event.is_stage else 'event' }}" class="level-{{ event.level }}">
+          <td>{{ event.ts or "-" }}</td>
+          <td>{{ event.event_type or "-" }}</td>
+          <td>{{ event.stage or "-" }}</td>
+          <td>{{ event.summary or "-" }}</td>
+          <td>
+            {% if event.ref %}
+            <a href="/runs/{{ analysis_id }}/artifact/{{ event.ref }}">{{ event.ref }}</a>
+            {% else %}-{% endif %}
+          </td>
+          <td>
+            {% if event.details %}
+            <details>
+              <summary>Details</summary>
+              <pre>{{ event.details }}</pre>
+            </details>
+            {% else %}-{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p>No events recorded.</p>
+    {% endif %}
   </div>
 
   <div class="section">
@@ -92,6 +153,12 @@
     <h2>Threat Triage (Recon)</h2>
     {% if recon %}
       <p>Threat level: <strong>{{ recon.threat_level }}</strong> | Cases: {{ recon.case_count }}</p>
+      {% if recon.fallback_reason %}
+      <p>LLM fallback reason: <code>{{ recon.fallback_reason }}</code></p>
+      {% endif %}
+      {% if recon.llm_valid is not none %}
+      <p>LLM valid: <code>{{ recon.llm_valid }}</code></p>
+      {% endif %}
       {% if recon.ref %}
       <a href="/runs/{{ analysis_id }}/artifact/{{ recon.ref }}">View recon JSON</a>
       {% endif %}
@@ -178,6 +245,9 @@
           <th>Seed</th>
           <th>Ref</th>
           <th>Size</th>
+          <th>Prompt chars</th>
+          <th>Payload chars</th>
+          <th>Error</th>
         </tr>
       </thead>
       <tbody>
@@ -192,6 +262,9 @@
             {% else %}-{% endif %}
           </td>
           <td>{{ event.size or "-" }}</td>
+          <td>{{ event.prompt_chars or "-" }}</td>
+          <td>{{ event.payload_chars or "-" }}</td>
+          <td>{{ event.error_type or "-" }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -238,5 +311,161 @@
       <p>No API/tool events recorded.</p>
     {% endif %}
   </div>
+  <script>
+    const toggle = document.getElementById('toggle-all-events');
+    const liveToggle = document.getElementById('toggle-live');
+    const liveStatus = document.getElementById('live-status');
+    const flowTable = document.getElementById('flow-table');
+    const flowBody = flowTable ? flowTable.querySelector('tbody') : null;
+    const rows = Array.from(document.querySelectorAll('#flow-table tbody tr'));
+    const analysisId = "{{ analysis_id }}";
+    const runId = "{{ run_id or '' }}";
+    let eventSource = null;
+
+    function applyFilter() {
+      const showAll = toggle && toggle.checked;
+      rows.forEach((row) => {
+        const kind = row.dataset.kind;
+        row.style.display = showAll || kind === 'stage' ? '' : 'none';
+      });
+    }
+
+    function setLiveStatus(active, label) {
+      if (!liveStatus) return;
+      liveStatus.textContent = label;
+      liveStatus.classList.remove('status-live', 'status-off');
+      liveStatus.classList.add(active ? 'status-live' : 'status-off');
+    }
+
+    function isStageEvent(eventType) {
+      return eventType.startsWith('stage.') || eventType === 'run.start' || eventType === 'run.end';
+    }
+
+    function eventLevel(event) {
+      const status = event.status || event.status_code;
+      if (event.error) return 'error';
+      if (typeof status === 'string' && ['error', 'failed'].includes(status.toLowerCase())) return 'error';
+      if (typeof status === 'number' && status >= 400) return 'error';
+      return 'info';
+    }
+
+    function eventSummary(event) {
+      const eventType = event.event_type || '-';
+      if (eventType === 'run.start') {
+        return `run.start mode=${event.mode || '-'}`;
+      }
+      if (eventType === 'run.end') {
+        return `run.end status=${event.status || '-'}`;
+      }
+      if (eventType.startsWith('stage.')) {
+        const status = event.status ? ` status=${event.status}` : '';
+        return `${event.stage || '-'}${status}`;
+      }
+      if (eventType.startsWith('llm.')) {
+        const step = event.llm_step || '-';
+        const seed = event.seed_id || '-';
+        if (eventType === 'llm.fallback') {
+          return `llm.fallback step=${step} seed=${seed} reason=${event.error_type || '-'}`;
+        }
+        if (eventType === 'llm.parse_error') {
+          return `llm.parse_error step=${step} seed=${seed} type=${event.error_type || '-'}`;
+        }
+        return `${eventType} step=${step} seed=${seed}`;
+      }
+      if (eventType.startsWith('api.')) {
+        return `${event.http_method || '-'} ${event.path || '-'}`;
+      }
+      if (eventType.startsWith('tool.')) {
+        return event.tool || eventType;
+      }
+      return eventType;
+    }
+
+    function buildDetails(event) {
+      const drop = new Set(['ts', 'event_type', 'analysis_id', 'run_id', 'stage', 'ref']);
+      const extra = {};
+      Object.keys(event || {}).forEach((key) => {
+        if (!drop.has(key)) {
+          extra[key] = event[key];
+        }
+      });
+      const keys = Object.keys(extra);
+      if (!keys.length) return null;
+      return JSON.stringify(extra, null, 2);
+    }
+
+    function addEventRow(event) {
+      if (!flowBody) return;
+      const eventType = event.event_type || '-';
+      const isStage = isStageEvent(eventType);
+      const level = eventLevel(event);
+      const summary = eventSummary(event);
+      const details = buildDetails(event);
+      const tr = document.createElement('tr');
+      tr.dataset.kind = isStage ? 'stage' : 'event';
+      tr.className = `level-${level}`;
+      const ref = event.ref ? `<a href="/runs/${analysisId}/artifact/${event.ref}">${event.ref}</a>` : '-';
+      const detailCell = details
+        ? `<details><summary>Details</summary><pre>${details}</pre></details>`
+        : '-';
+      tr.innerHTML = `
+        <td>${event.ts || '-'}</td>
+        <td>${eventType}</td>
+        <td>${event.stage || '-'}</td>
+        <td>${summary}</td>
+        <td>${ref}</td>
+        <td>${detailCell}</td>
+      `;
+      flowBody.appendChild(tr);
+      rows.push(tr);
+      applyFilter();
+    }
+
+    function connectStream() {
+      if (!flowBody) return;
+      if (eventSource) {
+        eventSource.close();
+      }
+      const params = new URLSearchParams();
+      if (runId) {
+        params.set('run_id', runId);
+      }
+      params.set('from_start', 'false');
+      eventSource = new EventSource(`/api/runs/stream/${analysisId}?${params.toString()}`);
+      setLiveStatus(true, 'Connecting');
+      eventSource.onopen = () => {
+        setLiveStatus(true, 'Connected');
+      };
+      eventSource.onmessage = (message) => {
+        try {
+          const event = JSON.parse(message.data);
+          addEventRow(event);
+        } catch (err) {
+          console.warn('Failed to parse event', err);
+        }
+      };
+      eventSource.onerror = () => {
+        setLiveStatus(false, 'Disconnected');
+      };
+    }
+
+    if (toggle) {
+      toggle.addEventListener('change', applyFilter);
+    }
+    if (liveToggle) {
+      liveToggle.addEventListener('change', () => {
+        if (liveToggle.checked) {
+          connectStream();
+        } else if (eventSource) {
+          eventSource.close();
+          setLiveStatus(false, 'Paused');
+        }
+      });
+    }
+    applyFilter();
+    if (liveToggle && liveToggle.checked) {
+      connectStream();
+    }
+  </script>
 </body>
 </html>
