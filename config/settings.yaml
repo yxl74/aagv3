@@ -11,6 +11,7 @@ analysis:
   jadx_timeout_sec: 600
   callgraph_algo: "SPARK"
   allow_third_party_callers: true
+  filter_common_libraries: true  # Filter androidx, google, kotlin library noise
   k_hop: 2
   max_seed_count: 20
 llm:

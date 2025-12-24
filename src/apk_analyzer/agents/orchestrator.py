@@ -208,6 +208,7 @@ class Orchestrator:
                     with span("stage.sensitive_api", stage="sensitive_api"):
                         catalog = ApiCatalog.load("config/android_sensitive_api_catalog.json")
                         allow_third_party = bool(self.settings["analysis"].get("allow_third_party_callers", True))
+                        filter_common_libs = bool(self.settings["analysis"].get("filter_common_libraries", True))
                         sensitive_hits = build_sensitive_api_hits(
                             callgraph_data,
                             catalog,
@@ -216,6 +217,7 @@ class Orchestrator:
                             class_hierarchy=class_hierarchy,
                             entrypoints_override=entrypoints_override if isinstance(entrypoints_override, list) else None,
                             allow_third_party_callers=allow_third_party,
+                            filter_common_libraries=filter_common_libs,
                         )
                         artifact_store.write_json("seeds/sensitive_api_hits.json", sensitive_hits)
                         artifact_store.write_json(

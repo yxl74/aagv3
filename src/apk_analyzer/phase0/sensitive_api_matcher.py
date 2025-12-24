@@ -12,15 +12,35 @@ from apk_analyzer.utils.signature_normalize import method_name_from_signature, n
 
 
 _SOOT_SIG_RE = re.compile(r"^<([^:]+):\s+([^\s]+)\s+([^(]+)\((.*)\)>$")
+
+# Framework prefixes (always filtered as callers)
 _LIBRARY_PREFIXES = (
     "android.",
-    "androidx.",
     "java.",
     "javax.",
-    "kotlin.",
-    "kotlinx.",
     "dalvik.",
     "sun.",
+)
+
+# Common library prefixes (filtered when filter_common_libraries=True)
+# These are AndroidX, Google Android libraries, and Kotlin ecosystem
+_COMMON_LIBRARY_PREFIXES = (
+    # AndroidX & Legacy Support
+    "androidx.",
+    "android.support.",
+    # Google Android Libraries
+    "com.google.android.material.",
+    "com.google.android.gms.",
+    "com.google.android.play.",
+    "com.android.billingclient.",
+    "com.google.android.datatransport.",
+    "com.google.firebase.",
+    "com.google.mlkit.",
+    # Kotlin Ecosystem
+    "kotlin.",
+    "kotlinx.",
+    "org.jetbrains.kotlin.",
+    "org.jetbrains.annotations.",
 )
 
 
@@ -52,6 +72,7 @@ def build_sensitive_api_hits(
     class_hierarchy: Optional[Dict[str, Any]] = None,
     entrypoints_override: Optional[List[str]] = None,
     allow_third_party_callers: bool = True,
+    filter_common_libraries: bool = True,
 ) -> Dict[str, Any]:
     component_map = _extract_component_map(manifest)
     app_prefixes = _build_app_prefixes(manifest, component_map)
@@ -65,6 +86,7 @@ def build_sensitive_api_hits(
 
     hits: List[Dict[str, Any]] = []
     filtered_framework = 0
+    filtered_common_library = 0
     filtered_non_app = 0
     for edge in callgraph.get("edges", []) or []:
         caller_sig = normalize_signature(edge.get("caller", ""))
@@ -75,6 +97,9 @@ def build_sensitive_api_hits(
             filtered_framework += 1
             continue
         caller_class = _class_name_from_signature(caller_sig)
+        if filter_common_libraries and _is_common_library_caller(caller_class):
+            filtered_common_library += 1
+            continue
         if not allow_third_party_callers:
             if app_prefixes and not _is_app_caller(caller_class, component_map, app_prefixes):
                 filtered_non_app += 1
@@ -137,12 +162,20 @@ def build_sensitive_api_hits(
                 "slice_hints": _slice_hints(category),
             })
 
+    # Deduplicate hits: merge hits with same (caller, callee, category_id)
+    hits_before_dedup = len(hits)
+    hits = _deduplicate_hits(hits)
+    hits_after_dedup = len(hits)
+
     hits.sort(key=_hit_sort_key)
     summary = _summarize_hits(hits, catalog)
     summary["filters"] = {
         "framework_callers": filtered_framework,
+        "common_library_callers": filtered_common_library,
         "non_app_callers": filtered_non_app if not allow_third_party_callers else 0,
         "third_party_callers_allowed": allow_third_party_callers,
+        "filter_common_libraries_enabled": filter_common_libraries,
+        "duplicates_removed": hits_before_dedup - hits_after_dedup,
     }
     return {
         "catalog_version": catalog.version,
@@ -446,6 +479,36 @@ def _is_framework_method(signature: str, method_is_framework: Dict[str, bool]) -
         return method_is_framework[signature]
     class_name = _class_name_from_signature(signature)
     return class_name.startswith(_LIBRARY_PREFIXES)
+
+
+def _is_common_library_caller(caller_class: str) -> bool:
+    """Check if caller class is from a common library (androidx, google, kotlin, etc.)"""
+    if not caller_class:
+        return False
+    return caller_class.startswith(_COMMON_LIBRARY_PREFIXES)
+
+
+def _deduplicate_hits(hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Deduplicate hits with the same (caller_method, callee_signature, category_id).
+    Keeps the first occurrence (which will have highest priority/weight after sorting).
+    """
+    seen: set[Tuple[str, str, str]] = set()
+    deduped: List[Dict[str, Any]] = []
+
+    for hit in hits:
+        caller_method = hit.get("caller", {}).get("method", "")
+        callee_sig = hit.get("signature", "")
+        category_id = hit.get("category_id", "")
+
+        key = (caller_method, callee_sig, category_id)
+        if key in seen:
+            continue
+
+        seen.add(key)
+        deduped.append(hit)
+
+    return deduped
 
 
 def _hit_sort_key(hit: Dict[str, Any]) -> Tuple[int, float]:
