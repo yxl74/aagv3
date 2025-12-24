@@ -61,20 +61,52 @@ class ReconAgent:
             "investigation_plan": ["LLM output missing required keys; using fallback."],
             "_meta": {"llm_valid": False, "fallback_reason": "missing_keys"},
         }
+        did_retry = False
         for _ in range(self.max_tool_rounds + 1):
             response = self.llm_client.complete(self.prompt, working_payload, model=self.model)
             data = parse_llm_json(response)
             if not isinstance(data, dict) or data.get("_error"):
-                if self.event_logger:
-                    info = describe_llm_failure(response)
-                    payload_info = info or {"error_type": "invalid_output"}
-                    self.event_logger.log(
-                        "llm.fallback",
-                        llm_step="recon",
-                        seed_id=None,
-                        **payload_info,
-                    )
-                return fallback_invalid
+                if not did_retry:
+                    did_retry = True
+                    if self.event_logger:
+                        self.event_logger.log(
+                            "llm.retry_repair",
+                            llm_step="recon",
+                            seed_id=None,
+                            error_type="invalid_json_first_attempt",
+                        )
+                    preview = working_payload.get("sensitive_api_hits_preview", []) or []
+                    repair_payload = {
+                        "error": "Invalid JSON. Return ONLY valid JSON.",
+                        "required_keys": ["mode", "risk_score", "threat_level", "cases", "investigation_plan"],
+                        "schema_reminder": {
+                            "mode": "final",
+                            "risk_score": 0.0,
+                            "threat_level": "LOW|MEDIUM|HIGH|CRITICAL",
+                            "cases": [],
+                            "investigation_plan": [],
+                        },
+                        "preview_sample": preview[:10],
+                    }
+                    retry_response = self.llm_client.complete(self.prompt, repair_payload, model=self.model)
+                    data = parse_llm_json(retry_response)
+                    if isinstance(data, dict) and not data.get("_error"):
+                        response = retry_response
+                    else:
+                        data = None
+                if isinstance(data, dict) and not data.get("_error"):
+                    pass
+                else:
+                    if self.event_logger:
+                        info = describe_llm_failure(response)
+                        payload_info = info or {"error_type": "invalid_output"}
+                        self.event_logger.log(
+                            "llm.fallback",
+                            llm_step="recon",
+                            seed_id=None,
+                            **payload_info,
+                        )
+                    return fallback_invalid
             mode = data.get("mode", "final")
             tool_requests = data.get("tool_requests") or []
             if mode == "tool_request" and self.tool_runner and tool_requests:
@@ -104,7 +136,9 @@ class ReconAgent:
                 )
                 return fallback_missing
             final.setdefault("mode", "final")
-            final.setdefault("_meta", {"llm_valid": True})
+            meta = final.setdefault("_meta", {})
+            meta.setdefault("llm_valid", True)
+            meta["tool_history"] = tool_history
             return final
         if self.event_logger:
             self.event_logger.log(

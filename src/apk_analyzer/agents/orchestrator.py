@@ -243,6 +243,7 @@ class Orchestrator:
                     "investigation_plan": ["Recon skipped; no sensitive API hits."],
                 }
                 cases: List[Dict[str, Any]] = []
+                had_llm_cases = False
                 if sensitive_hits and sensitive_hits.get("hits"):
                     recon_payload = _build_recon_payload(
                         manifest=manifest,
@@ -250,20 +251,85 @@ class Orchestrator:
                         threat_indicators=(full_knox or {}).get("threat_indicators", {}),
                     )
                     tool_runner = ReconToolRunner(sensitive_hits)
+                    max_rounds = llm_conf.get("recon_max_tool_rounds", 2)
                     recon_agent = ReconAgent(
                         self.prompt_dir / "recon.md",
                         llm_client,
                         model=llm_conf.get("model_recon"),
                         tool_runner=tool_runner,
+                        max_tool_rounds=max_rounds,
                         event_logger=event_logger,
                     )
                     event_logger.stage_start("recon")
                     with span("stage.recon", stage="recon"):
                         with llm_context("recon"):
                             recon_result = recon_agent.run(recon_payload)
+                        recon_meta = recon_result.get("_meta") if isinstance(recon_result, dict) else {}
+                        if not isinstance(recon_meta, dict):
+                            recon_meta = {}
+                        recon_result["_meta"] = recon_meta
+                        tool_history = recon_meta.get("tool_history", []) or []
+                        if event_logger:
+                            list_hits_called = False
+                            get_hit_called = False
+                            total_calls = 0
+                            for round_data in tool_history:
+                                requests = round_data.get("requests", [])
+                                total_calls += len(requests)
+                                for req in requests:
+                                    tool_name = req.get("tool", "")
+                                    if tool_name == "list_hits":
+                                        list_hits_called = True
+                                    elif tool_name == "get_hit":
+                                        get_hit_called = True
+                            event_logger.log(
+                                "recon.tool_usage",
+                                llm_step="recon",
+                                total_tool_rounds=len(tool_history),
+                                list_hits_called=list_hits_called,
+                                get_hit_called=get_hit_called,
+                                tool_call_count=total_calls,
+                            )
+                        all_cases = recon_result.get("cases", []) or []
+                        had_llm_cases = bool(all_cases)
+                        if all_cases:
+                            high_confidence_pruned = []
+                            low_confidence_pruned = []
+                            active_cases = []
+                            for case in all_cases:
+                                if case.get("should_prune", False):
+                                    if case.get("pruning_confidence", 0.0) >= 0.8:
+                                        high_confidence_pruned.append(case)
+                                    else:
+                                        low_confidence_pruned.append(case)
+                                else:
+                                    active_cases.append(case)
+                            cases_for_tier1 = [
+                                case for case in all_cases
+                                if not (case.get("should_prune", False)
+                                        and case.get("pruning_confidence", 0.0) >= 0.8)
+                            ]
+                            recon_result["cases_pruned"] = high_confidence_pruned
+                            recon_meta["pruned_count"] = len(high_confidence_pruned)
+                            recon_meta["low_confidence_pruned_count"] = len(low_confidence_pruned)
+                            if event_logger:
+                                event_logger.log(
+                                    "recon.pruning_stats",
+                                    llm_step="recon",
+                                    total_cases=len(all_cases),
+                                    high_confidence_pruned=len(high_confidence_pruned),
+                                    low_confidence_pruned=len(low_confidence_pruned),
+                                    active_cases=len(active_cases),
+                                    tier1_cases=len(cases_for_tier1),
+                                    sample_reasons=[c.get("pruning_reasoning", "") for c in high_confidence_pruned[:5]],
+                                )
+                            recon_result["cases"] = cases_for_tier1
+                            cases = cases_for_tier1
+                        else:
+                            cases = []
                         artifact_store.write_json("llm/recon.json", recon_result)
                     recon_meta = recon_result.get("_meta") if isinstance(recon_result, dict) else {}
-                    case_count = len(recon_result.get("cases", []) or [])
+                    case_count = len(cases)
                     event_logger.stage_end(
                         "recon",
                         threat_level=recon_result.get("threat_level"),
@@ -272,8 +338,7 @@ class Orchestrator:
                         fallback_reason=(recon_meta or {}).get("fallback_reason"),
                         ref=artifact_store.relpath("llm/recon.json"),
                     )
-                    cases = recon_result.get("cases", []) or []
-                    if not cases:
+                    if not cases and not had_llm_cases:
                         cases = _fallback_cases_from_hits(
                             sensitive_hits,
                             max_cases=self.settings["analysis"].get("max_seed_count", 20),
@@ -285,7 +350,7 @@ class Orchestrator:
 
                 event_logger.stage_start("seeding")
                 with span("stage.seeding", stage="seeding"):
-                    if cases and sensitive_hits:
+                    if sensitive_hits and (cases or had_llm_cases):
                         hits_by_id = {
                             hit.get("hit_id"): hit
                             for hit in sensitive_hits.get("hits", [])
@@ -536,13 +601,24 @@ def _build_recon_payload(
     manifest: Dict[str, Any],
     sensitive_hits: Dict[str, Any],
     threat_indicators: Dict[str, Any],
-    preview_limit: int = 50,
+    preview_limit: int = 150,
 ) -> Dict[str, Any]:
+    hits = sensitive_hits.get("hits", []) or []
+    preview_limit = min(preview_limit, len(hits))
+    preview_hits = _stratified_hits_preview(hits, limit=preview_limit)
+    lite_preview = [_make_lite_hit(hit) for hit in preview_hits]
     return {
         "manifest_summary": _manifest_summary(manifest),
         "callgraph_summary": sensitive_hits.get("callgraph_summary", {}),
         "sensitive_api_summary": sensitive_hits.get("summary", {}),
-        "sensitive_api_hits_preview": _hits_preview(sensitive_hits.get("hits", []), preview_limit),
+        "sensitive_api_hits_preview": lite_preview,
+        "preview_metadata": {
+            "preview_count": len(lite_preview),
+            "total_count": len(hits),
+            "sampling_strategy": "stratified_by_priority_with_redistribution",
+            "categories_in_preview": len({hit.get("category_id") for hit in lite_preview}),
+            "note": "Preview shows lite versions. Use get_hit(hit_id) for full details.",
+        },
         "threat_indicators": threat_indicators,
         "tool_results": [],
         "tool_schema": ReconToolRunner.schema(),
@@ -566,8 +642,87 @@ def _manifest_summary(manifest: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _hits_preview(hits: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
-    return list(hits[:limit])
+def _make_lite_hit(hit: Dict[str, Any]) -> Dict[str, Any]:
+    lite = dict(hit)
+    lite.pop("slice_hints", None)
+    reachability = hit.get("reachability") or {}
+    if reachability:
+        lite["reachability"] = {
+            "reachable_from_entrypoint": reachability.get("reachable_from_entrypoint", False),
+            "shortest_path_len": reachability.get("shortest_path_len", 0),
+        }
+    return lite
+
+
+def _stratified_hits_preview(hits: List[Dict[str, Any]], limit: int = 150) -> List[Dict[str, Any]]:
+    if limit <= 0 or not hits:
+        return []
+    from collections import defaultdict
+
+    by_priority: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for hit in hits:
+        priority = hit.get("priority", "LOW")
+        by_priority[priority].append(hit)
+
+    for priority_hits in by_priority.values():
+        priority_hits.sort(
+            key=lambda h: (
+                not h.get("caller_is_app", False),
+                not h.get("reachability", {}).get("reachable_from_entrypoint", False),
+                h.get("hit_id", ""),
+            )
+        )
+
+    target_quotas = {"CRITICAL": 0.4, "HIGH": 0.3, "MEDIUM": 0.2, "LOW": 0.1}
+    priorities = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+
+    taken: Dict[str, int] = {}
+    for priority in priorities:
+        quota = int(limit * target_quotas[priority])
+        available = len(by_priority.get(priority, []))
+        taken[priority] = min(quota, available)
+
+    total_taken = sum(taken.values())
+    remaining_slots = limit - total_taken
+
+    if remaining_slots > 0:
+        can_take_more = {
+            p: len(by_priority.get(p, [])) - taken[p]
+            for p in priorities
+            if len(by_priority.get(p, [])) > taken[p]
+        }
+        total_capacity = sum(can_take_more.values())
+        if total_capacity > 0:
+            for priority in priorities:
+                capacity = can_take_more.get(priority, 0)
+                if capacity > 0:
+                    extra = min(
+                        int(remaining_slots * capacity / total_capacity),
+                        capacity,
+                    )
+                    taken[priority] += extra
+
+    total_allocated = sum(taken.values())
+    if total_allocated < limit:
+        remaining_after = limit - total_allocated
+        capacity_list = [
+            (p, len(by_priority.get(p, [])) - taken.get(p, 0))
+            for p in priorities
+            if len(by_priority.get(p, [])) > taken.get(p, 0)
+        ]
+        capacity_list.sort(key=lambda x: x[1], reverse=True)
+        for priority, capacity in capacity_list:
+            if remaining_after <= 0:
+                break
+            extra = min(capacity, remaining_after)
+            taken[priority] += extra
+            remaining_after -= extra
+
+    preview: List[Dict[str, Any]] = []
+    for priority in priorities:
+        count = taken.get(priority, 0)
+        preview.extend(by_priority.get(priority, [])[:count])
+    return preview
 
 
 def _fallback_cases_from_hits(sensitive_hits: Dict[str, Any], max_cases: int) -> List[Dict[str, Any]]:

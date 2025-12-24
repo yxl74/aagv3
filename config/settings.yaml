@@ -23,6 +23,7 @@ llm:
   timeout_sec: 60
   model_orchestrator: "gemini-3-pro-preview"
   model_recon: "gemini-3-flash-preview"
+  recon_max_tool_rounds: 3
   model_tier1: "gemini-3-flash-preview"
   model_verifier: "gemini-3-pro-preview"
   model_tier2: "gemini-3-flash-preview"
