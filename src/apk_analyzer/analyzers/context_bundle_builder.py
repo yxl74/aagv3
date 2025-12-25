@@ -27,7 +27,7 @@ def _load_json(path: Path) -> Dict[str, Any]:
         return json.load(handle)
 
 
-def _build_slice_from_cfg(cfg: Dict[str, Any], seed_match: str) -> Dict[str, Any]:
+def _build_slice_from_cfg(cfg: Dict[str, Any], seed_matches: List[str]) -> Dict[str, Any]:
     units = cfg.get("units", [])
     unit_map = {u["id"]: u for u in units}
     preds: Dict[str, List[str]] = {u["id"]: [] for u in units}
@@ -35,7 +35,13 @@ def _build_slice_from_cfg(cfg: Dict[str, Any], seed_match: str) -> Dict[str, Any
         for succ in u.get("succs", []) or []:
             if succ in preds:
                 preds[succ].append(u["id"])
-    seed_units = [u["id"] for u in units if seed_match in u.get("stmt", "")]
+    seed_units = []
+    for u in units:
+        stmt = u.get("stmt", "")
+        for match in seed_matches:
+            if match in stmt:
+                seed_units.append(u["id"])
+                break
     if not seed_units and units:
         seed_units = [units[-1]["id"]]
     visited = set(seed_units)
@@ -195,80 +201,155 @@ class ContextBundleBuilder:
         method_index = {}
         if method_index_path.exists():
             method_index = _load_json(method_index_path)
+
+        # Group callsites
+        grouped_sites: Dict[str, List[Any]] = {}
         for callsite in index.callsites:
+            case_id = None
+            if isinstance(callsite.callsite_descriptor, dict):
+                case_id = callsite.callsite_descriptor.get("case_id")
+            
+            if case_id:
+                key = f"CASE:{case_id}:{callsite.caller_method}"
+            else:
+                key = f"SINGLE:{callsite.seed_id}"
+            
+            grouped_sites.setdefault(key, []).append(callsite)
+
+        for key, sites in grouped_sites.items():
+            primary_site = sites[0]
+            caller_method = primary_site.caller_method
+            
             cfg_ref = None
             cfg = None
-            method_hash = _hash_method_sig(callsite.caller_method)
+            method_hash = _hash_method_sig(caller_method)
             cfg_path = self.artifact_store.path(f"graphs/cfg/{method_hash}.json")
             if cfg_path.exists():
                 cfg = _load_json(cfg_path)
                 cfg_ref = f"cfg/{method_hash}.json"
             elif method_index:
-                cfg_key = method_index.get(callsite.caller_method)
+                cfg_key = method_index.get(caller_method)
                 if cfg_key:
                     cfg_path = self.artifact_store.path(f"graphs/cfg/{cfg_key}.json")
                     if cfg_path.exists():
                         cfg = _load_json(cfg_path)
                         cfg_ref = f"cfg/{cfg_key}.json"
+            
+            signatures = list({s.signature for s in sites})
+            categories = list({s.category for s in sites})
+            seed_matches = [method_name_from_signature(sig) for sig in signatures]
+            
+            # Use composite ID for merged bundles
+            if len(sites) > 1:
+                # Deterministic hash of component IDs
+                comp_str = "|".join(sorted(s.seed_id for s in sites))
+                seed_id = hashlib.sha1(comp_str.encode("utf-8")).hexdigest()
+            else:
+                seed_id = primary_site.seed_id
+
             if cfg:
-                seed_match = method_name_from_signature(callsite.signature)
-                sliced_cfg = _build_slice_from_cfg(cfg, seed_match)
+                sliced_cfg = _build_slice_from_cfg(cfg, seed_matches)
             else:
                 sliced_cfg = {
                     "units": [
                         {
                             "unit_id": "seed",
-                            "stmt": f"invoke {callsite.signature}",
+                            "stmt": f"invoke {sig}",
                             "tags": ["SEED"],
-                        }
+                        } for sig in signatures
                     ],
                     "edges": [],
                 }
                 cfg_ref = cfg_ref or "cfg/unknown.json"
+            
             slice_payload = {
-                "seed_id": callsite.seed_id,
-                "api_signature": callsite.signature,
-                "caller_method": callsite.caller_method,
+                "seed_id": seed_id,
+                "api_signature": signatures[0] if len(signatures) == 1 else "MULTIPLE",
+                "api_signatures": signatures,
+                "caller_method": caller_method,
                 "slice": sliced_cfg,
                 "cfg_ref": cfg_ref,
-                "notes": {"slice_algo": "cfg_backtrace_v0"},
+                "notes": {"slice_algo": "cfg_backtrace_v1_grouped"},
             }
-            self.artifact_store.write_json(f"graphs/slices/{callsite.seed_id}.json", slice_payload)
+            self.artifact_store.write_json(f"graphs/slices/{seed_id}.json", slice_payload)
             validate_json(slice_payload, "config/schemas/BackwardSlice.schema.json")
+            
             branch_conditions = [
                 {"unit_id": u.get("unit_id"), "stmt": u.get("stmt", "")}
                 for u in sliced_cfg.get("units", [])
                 if _looks_like_branch(u.get("stmt", ""))
             ]
-            control_flow_path = _build_control_flow_path(callsite, callsite_map, branch_conditions)
+            control_flow_path = _build_control_flow_path(primary_site, callsite_map, branch_conditions)
+            # Update control flow path seed_id
+            control_flow_path["seed_id"] = seed_id
+            
             path_ref = None
             if control_flow_path.get("path_methods"):
-                path_ref = f"graphs/entrypoint_paths/{callsite.seed_id}.json"
+                path_ref = f"graphs/entrypoint_paths/{seed_id}.json"
                 self.artifact_store.write_json(path_ref, control_flow_path)
+            
             bundle = {
-                "seed_id": callsite.seed_id,
-                "api_category": callsite.category,
-                "api_signature": callsite.signature,
-                "caller_method": callsite.caller_method,
-                "caller_class": callsite.caller_class,
+                "seed_id": seed_id,
+                "api_category": categories[0] if len(categories) == 1 else "MULTIPLE",
+                "api_categories": categories,
+                "api_signature": signatures[0] if len(signatures) == 1 else "MULTIPLE",
+                "api_signatures": signatures,
+                "caller_method": caller_method,
+                "caller_class": primary_site.caller_class,
                 "sliced_cfg": sliced_cfg,
-                "fcg_neighborhood": _fcg_neighborhood(callgraph, callsite.caller_method, k_hop),
+                "fcg_neighborhood": _fcg_neighborhood(callgraph, caller_method, k_hop),
                 "static_context": static_context,
-                "callsite_descriptor": callsite.callsite_descriptor,
+                "callsite_descriptor": primary_site.callsite_descriptor,
                 "branch_conditions": branch_conditions,
                 "control_flow_path": control_flow_path,
                 "control_flow_path_ref": path_ref,
             }
-            if isinstance(callsite.callsite_descriptor, dict):
+            
+            # Build case_context with full Recon context preserved
+            if isinstance(primary_site.callsite_descriptor, dict):
+                desc = primary_site.callsite_descriptor
                 case_context = {
-                    "case_id": callsite.callsite_descriptor.get("case_id"),
-                    "priority": callsite.callsite_descriptor.get("priority"),
-                    "component_context": callsite.callsite_descriptor.get("component_context"),
-                    "reachability": callsite.callsite_descriptor.get("reachability"),
+                    # Core identifiers
+                    "case_id": desc.get("case_id"),
+                    "priority": desc.get("priority"),
+                    "component_context": desc.get("component_context"),
+                    "reachability": desc.get("reachability"),
+                    # Recon LLM reasoning (NEW)
+                    "recon_rationale": desc.get("recon_rationale"),
+                    "recon_severity": desc.get("recon_severity"),
+                    "severity_reasoning": desc.get("severity_reasoning"),
+                    "severity_confidence": desc.get("severity_confidence"),
+                    "severity_factors": desc.get("severity_factors"),
+                    # Tags from Recon (MITRE, PHA, permissions)
+                    "tags": desc.get("tags"),
+                    # Case structure for aggregation
+                    "sibling_hit_ids": desc.get("sibling_hit_ids"),
+                    "total_case_hits": desc.get("total_case_hits"),
+                    # Slice requests from Recon
+                    "slice_requests": desc.get("slice_requests"),
                 }
+
+                # If we merged multiple callsites, collect all evidence IDs
+                if len(sites) > 1:
+                    evidence_ids = []
+                    merged_categories = set()
+                    merged_signatures = []
+                    for s in sites:
+                        if isinstance(s.callsite_descriptor, dict):
+                            hid = s.callsite_descriptor.get("hit_id")
+                            if hid:
+                                evidence_ids.append(hid)
+                        merged_categories.add(s.category)
+                        merged_signatures.append(s.signature)
+                    case_context["related_hit_ids"] = evidence_ids
+                    case_context["merged_categories"] = list(merged_categories)
+                    case_context["merged_signatures"] = merged_signatures
+
+                # Only add case_context if it has meaningful content
                 if any(value is not None for value in case_context.values()):
                     bundle["case_context"] = case_context
-            self.artifact_store.write_json(f"graphs/context_bundles/{callsite.seed_id}.json", bundle)
+            
+            self.artifact_store.write_json(f"graphs/context_bundles/{seed_id}.json", bundle)
             validate_json(bundle, "config/schemas/ContextBundle.schema.json")
             bundles.append(bundle)
         return bundles
