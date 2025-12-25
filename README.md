@@ -11,7 +11,8 @@ LLM-assisted Android APK malware analysis pipeline aligned to LAMD: deterministi
 - Suspicious API seeding via recon cases or DEX invocation indexing (Androguard 4.x tested), with Knox/JADX fallback.
 - Java-based Soot extractor that exports call graph JSON and per-method CFG JSON, using component lifecycle entrypoints and the latest `android.jar`.
 - Context bundle builder with backward CFG slices, branch conditions, and k-hop callgraph neighborhoods.
-- Tiered LLM reasoning (Recon -> Tier1 -> Verifier -> Tier2 -> Report) with tolerant JSON parsing and driver guidance output.
+- Tiered LLM reasoning (Recon -> Tier1 -> Verifier -> Tier1 Repair -> Tier2 -> Report) with tolerant JSON parsing and structured driver guidance output.
+- Tier1 repair agent with JADX-based tool access (source lookup, method body extraction) for failed or low-confidence verifications.
 - Targeted FlowDroid execution via CLI jar + sources/sinks subset generation.
 - MITRE Mobile ATT&CK mapping via local rules and optional dataset fetch.
 - Artifacts are stored under `artifacts/{analysis_id}/runs/{run_id}/` for traceability, with per-run logs in `artifacts/{analysis_id}/observability/runs/{run_id}.jsonl`.
@@ -46,9 +47,10 @@ Identifiers:
 7) Context bundles + control-flow paths:
    - Build backward CFG slices and branch conditions per seed.
    - Derive entrypoint -> sink control-flow paths (method chain + callsite statements) and attach branch constraints.
-8) Tier1 + Verifier:
+8) Tier1 + Verifier + Repair:
    - Tier1 extracts behavior + constraints from slices.
    - Verifier filters Tier1 facts against evidence.
+   - If verification fails or confidence is low, Tier1 Repair runs with JADX tool access (source lookup, method body extraction) to refine the summary.
 9) Optional FlowDroid:
    - If enabled and verified seeds exist, run targeted taint analysis and pass the summary to Tier2 (data-flow evidence only).
 10) Tier2:
@@ -65,9 +67,11 @@ Stage A: Static preprocess (local APK + Knox)
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/static/manifest.json`, `strings.json`, `cert.json`, `knox_full.json`, `components.json`, `permissions.json`.
 
 Stage A2: APK-only decompile (opt-in)
-- **JADX** (`src/apk_analyzer/analyzers/jadx_extractors.py`): decompiles APK to a temp directory for local search. The temp directory is deleted after analysis.
-- **Local search helper** (`src/apk_analyzer/analyzers/local_query.py`): scans JADX output (`.java`, `.kt`, `.xml`, `.smali`) for method-name hits; used only as a fallback for seeding.
-- If JADX is missing or fails, the pipeline continues with DEX-only seeding (lower recall).
+- **JADX** (`src/apk_analyzer/analyzers/jadx_extractors.py`): decompiles APK to a temp directory for local search and Tier1 repair tool access. The temp directory is deleted after analysis.
+- JADX exit code handling: JADX often exits with code 1 due to minor decompilation errors (obfuscated code, etc.) but still produces useful output. The pipeline checks for actual `.java` file output rather than relying on exit code.
+- **Local search helper** (`src/apk_analyzer/analyzers/local_query.py`): scans JADX output (`.java`, `.kt`, `.xml`, `.smali`) for method-name hits; used as fallback for seeding and by the Tier1 repair agent.
+- **Method body extractor** (`extract_method_source` in `jadx_extractors.py`): extracts decompiled Java source for specific methods, used by the Tier1 repair agent to provide additional context.
+- If JADX is missing or produces no output, the pipeline continues with DEX-only seeding (lower recall) and no repair tools.
 
 Stage B: Graph extraction
 - **Soot extractor (Java)** (`java/soot-extractor`): builds call graph + per-method CFGs using Android platform jars.
@@ -80,7 +84,13 @@ Stage B: Graph extraction
 - **Outputs**: `artifacts/{analysis_id}/runs/{run_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`, `graphs/class_hierarchy.json`, `graphs/entrypoints.json`.
 
 Stage C: Sensitive API matching (catalog-driven)
-- **Sensitive API catalog** (`config/android_sensitive_api_catalog.json`): maps Soot signatures to categories, priorities, and tags.
+- **Sensitive API catalog** (`config/android_sensitive_api_catalog.json`): maps Soot signatures to categories, priorities, and tags. Includes:
+  - Surveillance APIs (audio, camera, screen capture, location)
+  - Data collection APIs (contacts, SMS, call log, media, clipboard)
+  - Abuse patterns (accessibility, overlay, device admin)
+  - C2/networking, persistence, and evasion indicators
+  - DeviceAdminReceiver callbacks (onEnabled, onDisabled, onDisableRequested, etc.)
+  - App launch detection (getLaunchIntentForPackage with banking app package strings)
 - **Matcher** (`src/apk_analyzer/phase0/sensitive_api_matcher.py`): walks callgraph edges, matches callees to catalog signatures, maps callers to manifest components, and computes reachability from entrypoints.
 - If the callgraph resolves an interface/superclass instead of the catalog class, the matcher uses `class_hierarchy.json` to accept compatible classes with the same method signature.
 - Caller filtering: by default, all non-framework callers are allowed (including third-party SDKs). Set `analysis.allow_third_party_callers: false` to restrict hits to the app package.
@@ -88,6 +98,7 @@ Stage C: Sensitive API matching (catalog-driven)
 
 Stage D: Recon + case creation (LLM)
 - **Recon agent** (`src/apk_analyzer/agents/recon.py`): consumes manifest summary + callgraph summary + sensitive hits and returns `cases` for investigation.
+- **Category correction**: generic APIs like `ContentResolver.query()` are disambiguated by examining caller method context (e.g., `getPhotos` → COLLECTION_FILES_MEDIA, `readContacts` → COLLECTION_CONTACTS, not SMS).
 - **Recon tools** (`src/apk_analyzer/agents/recon_tools.py`): LLM may call `get_hit`, `list_hits`, `get_summary`, `get_entrypoints` to refine cases.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/recon.json`.
 
@@ -103,11 +114,15 @@ Stage F: Context bundles + CFG slices
 - **Control-flow paths**: derives entrypoint -> sink method chains using callgraph reachability + callsite statements, and attaches branch conditions from slices.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/graphs/slices/<seed_id>.json`, `graphs/context_bundles/<seed_id>.json`, `graphs/entrypoint_paths/<seed_id>.json`, `graphs/entrypoint_paths.json`.
 
-Stage G: Tier1 + Verifier (LLM grounding)
-- **Tier1**: summarizes behavior and extracts execution constraints (branch predicates, required inputs, triggers).
+Stage G: Tier1 + Verifier + Repair (LLM grounding)
+- **Tier1** (`src/apk_analyzer/agents/tier1_summarizer.py`): summarizes behavior and extracts execution constraints (branch predicates, required inputs, triggers).
 - **Verifier**: enforces evidence grounding against slice units and context bundles; only verified seeds advance.
+- **Tier1 Repair** (`src/apk_analyzer/agents/tier1_tools.py`): if verification fails or confidence < 0.7, a repair pass runs with JADX-based tools:
+  - `search_source`: searches decompiled Java source for patterns/keywords
+  - `get_method_body`: extracts the full decompiled Java source of a specific method
+  - The repair agent receives verifier feedback and previous attempt, then produces a refined summary with tool-grounded evidence.
 - LLM JSON is parsed with a tolerant parser (`src/apk_analyzer/utils/llm_json.py`) and falls back to safe defaults on invalid output.
-- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/tier1/*.json`, `llm/verifier/*.json`, plus `llm_inputs/` and `llm_outputs/` for raw prompts/returns.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/tier1/*.json`, `llm/tier1/*_repair.json`, `llm/verifier/*.json`, plus `llm_inputs/` and `llm_outputs/` for raw prompts/returns.
 
 Stage H: Targeted taint analysis (optional)
 - **FlowDroid CLI jar** (`src/apk_analyzer/tools/flowdroid_tools.py`): runs taint analysis using a generated sources/sinks subset based on categories present in verified seeds.
@@ -120,15 +135,23 @@ Stage I: Tier2 intent + driver guidance
 
 Stage J: Reporting + MITRE mapping
 - **MITRE mapping** (`config/mitre/` + `src/apk_analyzer/analyzers/mitre_mapper.py`): maps extracted evidence to ATT&CK techniques.
-- **Report**: includes `driver_guidance` synthesized from Tier-2 outputs for dynamic analysis.
-  - `artifacts/{analysis_id}/runs/{run_id}/report/threat_report.json` and `.md`.
+- **Report** (`src/apk_analyzer/agents/report.py`): synthesizes final threat report with structured `driver_guidance` for dynamic analysis automation.
+- **Driver guidance fields**: each entry includes:
+  - `case_id`, `seed_id`, `category_id`: traceability to investigation cases
+  - `driver_plan`: array of executable steps with `method` (adb/frida/manual/netcat), `details` (concrete command), `targets_seeds`
+  - `environment_setup`: required setup (listeners, permissions, Frida hooks)
+  - `execution_checks`: how to verify the behavior was triggered
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/report/threat_report.json`.
 
 ## Repo Layout
 
 - `src/apk_analyzer/`: Python pipeline and agent logic
+  - `agents/`: LLM agents (recon, tier1, tier1_tools, tier2, verifier, report)
+  - `analyzers/`: static analyzers (jadx_extractors, context_bundle_builder, etc.)
+  - `prompts/`: LLM prompt templates (recon.md, tier1_summarize.md, tier1_repair.md, tier2_intent.md, tier3_final.md)
 - `java/soot-extractor/`: Java Soot extractor (Gradle)
 - `config/`: settings, schemas, suspicious API catalogs, SourcesAndSinks, MITRE mapping
-- `config/android_sensitive_api_catalog.json`: catalog-driven sensitive API definitions for recon
+- `config/android_sensitive_api_catalog.json`: catalog-driven sensitive API definitions for recon (includes DeviceAdminReceiver, banking app detection, etc.)
 - `config/suspicious_api_catalog.json`: fallback catalog for DEX-based seeding
 - `scripts/`: entrypoints and helpers
 - `server/`: FastAPI observability UI (runs at `http://localhost:8000`)
@@ -474,5 +497,7 @@ pytest
 ## Notes
 
 - FlowDroid and Soot require Android platform jars. If analyses fail with classpath errors, verify `analysis.android_platforms_dir`.
-- APK-only mode runs JADX in a temp directory that is deleted after analysis; if JADX is missing or fails, the pipeline falls back to DEX-only seeding with reduced recall.
+- APK-only mode runs JADX in a temp directory that is deleted after analysis. JADX exit code 1 is tolerated (common with obfuscated code); the pipeline checks for actual `.java` file output instead. If JADX produces no output, the pipeline falls back to DEX-only seeding with reduced recall and no repair tools.
+- The Tier1 repair agent requires JADX output to function. In combined mode without APK-only decompilation, repair tools are not available.
 - LLM integration uses Vertex API keys for public Gemini models; service-account auth requires a custom client.
+- The final report's `driver_guidance` is designed for consumption by an execution LLM that can drive dynamic analysis via ADB, Frida, or manual steps.
