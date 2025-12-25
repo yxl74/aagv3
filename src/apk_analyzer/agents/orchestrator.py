@@ -357,6 +357,18 @@ class Orchestrator:
                             if hit.get("hit_id")
                         }
                         callsites = _callsites_from_cases(cases, hits_by_id)
+                        # Deduplicate callsites by caller method within same case
+                        # This prevents redundant Tier1 analysis of multiple APIs in same method
+                        original_count = len(callsites)
+                        callsites = _deduplicate_callsites_by_caller(callsites)
+                        dedup_count = len(callsites)
+                        if dedup_count < original_count:
+                            event_logger.log(
+                                "seeding.deduplication",
+                                original_count=original_count,
+                                deduplicated_count=dedup_count,
+                                merged_count=original_count - dedup_count,
+                            )
                         suspicious_index = SuspiciousApiIndex(
                             apk_id=artifact_store.analysis_id,
                             catalog_version=sensitive_hits.get("catalog_version", "unknown"),
@@ -429,12 +441,29 @@ class Orchestrator:
                     entrypoint_paths_ref=entrypoint_paths_ref,
                 )
 
+                # Create Tier1 agent (no tools for first pass)
                 tier1_agent = Tier1SummarizerAgent(
                     self.prompt_dir / "tier1_summarize.md",
                     llm_client,
                     model=llm_conf.get("model_tier1"),
+                    tool_runner=None,
                     event_logger=event_logger,
                 )
+
+                # Create repair agent with tools (only used if first pass fails)
+                tier1_repair_agent = None
+                if jadx_root:
+                    from apk_analyzer.agents.tier1_tools import Tier1ToolRunner
+                    tier1_tool_runner = Tier1ToolRunner(jadx_root, artifact_store)
+                    tier1_repair_agent = Tier1SummarizerAgent(
+                        self.prompt_dir / "tier1_repair.md",
+                        llm_client,
+                        model=llm_conf.get("model_tier1"),
+                        tool_runner=tier1_tool_runner,
+                        max_tool_rounds=2,
+                        event_logger=event_logger,
+                    )
+
                 verifier_agent = VerifierAgent(self.prompt_dir / "verifier.md", llm_client)
                 tier2_agent = Tier2IntentAgent(
                     self.prompt_dir / "tier2_intent.md",
@@ -457,17 +486,58 @@ class Orchestrator:
                 verified_count = 0
                 processed_count = 0
 
+                repair_count = 0
                 for bundle in bundles[: self.settings["analysis"].get("max_seed_count", 20)]:
                     seed_id = bundle["seed_id"]
                     case_info = case_lookup.get(seed_id, {})
+
+                    if not case_info and bundle.get("case_context"):
+                        cc = bundle["case_context"]
+                        case_info = {
+                            "case_id": cc.get("case_id"),
+                            "priority": cc.get("priority"),
+                            "category_id": bundle.get("api_category"),
+                        }
+
                     processed_count += 1
                     bundle_map[seed_id] = bundle
                     with span("llm.seed", stage="seed_processing", seed_id=seed_id, api_category=bundle.get("api_category")):
+                        # Pass 1: Normal Tier1 (no tools)
                         with llm_context("tier1", seed_id=seed_id):
                             tier1 = tier1_agent.run(bundle)
                         artifact_store.write_json(f"llm/tier1/{seed_id}.json", tier1)
+
+                        # Verify first pass
                         verifier = verifier_agent.run(tier1, bundle)
                         artifact_store.write_json(f"llm/verifier/{seed_id}.json", verifier)
+
+                        # Pass 2: Repair if failed or low confidence
+                        needs_repair = (
+                            verifier.get("status") != "VERIFIED" or
+                            tier1.get("confidence", 1.0) < 0.7
+                        )
+                        if needs_repair and tier1_repair_agent:
+                            repair_payload = {
+                                **bundle,
+                                "previous_attempt": tier1,
+                                "verifier_feedback": verifier,
+                            }
+                            with llm_context("tier1_repair", seed_id=seed_id):
+                                tier1 = tier1_repair_agent.run(repair_payload)
+                            artifact_store.write_json(f"llm/tier1/{seed_id}_repair.json", tier1)
+
+                            # Re-verify after repair
+                            verifier = verifier_agent.run(tier1, bundle)
+                            artifact_store.write_json(f"llm/verifier/{seed_id}_repair.json", verifier)
+
+                            repair_count += 1
+                            tool_history = tier1.get("_meta", {}).get("tool_history", [])
+                            event_logger.log(
+                                "tier1.repair",
+                                seed_id=seed_id,
+                                tool_rounds=len(tool_history),
+                                repair_verified=(verifier.get("status") == "VERIFIED"),
+                            )
 
                     for idx, fact in enumerate(tier1.get("facts", [])):
                         ev_id = f"ev-{bundle['seed_id']}-{idx}"
@@ -493,60 +563,112 @@ class Orchestrator:
                     "seed.summary",
                     processed_count=processed_count,
                     verified_count=verified_count,
+                    repair_count=repair_count,
                 )
 
                 flowdroid_summary = None
-                if verified_ids and apk_path:
-                    categories_present = {bundle_map[sid]["api_category"] for sid in verified_ids if sid in bundle_map}
-                    sources_sinks_subset = generate_subset(
-                        "config/SourcesAndSinks.txt",
-                        artifact_store.path("taint/sources_sinks_subset.txt"),
-                        categories_present,
-                    )
-                    flowdroid_jar = self.settings["analysis"].get("flowdroid_jar_path")
-                    android_platforms_dir = self.settings["analysis"].get("android_platforms_dir")
-                    if flowdroid_jar and android_platforms_dir:
-                        jar_path = Path(flowdroid_jar)
-                        platforms_path = Path(android_platforms_dir)
-                    else:
-                        jar_path = None
-                        platforms_path = None
-                    if jar_path and platforms_path and jar_path.exists() and platforms_path.exists():
-                        with span("tool.flowdroid", tool_name="flowdroid"):
-                            flowdroid_summary = run_targeted_taint_analysis(
-                                apk_path,
-                                sources_sinks_subset,
-                                android_platforms_dir,
-                                flowdroid_jar,
-                                artifact_store.path("taint"),
-                                timeout_sec=self.settings["analysis"].get("flowdroid_timeout_sec", 900),
-                            )
-                            artifact_store.write_json("taint/flowdroid_summary.json", flowdroid_summary)
-                        event_logger.log(
-                            "flowdroid.summary",
-                            tool="flowdroid",
-                            flow_count=flowdroid_summary.get("flow_count") if flowdroid_summary else 0,
-                            ref=artifact_store.relpath("taint/flowdroid_summary.json"),
-                        )
+                # FlowDroid disabled - using Soot reachability instead
+                # if verified_ids and apk_path:
+                #     categories_present = {bundle_map[sid]["api_category"] for sid in verified_ids if sid in bundle_map}
+                #     sources_sinks_subset = generate_subset(
+                #         "config/SourcesAndSinks.txt",
+                #         artifact_store.path("taint/sources_sinks_subset.txt"),
+                #         categories_present,
+                #     )
+                #     flowdroid_jar = self.settings["analysis"].get("flowdroid_jar_path")
+                #     android_platforms_dir = self.settings["analysis"].get("android_platforms_dir")
+                #     if flowdroid_jar and android_platforms_dir:
+                #         jar_path = Path(flowdroid_jar)
+                #         platforms_path = Path(android_platforms_dir)
+                #     else:
+                #         jar_path = None
+                #         platforms_path = None
+                #     if jar_path and platforms_path and jar_path.exists() and platforms_path.exists():
+                #         with span("tool.flowdroid", tool_name="flowdroid"):
+                #             flowdroid_summary = run_targeted_taint_analysis(
+                #                 apk_path,
+                #                 sources_sinks_subset,
+                #                 android_platforms_dir,
+                #                 flowdroid_jar,
+                #                 artifact_store.path("taint"),
+                #                 timeout_sec=self.settings["analysis"].get("flowdroid_timeout_sec", 900),
+                #             )
+                #             artifact_store.write_json("taint/flowdroid_summary.json", flowdroid_summary)
+                #         event_logger.log(
+                #             "flowdroid.summary",
+                #             tool="flowdroid",
+                #             flow_count=flowdroid_summary.get("flow_count") if flowdroid_summary else 0,
+                #             ref=artifact_store.relpath("taint/flowdroid_summary.json"),
+                #         )
 
+                # Group verified seeds by case_id for case-level Tier2 aggregation
+                # This allows Tier2 to reason about attack chains across related seeds
+                cases_with_verified_seeds: Dict[str, List[str]] = {}
                 for seed_id in verified_ids:
-                    bundle = bundle_map.get(seed_id)
-                    if not bundle:
-                        continue
-                    tier1 = seed_summaries[seed_id]["tier1"]
                     case_info = case_lookup.get(seed_id, {})
-                    with llm_context("tier2", seed_id=seed_id):
-                        tier2 = tier2_agent.run({
-                            "seed_id": seed_id,
-                            "tier1": tier1,
-                            "fcg": bundle.get("fcg_neighborhood"),
-                            "static_context": bundle.get("static_context"),
-                            "case_context": bundle.get("case_context"),
+                    case_id = case_info.get("case_id") or seed_id  # Fallback to seed_id
+                    cases_with_verified_seeds.setdefault(case_id, []).append(seed_id)
+
+                # Process Tier2 per case (aggregated)
+                for case_id, case_seed_ids in cases_with_verified_seeds.items():
+                    # Collect all Tier1 results and context for seeds in this case
+                    case_seeds_data = []
+                    primary_bundle = None
+                    for sid in case_seed_ids:
+                        bundle = bundle_map.get(sid)
+                        if not bundle:
+                            continue
+                        if primary_bundle is None:
+                            primary_bundle = bundle
+                        case_seeds_data.append({
+                            "seed_id": sid,
+                            "tier1": seed_summaries[sid]["tier1"],
+                            "api_category": bundle.get("api_category"),
+                            "api_signature": bundle.get("api_signature"),
+                            "caller_method": bundle.get("caller_method"),
                             "control_flow_path": bundle.get("control_flow_path"),
-                            "flowdroid_summary": flowdroid_summary or {},
                         })
-                    artifact_store.write_json(f"llm/tier2/{seed_id}.json", tier2)
-                    seed_summaries[seed_id]["tier2"] = tier2
+
+                    if not case_seeds_data or not primary_bundle:
+                        continue
+
+                    # Get Recon context for this case
+                    recon_case_context = case_lookup.get(case_seed_ids[0], {})
+
+                    # Build case-level Tier2 input
+                    tier2_input = {
+                        # Case-level identifiers
+                        "case_id": case_id,
+                        "primary_seed_id": case_seed_ids[0],
+                        # All seeds in this case with their Tier1 results
+                        "seeds": case_seeds_data,
+                        "seed_count": len(case_seeds_data),
+                        # Recon context (rationale, severity, tags)
+                        "recon_context": {
+                            "rationale": recon_case_context.get("recon_rationale"),
+                            "severity": recon_case_context.get("recon_severity"),
+                            "severity_reasoning": recon_case_context.get("severity_reasoning"),
+                            "tags": recon_case_context.get("tags"),
+                        },
+                        # Shared context from primary bundle
+                        "fcg": primary_bundle.get("fcg_neighborhood"),
+                        "static_context": primary_bundle.get("static_context"),
+                        "case_context": primary_bundle.get("case_context"),
+                        # FlowDroid results
+                        "flowdroid_summary": flowdroid_summary or {},
+                    }
+
+                    with llm_context("tier2", seed_id=case_seed_ids[0]):
+                        tier2 = tier2_agent.run(tier2_input)
+
+                    # Save Tier2 result using case_id (or primary seed_id if same)
+                    tier2_filename = case_id if case_id != case_seed_ids[0] else case_seed_ids[0]
+                    artifact_store.write_json(f"llm/tier2/{tier2_filename}.json", tier2)
+
+                    # Assign same Tier2 result to all seeds in this case
+                    for sid in case_seed_ids:
+                        seed_summaries[sid]["tier2"] = tier2
+                        seed_summaries[sid]["tier2_case_id"] = case_id
 
                 seed_summary_list = list(seed_summaries.values())
                 mitre_rules = load_rules("config/mitre/mapping_rules.json")
@@ -761,17 +883,32 @@ def _fallback_cases_from_hits(sensitive_hits: Dict[str, Any], max_cases: int) ->
 
 
 def _case_lookup(cases: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """
+    Build a lookup from hit_id to case context.
+
+    Preserves full Recon context for use in Tier1/Tier2 processing.
+    """
     lookup: Dict[str, Dict[str, Any]] = {}
     for case in cases:
         priority = case.get("priority", 9999)
-        for hit_id in case.get("evidence_hit_ids", []) or []:
+        evidence_hit_ids = case.get("evidence_hit_ids", []) or []
+        for hit_id in evidence_hit_ids:
             existing = lookup.get(hit_id)
             if existing and existing.get("priority", 9999) <= priority:
                 continue
             lookup[hit_id] = {
+                # Core identifiers
                 "case_id": case.get("case_id"),
                 "priority": priority,
                 "category_id": case.get("category_id"),
+                # Recon context
+                "recon_rationale": case.get("rationale"),
+                "recon_severity": case.get("llm_severity"),
+                "severity_reasoning": case.get("severity_reasoning"),
+                "tags": case.get("tags"),
+                # Case structure
+                "sibling_hit_ids": [h for h in evidence_hit_ids if h != hit_id],
+                "total_case_hits": len(evidence_hit_ids),
             }
     return lookup
 
@@ -781,19 +918,38 @@ def _order_bundles_by_cases(
     cases: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     case_map = _case_lookup(cases)
-    return sorted(bundles, key=lambda b: case_map.get(b.get("seed_id"), {}).get("priority", 9999))
+    
+    def _get_priority(b: Dict[str, Any]) -> int:
+        p1 = case_map.get(b.get("seed_id"), {}).get("priority", 9999)
+        p2 = b.get("case_context", {}).get("priority", 9999)
+        return min(p1, p2)
+
+    return sorted(bundles, key=_get_priority)
 
 
 def _callsites_from_cases(
     cases: List[Dict[str, Any]],
     hits_by_id: Dict[str, Dict[str, Any]],
 ) -> List[ApiCallSite]:
+    """
+    Convert Recon cases to ApiCallSite objects for seeding.
+
+    Preserves full Recon context including:
+    - rationale: LLM's reasoning for why this is suspicious
+    - llm_severity: LLM's severity assessment (CRITICAL/HIGH/MEDIUM/LOW)
+    - severity_reasoning: Detailed explanation of severity
+    - tags: MITRE, PHA, permission hints
+    - sibling_hit_ids: Other hits in the same case (for case-level analysis)
+    - slice_requests: Specific questions to investigate
+    """
     callsites: List[ApiCallSite] = []
     seen = set()
     for case in cases:
         case_id = case.get("case_id")
         priority = case.get("priority")
-        for hit_id in case.get("evidence_hit_ids", []) or []:
+        evidence_hit_ids = case.get("evidence_hit_ids", []) or []
+
+        for hit_id in evidence_hit_ids:
             if hit_id in seen:
                 continue
             hit = hits_by_id.get(hit_id)
@@ -803,6 +959,10 @@ def _callsites_from_cases(
             caller = hit.get("caller", {}) or {}
             component_context = hit.get("component_context")
             reachability = hit.get("reachability")
+
+            # Compute sibling hit IDs (other hits in the same case)
+            sibling_hit_ids = [h for h in evidence_hit_ids if h != hit_id]
+
             callsites.append(
                 ApiCallSite(
                     seed_id=hit_id,
@@ -811,17 +971,110 @@ def _callsites_from_cases(
                     caller_method=caller.get("method") or "UNKNOWN",
                     caller_class=caller.get("class") or "UNKNOWN",
                     callsite_descriptor={
+                        # Core identifiers
                         "hit_id": hit_id,
                         "case_id": case_id,
                         "priority": priority,
                         "source": "sensitive_api_hits",
+                        # Component and reachability context
                         "component_context": component_context,
                         "reachability": reachability,
+                        # NEW: Full Recon context preserved
+                        "recon_rationale": case.get("rationale"),
+                        "recon_severity": case.get("llm_severity"),
+                        "severity_reasoning": case.get("severity_reasoning"),
+                        "severity_confidence": case.get("severity_confidence"),
+                        "severity_factors": case.get("severity_factors"),
+                        # Tags from Recon (MITRE, PHA, permissions)
+                        "tags": case.get("tags"),
+                        # Case structure (for case-level aggregation)
+                        "sibling_hit_ids": sibling_hit_ids,
+                        "total_case_hits": len(evidence_hit_ids),
+                        # Slice requests from Recon (questions to investigate)
+                        "slice_requests": case.get("slice_requests"),
                     },
-                    confidence=1.0,
+                    confidence=case.get("confidence", 1.0),
                 )
             )
     return callsites
+
+
+def _deduplicate_callsites_by_caller(
+    callsites: List[ApiCallSite],
+) -> List[ApiCallSite]:
+    """
+    Merge callsites that share the same caller method within the same case.
+
+    This prevents redundant Tier1 analysis when multiple API calls exist
+    in the same method (e.g., 4 MediaRecorder calls in recordMic()).
+
+    Merged callsites preserve all original hit_ids and signatures for reference.
+    """
+    from collections import defaultdict
+
+    # Group by (case_id, caller_method)
+    by_caller: Dict[tuple, List[ApiCallSite]] = defaultdict(list)
+    for site in callsites:
+        descriptor = site.callsite_descriptor if isinstance(site.callsite_descriptor, dict) else {}
+        case_id = descriptor.get("case_id") or "NONE"
+        key = (case_id, site.caller_method)
+        by_caller[key].append(site)
+
+    merged: List[ApiCallSite] = []
+    for (case_id, caller_method), sites in by_caller.items():
+        if len(sites) == 1:
+            merged.append(sites[0])
+        else:
+            # Merge multiple callsites from same method
+            # Use highest priority site as primary
+            primary = min(
+                sites,
+                key=lambda s: (
+                    (s.callsite_descriptor or {}).get("priority", 9999)
+                    if isinstance(s.callsite_descriptor, dict) else 9999
+                ),
+            )
+
+            # Collect all hit_ids, signatures, categories
+            all_hit_ids = []
+            all_signatures = []
+            all_categories = set()
+            for s in sites:
+                all_signatures.append(s.signature)
+                all_categories.add(s.category)
+                if isinstance(s.callsite_descriptor, dict):
+                    hid = s.callsite_descriptor.get("hit_id")
+                    if hid:
+                        all_hit_ids.append(hid)
+
+            # Build merged descriptor
+            merged_descriptor = dict(primary.callsite_descriptor) if isinstance(primary.callsite_descriptor, dict) else {}
+            merged_descriptor["merged_hit_ids"] = all_hit_ids
+            merged_descriptor["merged_signatures"] = all_signatures
+            merged_descriptor["merged_categories"] = list(all_categories)
+            merged_descriptor["merged_count"] = len(sites)
+            # Update sibling_hit_ids to exclude all merged hits
+            merged_descriptor["sibling_hit_ids"] = [
+                h for h in merged_descriptor.get("sibling_hit_ids", [])
+                if h not in all_hit_ids
+            ]
+
+            # Use a composite category if multiple
+            category = primary.category
+            if len(all_categories) > 1:
+                category = f"MERGED({len(all_categories)})"
+
+            merged.append(ApiCallSite(
+                seed_id=primary.seed_id,
+                category=category,
+                signature=primary.signature,  # Primary signature
+                caller_method=caller_method,
+                caller_class=primary.caller_class,
+                callsite_descriptor=merged_descriptor,
+                confidence=primary.confidence,
+            ))
+
+    return merged
 
 
 def _write_suspicious_index(store: ArtifactStore, index: SuspiciousApiIndex) -> None:

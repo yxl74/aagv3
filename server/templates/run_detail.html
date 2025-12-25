@@ -34,7 +34,7 @@
 
   <div class="section">
     <h2>Stage Timeline</h2>
-    <table>
+    <table id="stage-table">
       <thead>
         <tr>
           <th>Stage</th>
@@ -44,9 +44,9 @@
           <th>Duration (s)</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="stage-body">
         {% for stage in stages %}
-        <tr>
+        <tr data-stage="{{ stage.stage }}">
           <td>{{ stage.stage }}</td>
           <td>{{ stage.start_ts or "-" }}</td>
           <td>{{ stage.end_ts or "-" }}</td>
@@ -317,10 +317,95 @@
     const liveStatus = document.getElementById('live-status');
     const flowTable = document.getElementById('flow-table');
     const flowBody = flowTable ? flowTable.querySelector('tbody') : null;
+    const stageTable = document.getElementById('stage-table');
+    const stageBody = stageTable ? stageTable.querySelector('tbody') : null;
     const rows = Array.from(document.querySelectorAll('#flow-table tbody tr'));
     const analysisId = "{{ analysis_id }}";
     const runId = "{{ run_id or '' }}";
     let eventSource = null;
+    const stageRows = new Map();
+    const stageState = new Map();
+
+    if (stageBody) {
+      stageBody.querySelectorAll('tr[data-stage]').forEach((tr) => {
+        const stageName = tr.dataset.stage;
+        if (stageName) {
+          stageRows.set(stageName, tr);
+          const cells = tr.querySelectorAll('td');
+          if (cells.length >= 5) {
+            const startTs = (cells[1].textContent || '').trim();
+            const endTs = (cells[2].textContent || '').trim();
+            const status = (cells[3].textContent || '').trim();
+            stageState.set(stageName, {
+              start_ts: startTs && startTs !== '-' ? startTs : null,
+              end_ts: endTs && endTs !== '-' ? endTs : null,
+              status: status && status !== '-' ? status : null,
+            });
+          }
+        }
+      });
+    }
+
+    function parseTs(ts) {
+      if (!ts) return null;
+      const ms = Date.parse(ts);
+      return Number.isFinite(ms) ? ms : null;
+    }
+
+    function formatDurationSec(startTs, endTs) {
+      const start = parseTs(startTs);
+      const end = parseTs(endTs);
+      if (start === null || end === null) return '-';
+      const sec = (end - start) / 1000.0;
+      if (!Number.isFinite(sec) || sec < 0) return '-';
+      return sec.toFixed(1);
+    }
+
+    function upsertStageRow(stageName) {
+      if (!stageBody) return null;
+      if (stageRows.has(stageName)) return stageRows.get(stageName);
+      const tr = document.createElement('tr');
+      tr.dataset.stage = stageName;
+      tr.innerHTML = `
+        <td>${stageName}</td>
+        <td>-</td>
+        <td>-</td>
+        <td>-</td>
+        <td>-</td>
+      `;
+      stageBody.appendChild(tr);
+      stageRows.set(stageName, tr);
+      return tr;
+    }
+
+    function updateStageTimeline(event) {
+      const eventType = event.event_type || '';
+      if (!eventType.startsWith('stage.')) return;
+      const stageName = event.stage;
+      if (!stageName) return;
+      const current = stageState.get(stageName) || { start_ts: null, end_ts: null, status: null };
+      if (eventType === 'stage.start') {
+        current.start_ts = event.ts || current.start_ts;
+        current.end_ts = null;
+        current.status = 'running';
+      } else if (eventType === 'stage.end') {
+        current.end_ts = event.ts || current.end_ts;
+        current.status = event.status || 'ok';
+      } else {
+        return;
+      }
+      stageState.set(stageName, current);
+      const tr = upsertStageRow(stageName);
+      if (!tr) return;
+      const cells = tr.querySelectorAll('td');
+      if (cells.length < 5) return;
+      cells[1].textContent = current.start_ts || '-';
+      cells[2].textContent = current.end_ts || '-';
+      cells[3].textContent = current.status || '-';
+      cells[4].textContent = current.start_ts && current.end_ts
+        ? formatDurationSec(current.start_ts, current.end_ts)
+        : '-';
+    }
 
     function applyFilter() {
       const showAll = toggle && toggle.checked;
@@ -439,6 +524,7 @@
       eventSource.onmessage = (message) => {
         try {
           const event = JSON.parse(message.data);
+          updateStageTimeline(event);
           addEventRow(event);
         } catch (err) {
           console.warn('Failed to parse event', err);

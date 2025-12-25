@@ -1062,7 +1062,12 @@
           "<android.app.admin.DevicePolicyManager: void wipeData(int)>",
           "<android.app.admin.DevicePolicyManager: boolean isAdminActive(android.content.ComponentName)>",
           "<android.app.admin.DevicePolicyManager: void setPasswordQuality(android.content.ComponentName,int)>",
-          "<android.app.admin.DevicePolicyManager: void setPasswordMinimumLength(android.content.ComponentName,int)>"
+          "<android.app.admin.DevicePolicyManager: void setPasswordMinimumLength(android.content.ComponentName,int)>",
+          "<android.app.admin.DeviceAdminReceiver: void onEnabled(android.content.Context,android.content.Intent)>",
+          "<android.app.admin.DeviceAdminReceiver: void onDisabled(android.content.Context,android.content.Intent)>",
+          "<android.app.admin.DeviceAdminReceiver: java.lang.CharSequence onDisableRequested(android.content.Context,android.content.Intent)>",
+          "<android.app.admin.DeviceAdminReceiver: void onPasswordChanged(android.content.Context,android.content.Intent)>",
+          "<android.app.admin.DeviceAdminReceiver: void onPasswordFailed(android.content.Context,android.content.Intent)>"
         ],
         "fields": [],
         "strings": []
@@ -1093,6 +1098,7 @@
           "<android.content.pm.PackageManager: android.content.pm.PackageInfo getPackageInfo(java.lang.String,int)>",
           "<android.content.pm.PackageManager: java.util.List queryIntentActivities(android.content.Intent,int)>",
           "<android.content.pm.PackageManager: void setComponentEnabledSetting(android.content.ComponentName,int,int)>",
+          "<android.content.pm.PackageManager: android.content.Intent getLaunchIntentForPackage(java.lang.String)>",
           "<android.content.pm.PackageInstaller: android.content.pm.PackageInstaller$Session openSession(int)>",
           "<android.content.pm.PackageInstaller$Session: void commit(android.content.IntentSender)>",
           "<android.content.pm.PackageInstaller$Session: void write(java.lang.String,long,long,java.io.InputStream)>",
@@ -1102,7 +1108,9 @@
         "strings": [
           "QUERY_ALL_PACKAGES",
           "android.intent.action.PACKAGE_ADDED",
-          "android.intent.action.PACKAGE_REPLACED"
+          "android.intent.action.PACKAGE_REPLACED",
+          "com.chase.sig.android",
+          "com.paypal.android.p2pmobile"
         ]
       }
     },

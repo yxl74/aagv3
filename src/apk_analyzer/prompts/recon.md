@@ -19,6 +19,14 @@ Rules:
 - If requires_slice is true for a hit, include a slice_requests entry for that case.
 - If you need more detail, request tools (mode=tool_request).
 
+Category Correction:
+- ContentResolver.query() is generic - it can query SMS, Contacts, MediaStore, etc.
+- Look at the caller method name and context to determine the ACTUAL data being accessed:
+  - Methods like "getPhotos", "readMedia", "getImages" → COLLECTION_FILES_MEDIA (not SMS)
+  - Methods like "readContacts", "getContacts" → COLLECTION_CONTACTS (not SMS)
+  - Methods like "readSms", "getSmsMessages" → COLLECTION_SMS_MESSAGES
+- Correct the category_id based on caller context, not just the matched API signature.
+
 Severity assessment (soft signals, not hard gates):
 - caller_is_app, reachable_from_entrypoint, permission_hints, suspicious naming, and multi-category chains can raise confidence.
 - Be explicit about why you rated severity and confidence.

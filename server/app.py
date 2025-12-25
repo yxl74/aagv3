@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -15,6 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Str
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+from apk_analyzer.analyzers.static_extractors import extract_manifest
 from apk_analyzer.utils.artifact_store import ArtifactStore
 
 
@@ -26,6 +28,7 @@ ARTIFACTS_DIR = _resolve_artifacts_dir()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app = FastAPI(title="APK Analysis Observability")
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_RUN_ID_SAFE_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 
 
 class StartRunRequest(BaseModel):
@@ -44,6 +47,31 @@ def _parse_ts(ts: str | None) -> datetime | None:
         return datetime.fromisoformat(ts)
     except ValueError:
         return None
+
+
+def _sanitize_run_id_part(value: str, max_len: int = 60) -> str:
+    value = (value or "").strip()
+    if not value:
+        return "unknown"
+    value = _RUN_ID_SAFE_RE.sub("_", value).strip("._-")
+    if not value:
+        return "unknown"
+    return value[:max_len]
+
+
+def _friendly_run_id(apk_path: Path) -> str:
+    package_name = None
+    try:
+        manifest = extract_manifest(apk_path)
+        if isinstance(manifest, dict):
+            package_name = manifest.get("package_name")
+    except Exception:
+        package_name = None
+
+    base = _sanitize_run_id_part(str(package_name) if package_name else apk_path.stem)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    suffix = uuid.uuid4().hex[:6]
+    return f"{base}_{ts}_{suffix}"
 
 
 def _read_events(path: Path) -> List[Dict[str, Any]]:
@@ -476,7 +504,7 @@ def start_run(payload: StartRunRequest):
     if not apk_path.exists():
         raise HTTPException(status_code=400, detail=f"APK path not found: {apk_path}")
     analysis_id = ArtifactStore.compute_analysis_id(str(apk_path), payload.knox_apk_id)
-    run_id = uuid.uuid4().hex
+    run_id = _friendly_run_id(apk_path)
     log_path = ARTIFACTS_DIR / analysis_id / "runs" / run_id / "process.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [sys.executable, "-m", "apk_analyzer.main", "--mode", mode, "--apk", str(apk_path)]
