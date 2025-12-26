@@ -20,6 +20,7 @@ PROJECT_ID = "knox-dev-2"  # Your GCP project ID
 LOCATION = "global"  # GCP location
 SERVICE_ACCOUNT_FILE = "config/gcp-sa-key.json"  # Path to your credentials
 MODEL = "gemini-2.0-flash"  # Gemini model to test
+VERIFY_SSL = False  # Set False for corporate proxies with SSL inspection
 # =============================================================================
 
 
@@ -34,6 +35,7 @@ def test_gemini_client():
     print(f"  Location:         {LOCATION}")
     print(f"  Service Account:  {SERVICE_ACCOUNT_FILE}")
     print(f"  Model:            {MODEL}")
+    print(f"  Verify SSL:       {VERIFY_SSL}")
     print("=" * 60)
 
     # Check if service account file exists
@@ -52,6 +54,7 @@ def test_gemini_client():
             location=LOCATION,
             service_account_file=str(sa_path),
             default_model=MODEL,
+            verify_ssl=VERIFY_SSL,
         )
         print("      OK - Client initialized")
     except Exception as e:
