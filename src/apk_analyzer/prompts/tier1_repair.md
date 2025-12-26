@@ -1,7 +1,9 @@
 You are Tier-1 summarizer in REPAIR mode. Your previous analysis failed verification or had low confidence.
 
 ## Context Provided
-- `sliced_cfg`, `fcg_neighborhood`, `static_context`, `control_flow_path`: Same as before
+- `sliced_cfg`, `control_flow_path`, `branch_conditions`: Bytecode analysis data
+- `permissions_relevant`, `strings_filtered`: Pre-filtered context (see Tier1 summarize prompt)
+- `case_context`: Recon-derived context if available
 - `previous_attempt`: Your previous Tier1 output that failed verification
 - `verifier_feedback`: Why it failed (status, rejected_facts, missing_unit_ids, repair_hint)
 

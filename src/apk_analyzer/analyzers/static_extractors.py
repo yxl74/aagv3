@@ -112,6 +112,96 @@ def extract_strings(apk_path: str | Path) -> Dict[str, Any]:
     }
 
 
+def extract_component_intents(apk_path: str | Path) -> Dict[str, Any]:
+    """
+    Extract intent-filters for activities, services, and receivers using Androguard.
+
+    Returns a dict mapping component names to their intent-filter info:
+    {
+        "com.pkg.MyService": {
+            "type": "service",
+            "intent_actions": ["android.intent.action.BOOT_COMPLETED"],
+            "intent_categories": ["android.intent.category.DEFAULT"],
+            "intent_data": [...],
+            "exported": True
+        }
+    }
+    """
+    apk_path = Path(apk_path)
+    APK = _try_import_androguard()
+    if APK is None:
+        detail = f": {_ANDROGUARD_IMPORT_ERROR}" if _ANDROGUARD_IMPORT_ERROR else ""
+        raise RuntimeError(f"androguard is required for component intent extraction{detail}")
+
+    apk = APK(str(apk_path))
+    package_name = apk.get_package() or ""
+    components: Dict[str, Any] = {}
+
+    def normalize_name(name: str) -> str:
+        """Handle shorthand names: '.MyService' -> 'com.pkg.MyService'"""
+        if name and name.startswith("."):
+            return package_name + name
+        return name
+
+    def get_exported(comp_type: str, name: str) -> bool:
+        """Get exported attribute. Informational only - test device can trigger any component."""
+        try:
+            val = apk.get_attribute_value(comp_type, name, "exported")
+            return val == "true"
+        except Exception:
+            return False
+
+    def extract_filters(comp_type: str, comp_name: str) -> Dict[str, List[str]]:
+        """Extract intent-filter data for a component."""
+        try:
+            filters = apk.get_intent_filters(comp_type, comp_name)
+            return {
+                "action": filters.get("action", []) if filters else [],
+                "category": filters.get("category", []) if filters else [],
+                "data": filters.get("data", []) if filters else [],
+            }
+        except Exception:
+            return {"action": [], "category": [], "data": []}
+
+    # Extract services
+    for service in apk.get_services():
+        norm_name = normalize_name(service)
+        filters = extract_filters("service", service)
+        components[norm_name] = {
+            "type": "service",
+            "intent_actions": filters["action"],
+            "intent_categories": filters["category"],
+            "intent_data": filters["data"],
+            "exported": get_exported("service", service),
+        }
+
+    # Extract activities
+    for activity in apk.get_activities():
+        norm_name = normalize_name(activity)
+        filters = extract_filters("activity", activity)
+        components[norm_name] = {
+            "type": "activity",
+            "intent_actions": filters["action"],
+            "intent_categories": filters["category"],
+            "intent_data": filters["data"],
+            "exported": get_exported("activity", activity),
+        }
+
+    # Extract receivers
+    for receiver in apk.get_receivers():
+        norm_name = normalize_name(receiver)
+        filters = extract_filters("receiver", receiver)
+        components[norm_name] = {
+            "type": "receiver",
+            "intent_actions": filters["action"],
+            "intent_categories": filters["category"],
+            "intent_data": filters["data"],
+            "exported": get_exported("receiver", receiver),
+        }
+
+    return components
+
+
 def extract_cert_info(apk_path: str | Path) -> Dict[str, Any]:
     apk_path = Path(apk_path)
     cert_files = []

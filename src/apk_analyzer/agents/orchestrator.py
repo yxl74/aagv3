@@ -6,6 +6,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Dict, List, Optional
 
+import re
+
 from apk_analyzer.agents.recon import ReconAgent
 from apk_analyzer.agents.recon_tools import ReconToolRunner
 from apk_analyzer.agents.report import ReportAgent
@@ -14,7 +16,7 @@ from apk_analyzer.agents.tier2_intent import Tier2IntentAgent
 from apk_analyzer.agents.verifier import VerifierAgent
 from apk_analyzer.analyzers.context_bundle_builder import ContextBundleBuilder, build_static_context
 from apk_analyzer.analyzers.dex_invocation_indexer import ApiCallSite, DexInvocationIndexer, SuspiciousApiIndex
-from apk_analyzer.analyzers.jadx_extractors import run_jadx
+from apk_analyzer.analyzers.jadx_extractors import extract_method_source, run_jadx
 from apk_analyzer.analyzers.local_query import search_source_code
 from apk_analyzer.analyzers.mitre_mapper import load_rules, load_technique_index, map_evidence
 from apk_analyzer.analyzers.sources_sinks_subset import generate_subset
@@ -138,6 +140,7 @@ class Orchestrator:
                     artifact_store.write_json("static/threat_indicators.json", knox_client.get_threat_indicators(knox_apk_id, full_knox))
 
                 strings = static_outputs.get("strings", {})
+                component_intents = static_outputs.get("component_intents", {})
                 static_context = build_static_context(manifest, strings)
 
                 callgraph_path = None
@@ -152,6 +155,14 @@ class Orchestrator:
                     with span("stage.graphs", stage="graphs"):
                         out_dir = artifact_store.path("graphs")
                         target_sdk = _parse_target_sdk(manifest)
+                        flowdroid_callbacks_enabled = bool(
+                            self.settings["analysis"].get("flowdroid_callbacks_enabled", True)
+                        )
+                        flowdroid_callbacks_timeout = self.settings["analysis"].get("flowdroid_callbacks_timeout_sec")
+                        flowdroid_callbacks_max = self.settings["analysis"].get(
+                            "flowdroid_callbacks_max_per_component"
+                        )
+                        flowdroid_callbacks_mode = self.settings["analysis"].get("flowdroid_callbacks_mode")
                         run_soot_extractor(
                             apk_path,
                             android_platforms,
@@ -160,6 +171,10 @@ class Orchestrator:
                             cg_algo=self.settings["analysis"].get("callgraph_algo", "SPARK"),
                             k_hop=self.settings["analysis"].get("k_hop", 2),
                             target_sdk=target_sdk,
+                            flowdroid_callbacks_enabled=flowdroid_callbacks_enabled,
+                            flowdroid_callbacks_timeout_sec=flowdroid_callbacks_timeout,
+                            flowdroid_callbacks_max_per_component=flowdroid_callbacks_max,
+                            flowdroid_callbacks_mode=flowdroid_callbacks_mode,
                         )
                         callgraph_path = artifact_store.path("graphs/callgraph.json")
                         class_hierarchy_path = artifact_store.path("graphs/class_hierarchy.json")
@@ -486,8 +501,11 @@ class Orchestrator:
                 verified_count = 0
                 processed_count = 0
 
+                # Load catalog for Tier1 payload shaping
+                tier1_catalog = ApiCatalog.load("config/android_sensitive_api_catalog.json")
+
                 repair_count = 0
-                for bundle in bundles[: self.settings["analysis"].get("max_seed_count", 20)]:
+                for seed_index, bundle in enumerate(bundles[: self.settings["analysis"].get("max_seed_count", 20)]):
                     seed_id = bundle["seed_id"]
                     case_info = case_lookup.get(seed_id, {})
 
@@ -502,9 +520,16 @@ class Orchestrator:
                     processed_count += 1
                     bundle_map[seed_id] = bundle
                     with span("llm.seed", stage="seed_processing", seed_id=seed_id, api_category=bundle.get("api_category")):
+                        # Shape Tier1 payload for token efficiency
+                        tier1_payload = shape_tier1_payload(
+                            bundle,
+                            tier1_catalog,
+                            jadx_root=jadx_root,
+                            seed_index=seed_index,
+                        )
                         # Pass 1: Normal Tier1 (no tools)
                         with llm_context("tier1", seed_id=seed_id):
-                            tier1 = tier1_agent.run(bundle)
+                            tier1 = tier1_agent.run(tier1_payload)
                         artifact_store.write_json(f"llm/tier1/{seed_id}.json", tier1)
 
                         # Verify first pass
@@ -518,7 +543,7 @@ class Orchestrator:
                         )
                         if needs_repair and tier1_repair_agent:
                             repair_payload = {
-                                **bundle,
+                                **tier1_payload,  # Use shaped payload
                                 "previous_attempt": tier1,
                                 "verifier_feedback": verifier,
                             }
@@ -551,6 +576,7 @@ class Orchestrator:
                         "case_id": case_info.get("case_id"),
                         "case_priority": case_info.get("priority"),
                         "category_id": case_info.get("category_id") or bundle.get("api_category"),
+                        "package_name": bundle.get("static_context", {}).get("package_name"),
                         "tier1": tier1,
                         "tier2": None,
                     }
@@ -622,7 +648,7 @@ class Orchestrator:
                             primary_bundle = bundle
                         case_seeds_data.append({
                             "seed_id": sid,
-                            "tier1": seed_summaries[sid]["tier1"],
+                            "tier1": _consolidate_tier1_for_tier2(seed_summaries[sid]["tier1"], bundle),
                             "api_category": bundle.get("api_category"),
                             "api_signature": bundle.get("api_signature"),
                             "caller_method": bundle.get("caller_method"),
@@ -636,7 +662,7 @@ class Orchestrator:
                     recon_case_context = case_lookup.get(case_seed_ids[0], {})
 
                     # Build case-level Tier2 input
-                    tier2_input = {
+                    tier2_input_raw = {
                         # Case-level identifiers
                         "case_id": case_id,
                         "primary_seed_id": case_seed_ids[0],
@@ -653,10 +679,15 @@ class Orchestrator:
                         # Shared context from primary bundle
                         "fcg": primary_bundle.get("fcg_neighborhood"),
                         "static_context": primary_bundle.get("static_context"),
+                        "component_intents": component_intents,  # Intent-filters for driver synthesis
                         "case_context": primary_bundle.get("case_context"),
                         # FlowDroid results
                         "flowdroid_summary": flowdroid_summary or {},
                     }
+
+                    # Shape Tier2 payload for token efficiency
+                    package_name = (primary_bundle.get("static_context") or {}).get("package_name")
+                    tier2_input = shape_tier2_payload(tier2_input_raw, package_name)
 
                     with llm_context("tier2", seed_id=case_seed_ids[0]):
                         tier2 = tier2_agent.run(tier2_input)
@@ -695,6 +726,7 @@ class Orchestrator:
                     },
                     "mitre_candidates": mitre_candidates,
                     "driver_guidance": _build_driver_guidance(seed_summary_list),
+                    "execution_guidance": _build_execution_guidance(seed_summary_list),
                 }
                 event_logger.stage_start("report")
                 with span("stage.report", stage="report"):
@@ -1103,6 +1135,35 @@ def _build_driver_guidance(seed_summaries: List[Dict[str, Any]]) -> List[Dict[st
     return guidance
 
 
+def _build_execution_guidance(seed_summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Build top-level execution_guidance array from Tier2 outputs.
+    One entry per case (not per seed). Deduplicates by case_id.
+    """
+    seen_cases: set = set()
+    guidance = []
+    for summary in seed_summaries:
+        tier2 = summary.get("tier2") or {}
+        exec_guide = tier2.get("execution_guidance")
+        if not exec_guide:
+            continue
+        case_id = exec_guide.get("case_id") or summary.get("case_id")
+        if case_id in seen_cases:
+            continue  # Already added this case
+        seen_cases.add(case_id)
+
+        # Fallback: fill in missing fields from seed summary if Tier2 omitted them
+        if not exec_guide.get("case_id"):
+            exec_guide["case_id"] = summary.get("case_id")
+        if not exec_guide.get("category_id"):
+            exec_guide["category_id"] = summary.get("category_id")
+        if not exec_guide.get("package_name"):
+            exec_guide["package_name"] = summary.get("package_name")
+
+        guidance.append(exec_guide)
+    return guidance
+
+
 def _parse_target_sdk(manifest: Dict[str, Any]) -> Optional[int]:
     if not manifest:
         return None
@@ -1115,6 +1176,300 @@ def _parse_target_sdk(manifest: Dict[str, Any]) -> Optional[int]:
         except (TypeError, ValueError):
             continue
     return None
+
+
+# =============================================================================
+# Tier1 Payload Shaping (Token Optimization)
+# =============================================================================
+
+# Noise patterns for string filtering (library/framework strings)
+_STRING_NOISE_PATTERNS = [
+    "androidx.", "kotlin", "jackson", "google.android.gms",
+    "fasterxml", "apache.org", "coroutines", "java.lang",
+    "org.xml", "javax.", "com.google.android.material",
+]
+
+# Dangerous permissions for fallback filtering
+_DANGEROUS_PERMISSIONS = [
+    "RECORD_AUDIO", "CAMERA", "READ_CONTACTS", "ACCESS_FINE_LOCATION",
+    "READ_EXTERNAL_STORAGE", "SEND_SMS", "READ_SMS", "INTERNET",
+    "SYSTEM_ALERT_WINDOW", "BIND_ACCESSIBILITY_SERVICE",
+]
+
+
+def _is_network_indicator(s: str) -> bool:
+    """Check if string is a potential network indicator (IP or URL)."""
+    # IP address pattern
+    if re.match(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', s):
+        return True
+    # URL pattern
+    if s.startswith("http://") or s.startswith("https://"):
+        return True
+    return False
+
+
+def _suspicion_score(s: str) -> int:
+    """Score a string for suspiciousness (higher = more suspicious)."""
+    score = 0
+    s_lower = s.lower()
+    # Network indicators are highly suspicious
+    if _is_network_indicator(s):
+        score += 100
+    # Suspicious keywords
+    suspicious_keywords = [
+        "c2", "command", "shell", "root", "payload", "update",
+        "socket", "telegram", "backdoor", "exfil", "inject",
+        "decrypt", "encrypt", "base64", "exec", "runtime",
+    ]
+    for keyword in suspicious_keywords:
+        if keyword in s_lower:
+            score += 10
+    # Paths are moderately suspicious
+    if "/" in s and len(s) > 5:
+        score += 5
+    return score
+
+
+def _filter_permissions(bundle: Dict[str, Any], catalog: "ApiCatalog") -> List[str]:
+    """
+    Filter permissions to only those relevant to the API category.
+    Uses suffix matching to handle full vs short permission names.
+    """
+    api_category = bundle.get("api_category", "")
+    static_context = bundle.get("static_context", {})
+    full_perms = static_context.get("permissions", [])
+
+    # Get permission hints from catalog for this category
+    relevant = set()
+    if api_category and api_category != "MULTIPLE":
+        category = catalog.categories.get(api_category)
+        if category:
+            relevant.update(category.permission_hints or [])
+
+    # Handle merged categories from case_context (not callsite_descriptor!)
+    case_ctx = bundle.get("case_context", {}) or {}
+    merged_categories = case_ctx.get("merged_categories", [])
+    if not merged_categories:
+        merged_categories = bundle.get("api_categories", [])
+
+    for cat in merged_categories:
+        category = catalog.categories.get(cat)
+        if category:
+            relevant.update(category.permission_hints or [])
+
+    # Always include common malware permissions
+    relevant.update(["INTERNET", "FOREGROUND_SERVICE"])
+
+    def matches_hint(perm: str, hint: str) -> bool:
+        """Use suffix match to handle full vs short permission names."""
+        return perm.endswith(hint) or perm == hint
+
+    # Filter to matching permissions (exact or suffix match)
+    filtered = [p for p in full_perms if any(matches_hint(p, h) for h in relevant)]
+
+    # FALLBACK: If no matches, use dangerous permissions subset
+    if not filtered:
+        filtered = [
+            p for p in full_perms
+            if any(matches_hint(p, d) for d in _DANGEROUS_PERMISSIONS)
+        ][:10]
+
+    return filtered[:10]
+
+
+def _filter_strings(bundle: Dict[str, Any]) -> List[str]:
+    """
+    Filter strings to remove library noise and prioritize suspicious strings.
+    Preserves IPs and URLs even if they match noise patterns.
+    """
+    static_context = bundle.get("static_context", {})
+    raw = static_context.get("strings_nearby", [])
+
+    def should_keep(s: str) -> bool:
+        # Always keep network indicators (potential C2)
+        if _is_network_indicator(s):
+            return True
+        # Filter library noise (case-insensitive)
+        s_lower = s.lower()
+        return not any(n.lower() in s_lower for n in _STRING_NOISE_PATTERNS)
+
+    filtered = [s for s in raw if should_keep(s)]
+
+    # Score and sort by suspiciousness
+    scored = [(s, _suspicion_score(s)) for s in filtered]
+    scored.sort(key=lambda x: -x[1])
+
+    return [s for s, _ in scored[:50]]
+
+
+def _should_include_source(bundle: Dict[str, Any], seed_index: int, max_with_source: int = 10) -> bool:
+    """Determine if this seed should get JADX source."""
+    # Gate 1: Priority from case_context (if present)
+    case_ctx = bundle.get("case_context") or {}
+    priority = case_ctx.get("priority")
+    if priority is not None and priority <= 2:
+        return True
+
+    # Gate 2: Fallback - include source for top N seeds by index
+    if seed_index < max_with_source:
+        return True
+
+    return False
+
+
+def shape_tier1_payload(
+    bundle: Dict[str, Any],
+    catalog: Dict[str, Any],
+    jadx_root: Optional[Path] = None,
+    seed_index: int = 0,
+) -> Dict[str, Any]:
+    """
+    Create optimized Tier1 LLM payload from full bundle.
+
+    Excludes:
+    - fcg_neighborhood (Tier2 needs it, Tier1 doesn't)
+    - callsite_descriptor (raw recon data - case_context is sufficient)
+    - Full static_context (replaced with filtered versions)
+
+    Adds:
+    - permissions_relevant (filtered permissions)
+    - strings_filtered (filtered strings)
+    - caller_method_source (JADX source for high-priority seeds)
+    """
+    payload = {
+        "seed_id": bundle.get("seed_id"),
+        "api_category": bundle.get("api_category"),
+        "api_signatures": bundle.get("api_signatures", []),
+        "caller_method": bundle.get("caller_method"),
+        "sliced_cfg": bundle.get("sliced_cfg"),
+        "branch_conditions": bundle.get("branch_conditions"),
+        "control_flow_path": bundle.get("control_flow_path"),
+        "case_context": bundle.get("case_context"),
+        # Shaped fields
+        "permissions_relevant": _filter_permissions(bundle, catalog),
+        "strings_filtered": _filter_strings(bundle),
+    }
+
+    # Optionally add JADX source for high-priority seeds
+    if jadx_root and jadx_root.exists() and _should_include_source(bundle, seed_index):
+        caller = bundle.get("caller_method")
+        if caller:
+            source = extract_method_source(jadx_root, caller, max_lines=80, max_chars=2500)
+            if source:
+                payload["caller_method_source"] = source
+
+    return payload
+
+
+# =============================================================================
+# Tier2 Payload Shaping (Token Optimization)
+# =============================================================================
+
+# Library noise prefixes for FCG filtering
+_FCG_NOISE_PREFIXES = [
+    "androidx.", "com.google.android.material", "kotlin",
+    "java.", "android.", "com.google.android.gms",
+]
+
+
+def _filter_fcg(fcg: Dict[str, Any], package_name: Optional[str]) -> Dict[str, Any]:
+    """
+    Keep only app-specific methods in FCG, filter library noise.
+    """
+    if not fcg:
+        return {}
+
+    def is_app_method(sig: str) -> bool:
+        # Use package_name from manifest if available
+        if package_name and package_name in sig:
+            return True
+        # Fallback: exclude known library prefixes
+        return not any(noise in sig for noise in _FCG_NOISE_PREFIXES)
+
+    return {
+        "k": fcg.get("k", 2),
+        "callers": [c for c in fcg.get("callers", []) if is_app_method(c)][:20],
+        "callees": [c for c in fcg.get("callees", []) if is_app_method(c)][:20],
+    }
+
+
+def _consolidate_tier1_for_tier2(tier1: Dict[str, Any], bundle: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extract driver-relevant fields from Tier1 output for Tier2.
+    Omits verbose fields (facts, uncertainties, full function_summary).
+    """
+    return {
+        "seed_id": bundle.get("seed_id"),
+        "api_category": bundle.get("api_category"),
+        "trigger_surface": tier1.get("trigger_surface", {}),
+        "required_inputs": tier1.get("required_inputs", []),
+        "path_constraints": tier1.get("path_constraints", []),
+        "observable_effects": tier1.get("observable_effects", []),
+        "caller_method": bundle.get("caller_method"),
+        # Omit: facts, uncertainties, confidence, full function_summary
+    }
+
+
+def shape_tier2_payload(
+    tier2_input: Dict[str, Any],
+    package_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Create optimized Tier2 LLM payload.
+
+    Removes:
+    - strings_nearby (already processed by Tier1)
+    - static_context.permissions (Tier1 extracted relevant ones)
+    - Most of case_context (keep only rationale, tags, reachability)
+
+    Filters:
+    - FCG to app-specific methods only
+
+    Consolidates:
+    - Tier1 outputs to driver-relevant fields only
+    """
+    # Filter FCG to app methods only
+    fcg = tier2_input.get("fcg", {})
+    filtered_fcg = _filter_fcg(fcg, package_name)
+
+    # Extract minimal static_context
+    static_context = tier2_input.get("static_context", {})
+    minimal_static = {
+        "package_name": static_context.get("package_name"),
+        "component_triggers": static_context.get("component_triggers"),
+        # Omit: permissions, strings_nearby (not needed for driver synthesis)
+    }
+
+    # Extract minimal case_context
+    case_context = tier2_input.get("case_context", {})
+    minimal_case = None
+    if case_context:
+        minimal_case = {
+            "recon_rationale": case_context.get("recon_rationale"),
+            "tags": case_context.get("tags"),
+            "reachability": case_context.get("reachability"),
+            # Omit: other fields not needed for driver
+        }
+
+    # Consolidate seeds - keep driver-relevant fields only
+    seeds = tier2_input.get("seeds", [])
+    # Note: seeds already contain tier1 output and bundle info from caller
+    # We keep the existing structure as the orchestrator already passes consolidated data
+
+    payload = {
+        "case_id": tier2_input.get("case_id"),
+        "primary_seed_id": tier2_input.get("primary_seed_id"),
+        "seeds": seeds,
+        "seed_count": tier2_input.get("seed_count"),
+        "recon_context": tier2_input.get("recon_context"),
+        "fcg": filtered_fcg,
+        "static_context": minimal_static,
+        "component_intents": tier2_input.get("component_intents"),  # Intent-filters for driver synthesis
+        "case_context": minimal_case,
+        "flowdroid_summary": tier2_input.get("flowdroid_summary"),
+    }
+
+    return payload
 
 
 class _noop_context:

@@ -2,388 +2,2694 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Run {{ analysis_id }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Run Detail — {{ analysis_id }}</title>
   <style>
-    body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 24px; color: #111; }
-    a { color: #2563eb; text-decoration: none; }
-    h1 { margin-bottom: 4px; }
-    .section { margin-top: 28px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 8px; }
-    th, td { border-bottom: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
-    th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; }
-    code { background: #f3f4f6; padding: 2px 4px; border-radius: 4px; }
-    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: 12px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-    .card { border: 1px solid #e5e7eb; padding: 12px; border-radius: 8px; }
-    .flow-toggle { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; font-size: 14px; }
-    .level-error { background: #fee2e2; }
-    .level-info { background: #fff; }
-    details > summary { cursor: pointer; color: #2563eb; }
-    .status-pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
-    .status-live { background: #dcfce7; color: #166534; }
-    .status-off { background: #f3f4f6; color: #374151; }
+    :root {
+      --blue: #007AFF;
+      --blue-light: #E3F2FF;
+      --blue-hover: #0056CC;
+      --green: #34C759;
+      --green-light: #E8F9EC;
+      --orange: #FF9500;
+      --orange-light: #FFF4E5;
+      --red: #FF3B30;
+      --red-light: #FFEBE9;
+      --gray-50: #F9FAFB;
+      --gray-100: #F3F4F6;
+      --gray-200: #E5E7EB;
+      --gray-300: #D1D5DB;
+      --gray-400: #9CA3AF;
+      --gray-500: #6B7280;
+      --gray-600: #4B5563;
+      --gray-700: #374151;
+      --gray-800: #1F2937;
+      --gray-900: #111827;
+      --white: #FFFFFF;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -1px rgba(0,0,0,0.04);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04);
+      --radius: 12px;
+      --radius-sm: 8px;
+      --radius-xs: 6px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', sans-serif;
+      background: var(--gray-50);
+      color: var(--gray-900);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Header */
+    .header {
+      background: var(--white);
+      border-bottom: 1px solid var(--gray-200);
+      padding: 16px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      background: rgba(255,255,255,0.85);
+    }
+
+    .header-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--blue);
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      transition: opacity 0.15s ease;
+    }
+
+    .back-link:hover {
+      opacity: 0.7;
+    }
+
+    .back-link svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .header-title {
+      flex: 1;
+      text-align: center;
+    }
+
+    .header-title h1 {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--gray-900);
+      letter-spacing: -0.01em;
+    }
+
+    .header-title .run-id {
+      font-size: 13px;
+      color: var(--gray-500);
+      font-weight: 400;
+      margin-top: 2px;
+      font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
+    }
+
+    /* Connection Status */
+    .connection-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--gray-100);
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+
+    .connection-status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--gray-400);
+      transition: background 0.2s ease;
+    }
+
+    .connection-status.connected {
+      background: var(--green-light);
+      color: #166534;
+    }
+
+    .connection-status.connected .dot {
+      background: var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .connection-status.connecting {
+      background: var(--blue-light);
+      color: var(--blue);
+    }
+
+    .connection-status.connecting .dot {
+      background: var(--blue);
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    .connection-status.reconnecting {
+      background: var(--orange-light);
+      color: #B45309;
+    }
+
+    .connection-status.reconnecting .dot {
+      background: var(--orange);
+      animation: pulse 0.5s ease-in-out infinite;
+    }
+
+    .connection-status.disconnected,
+    .connection-status.polling {
+      background: var(--red-light);
+      color: var(--red);
+    }
+
+    .connection-status.disconnected .dot,
+    .connection-status.polling .dot {
+      background: var(--red);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.9); }
+    }
+
+    @keyframes runningPulse {
+      0%, 100% {
+        background-color: rgba(0, 122, 255, 0.12);
+        box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.2);
+      }
+      50% {
+        background-color: rgba(0, 122, 255, 0.22);
+        box-shadow: 0 0 0 4px rgba(0, 122, 255, 0);
+      }
+    }
+
+    @keyframes slideInHighlight {
+      from {
+        opacity: 0;
+        transform: translateX(-12px);
+        background-color: rgba(0, 122, 255, 0.1);
+      }
+      70% {
+        opacity: 1;
+        transform: translateX(0);
+        background-color: rgba(0, 122, 255, 0.1);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+        background-color: transparent;
+      }
+    }
+
+    @keyframes completionFlash {
+      0% { background-color: rgba(52, 199, 89, 0.2); }
+      100% { background-color: transparent; }
+    }
+
+    @keyframes progressGlow {
+      0%, 100% { box-shadow: 0 0 6px var(--blue); }
+      50% { box-shadow: 0 0 12px var(--blue); }
+    }
+
+    /* Progress Bar */
+    .progress-container {
+      background: var(--white);
+      border-bottom: 1px solid var(--gray-200);
+      padding: 16px 24px;
+    }
+
+    .progress-wrapper {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .progress-bar {
+      flex: 1;
+      height: 6px;
+      background: var(--gray-200);
+      border-radius: 3px;
+      overflow: visible;
+      position: relative;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--blue), #5AC8FA);
+      border-radius: 3px;
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      width: 0%;
+      position: relative;
+    }
+
+    .progress-fill.active::after {
+      content: '';
+      position: absolute;
+      right: -4px;
+      top: -3px;
+      width: 12px;
+      height: 12px;
+      background: var(--blue);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--blue);
+      animation: progressGlow 1s ease-in-out infinite;
+    }
+
+    .progress-text {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--gray-600);
+      white-space: nowrap;
+    }
+
+    /* Main Content */
+    .main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      border: 1px solid var(--gray-200);
+      overflow: hidden;
+      margin-bottom: 20px;
+      transition: box-shadow 0.2s ease;
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-md);
+    }
+
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--gray-100);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--gray-900);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-title svg {
+      width: 18px;
+      height: 18px;
+      color: var(--blue);
+    }
+
+    .card-body {
+      padding: 16px 20px;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .stat-card {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      border: 1px solid var(--gray-200);
+      padding: 20px;
+      transition: all 0.2s ease;
+    }
+
+    .stat-card:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-1px);
+    }
+
+    .stat-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--gray-900);
+      letter-spacing: -0.02em;
+    }
+
+    .stat-value.blue { color: var(--blue); }
+    .stat-value.green { color: var(--green); }
+    .stat-value.orange { color: var(--orange); }
+    .stat-value.red { color: var(--red); }
+
+    .stat-sub {
+      font-size: 13px;
+      color: var(--gray-500);
+      margin-top: 4px;
+    }
+
+    /* Tables */
+    .table-wrapper {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th {
+      text-align: left;
+      padding: 12px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+    }
+
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--gray-100);
+      vertical-align: top;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover td {
+      background: var(--gray-50);
+    }
+
+    /* Row animations */
+    tr.new-row {
+      animation: slideInHighlight 0.6s ease forwards;
+    }
+
+    tr.stage-just-completed td {
+      animation: completionFlash 1s ease forwards;
+    }
+
+    /* Status Pills */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      gap: 5px;
+    }
+
+    .pill.ok, .pill.success, .pill.completed {
+      background: var(--green-light);
+      color: #166534;
+    }
+
+    .pill.running, .pill.in-progress {
+      background: var(--blue-light);
+      color: var(--blue);
+      animation: runningPulse 1.5s ease-in-out infinite;
+    }
+
+    .pill.error, .pill.failed {
+      background: var(--red-light);
+      color: var(--red);
+    }
+
+    .pill.warning {
+      background: var(--orange-light);
+      color: #B45309;
+    }
+
+    .pill.neutral {
+      background: var(--gray-100);
+      color: var(--gray-600);
+    }
+
+    /* Monospace */
+    .mono {
+      font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
+      font-size: 13px;
+    }
+
+    /* Links */
+    a {
+      color: var(--blue);
+      text-decoration: none;
+      transition: opacity 0.15s ease;
+    }
+
+    a:hover {
+      opacity: 0.7;
+    }
+
+    /* Toggle Switch */
+    .toggle-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--gray-600);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle-label input[type="checkbox"] {
+      appearance: none;
+      width: 44px;
+      height: 26px;
+      background: var(--gray-300);
+      border-radius: 13px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .toggle-label input[type="checkbox"]:checked {
+      background: var(--blue);
+    }
+
+    .toggle-label input[type="checkbox"]::after {
+      content: '';
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      background: var(--white);
+      border-radius: 50%;
+      top: 2px;
+      left: 2px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+      transition: transform 0.2s ease;
+    }
+
+    .toggle-label input[type="checkbox"]:checked::after {
+      transform: translateX(18px);
+    }
+
+    /* Details/Accordion */
+    details {
+      border-radius: var(--radius-xs);
+    }
+
+    details summary {
+      cursor: pointer;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 500;
+      padding: 4px 0;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details summary::before {
+      content: '';
+      width: 0;
+      height: 0;
+      border-left: 5px solid var(--blue);
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+      transition: transform 0.15s ease;
+    }
+
+    details[open] summary::before {
+      transform: rotate(90deg);
+    }
+
+    details pre {
+      margin-top: 8px;
+      padding: 12px;
+      background: var(--gray-50);
+      border-radius: var(--radius-xs);
+      font-size: 12px;
+      overflow-x: auto;
+      border: 1px solid var(--gray-200);
+    }
+
+    /* Level Indicators */
+    .level-error td:first-child {
+      box-shadow: inset 3px 0 0 var(--red);
+    }
+
+    .level-info td:first-child {
+      box-shadow: inset 3px 0 0 var(--blue);
+    }
+
+    /* Sections */
+    .section-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    /* Empty State */
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--gray-500);
+    }
+
+    .empty-state svg {
+      width: 48px;
+      height: 48px;
+      color: var(--gray-300);
+      margin-bottom: 12px;
+    }
+
+    /* Artifact Link */
+    .artifact-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      background: var(--blue-light);
+      color: var(--blue);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      margin-top: 12px;
+      transition: all 0.15s ease;
+    }
+
+    .artifact-link:hover {
+      background: var(--blue);
+      color: var(--white);
+      opacity: 1;
+    }
+
+    .artifact-link svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* Threat Level Badge */
+    .threat-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      font-weight: 600;
+      gap: 8px;
+    }
+
+    .threat-badge.critical {
+      background: var(--red-light);
+      color: var(--red);
+    }
+
+    .threat-badge.high {
+      background: var(--orange-light);
+      color: #B45309;
+    }
+
+    .threat-badge.medium {
+      background: #FEF3C7;
+      color: #B45309;
+    }
+
+    .threat-badge.low {
+      background: var(--green-light);
+      color: #166534;
+    }
+
+    .threat-badge.unknown {
+      background: var(--gray-100);
+      color: var(--gray-600);
+    }
+
+    /* Animation */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card {
+      animation: fadeIn 0.3s ease forwards;
+    }
+
+    .card:nth-child(1) { animation-delay: 0.05s; }
+    .card:nth-child(2) { animation-delay: 0.1s; }
+    .card:nth-child(3) { animation-delay: 0.15s; }
+    .card:nth-child(4) { animation-delay: 0.2s; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .header-inner {
+        flex-wrap: wrap;
+      }
+      .header-title {
+        order: -1;
+        width: 100%;
+        text-align: left;
+        margin-bottom: 12px;
+      }
+      .stats-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+      .section-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* JSON/CFG Modal Overlay */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      opacity: 1;
+      transition: opacity 0.2s ease;
+    }
+
+    .modal-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .modal-container {
+      background: var(--white);
+      border-radius: 16px;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
+      width: 90vw;
+      max-width: 1000px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      transform: scale(1) translateY(0);
+      transition: transform 0.2s ease;
+    }
+
+    .modal-overlay.hidden .modal-container {
+      transform: scale(0.95) translateY(20px);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--gray-200);
+      gap: 16px;
+    }
+
+    .modal-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--gray-900);
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    .modal-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .modal-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      background: var(--gray-100);
+      color: var(--gray-700);
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .modal-btn:hover {
+      background: var(--gray-200);
+    }
+
+    .modal-btn.copied {
+      background: var(--green-light);
+      color: #166534;
+    }
+
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      justify-content: center;
+      font-size: 18px;
+      border-radius: 50%;
+    }
+
+    .modal-body {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 20px;
+      max-height: calc(85vh - 70px);
+    }
+
+    .modal-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+      color: var(--gray-500);
+      gap: 12px;
+    }
+
+    .modal-loading .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--gray-200);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .modal-error {
+      padding: 20px;
+      background: var(--red-light);
+      color: var(--red);
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+    }
+
+    /* JSON Tree Styles */
+    .json-tree {
+      font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .json-node {
+      margin: 2px 0;
+    }
+
+    .json-key {
+      color: #0066cc;
+      font-weight: 500;
+    }
+
+    .json-string {
+      color: #c41a16;
+    }
+
+    .json-number {
+      color: #1c00cf;
+    }
+
+    .json-boolean {
+      color: #aa0d91;
+    }
+
+    .json-null {
+      color: var(--gray-400);
+      font-style: italic;
+    }
+
+    .json-summary {
+      color: var(--gray-500);
+      font-size: 12px;
+    }
+
+    .json-collapsible {
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: flex-start;
+      gap: 4px;
+    }
+
+    .json-collapsible:hover {
+      background: var(--gray-50);
+      border-radius: 4px;
+    }
+
+    .json-arrow {
+      width: 16px;
+      flex-shrink: 0;
+      font-size: 10px;
+      color: var(--gray-400);
+      transition: transform 0.15s ease;
+      text-align: center;
+      padding-top: 3px;
+    }
+
+    .json-collapsible.collapsed .json-arrow {
+      transform: rotate(-90deg);
+    }
+
+    .json-children {
+      margin-left: 20px;
+      padding-left: 12px;
+      border-left: 1px solid var(--gray-200);
+    }
+
+    .json-children.hidden {
+      display: none;
+    }
+
+    /* CFG Graph Styles */
+    .cfg-graph {
+      min-height: 400px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .cfg-summary {
+      padding: 16px;
+      background: var(--gray-50);
+      border-radius: var(--radius);
+      margin-bottom: 16px;
+    }
+
+    .cfg-summary h4 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--gray-900);
+    }
+
+    .cfg-stats {
+      display: flex;
+      gap: 24px;
+      font-size: 13px;
+      color: var(--gray-500);
+    }
+
+    .cfg-stat-value {
+      font-weight: 600;
+      color: var(--gray-900);
+    }
+
+    .cfg-mermaid {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      overflow: auto;
+      padding: 16px;
+      background: var(--gray-50);
+      border-radius: var(--radius);
+    }
+
+    .cfg-mermaid svg {
+      max-width: 100%;
+      height: auto;
+    }
+
+    /* Tab switcher for JSON/Graph views */
+    .modal-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--gray-100);
+      border-radius: var(--radius-sm);
+    }
+
+    .modal-tab {
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--gray-600);
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .modal-tab:hover {
+      color: var(--gray-900);
+    }
+
+    .modal-tab.active {
+      background: var(--white);
+      color: var(--gray-900);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Artifact Renderers */
+    .artifact-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--gray-200);
+    }
+
+    .artifact-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--gray-900);
+    }
+
+    .artifact-subtitle {
+      font-size: 13px;
+      color: var(--gray-500);
+      margin-top: 4px;
+    }
+
+    .artifact-stats {
+      display: flex;
+      gap: 24px;
+    }
+
+    .artifact-stat {
+      text-align: center;
+    }
+
+    .artifact-stat-value {
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--gray-900);
+    }
+
+    .artifact-stat-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Category table for sensitive APIs */
+    .category-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .category-table th {
+      text-align: left;
+      padding: 10px 12px;
+      background: var(--gray-50);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--gray-200);
+    }
+
+    .category-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--gray-100);
+      vertical-align: middle;
+    }
+
+    .category-table tr:hover td {
+      background: var(--gray-50);
+    }
+
+    .category-name {
+      font-weight: 500;
+      color: var(--gray-900);
+    }
+
+    .priority-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .priority-badge.critical {
+      background: var(--red-light);
+      color: var(--red);
+    }
+
+    .priority-badge.high {
+      background: var(--orange-light);
+      color: #B45309;
+    }
+
+    .priority-badge.medium {
+      background: #FEF3C7;
+      color: #92400E;
+    }
+
+    .priority-badge.low {
+      background: var(--green-light);
+      color: #166534;
+    }
+
+    /* Graph image container */
+    .graph-image-container {
+      background: var(--gray-50);
+      border-radius: var(--radius);
+      padding: 16px;
+      text-align: center;
+      overflow: auto;
+      max-height: 500px;
+    }
+
+    .graph-image-container img {
+      max-width: 100%;
+      height: auto;
+    }
+
+    .graph-error {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--gray-500);
+    }
+
+    /* Slice/Method info */
+    .method-signature {
+      font-family: 'SF Mono', monospace;
+      font-size: 12px;
+      background: var(--gray-50);
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      word-break: break-all;
+      margin-bottom: 16px;
+    }
+
+    .method-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    /* Raw JSON viewer */
+    .raw-json-container {
+      background: var(--gray-50);
+      border-radius: var(--radius);
+      padding: 16px;
+      font-family: 'SF Mono', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      overflow: auto;
+      max-height: 400px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* View toggle */
+    .view-toggle {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .view-toggle-btn {
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--gray-600);
+      background: var(--gray-100);
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .view-toggle-btn:hover {
+      background: var(--gray-200);
+    }
+
+    .view-toggle-btn.active {
+      background: var(--blue);
+      color: white;
+    }
+
+    /* Cytoscape Graph Canvas */
+    .cfg-canvas {
+      min-height: 450px;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      border-radius: var(--radius);
+      position: relative;
+      margin-top: 16px;
+    }
+
+    .cfg-controls {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      gap: 8px;
+      z-index: 10;
+    }
+
+    .cfg-control-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: background 0.15s ease;
+    }
+
+    .cfg-control-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .cfg-legend {
+      display: flex;
+      gap: 16px;
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--gray-500);
+    }
+
+    .cfg-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .cfg-legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    /* Dashboard: Verdict Banners */
+    .verdict-banner {
+      padding: 28px;
+      border-radius: var(--radius);
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .verdict-banner.critical {
+      background: linear-gradient(135deg, #ff3b30 0%, #cc2f26 100%);
+      color: white;
+    }
+
+    .verdict-banner.high {
+      background: linear-gradient(135deg, #ff9500 0%, #cc7600 100%);
+      color: white;
+    }
+
+    .verdict-banner.medium {
+      background: linear-gradient(135deg, #ffcc00 0%, #e6b800 100%);
+      color: #5c4700;
+    }
+
+    .verdict-banner.low,
+    .verdict-banner.benign {
+      background: linear-gradient(135deg, #34c759 0%, #28a745 100%);
+      color: white;
+    }
+
+    .verdict-banner.suspicious {
+      background: linear-gradient(135deg, #ff9500 0%, #e67e00 100%);
+      color: white;
+    }
+
+    .verdict-banner.unknown {
+      background: var(--gray-100);
+      color: var(--gray-600);
+    }
+
+    .verdict-label {
+      font-size: 36px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .verdict-subtitle {
+      font-size: 14px;
+      margin-top: 8px;
+      opacity: 0.9;
+    }
+
+    /* Dashboard: Facts List */
+    .facts-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .fact-item {
+      padding: 14px 16px;
+      background: var(--gray-50);
+      border-radius: var(--radius-sm);
+      margin-bottom: 10px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      border-left: 3px solid var(--blue);
+    }
+
+    .fact-text {
+      flex: 1;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .fact-units {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .unit-badge {
+      padding: 2px 8px;
+      background: var(--blue-light);
+      color: var(--blue);
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: 'SF Mono', monospace;
+    }
+
+    /* Dashboard: Evidence Cards */
+    .evidence-card {
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      margin-bottom: 12px;
+      background: white;
+    }
+
+    .evidence-claim {
+      font-weight: 500;
+      margin-bottom: 10px;
+      font-size: 14px;
+      color: var(--gray-900);
+    }
+
+    .evidence-refs {
+      font-size: 12px;
+      color: var(--gray-500);
+    }
+
+    /* Report Sections - Collapsible Accordions */
+    .report-section {
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+
+    .report-section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      background: var(--gray-50);
+      cursor: pointer;
+      font-weight: 600;
+      user-select: none;
+      transition: background 0.15s ease;
+    }
+
+    .report-section-header:hover {
+      background: var(--gray-100);
+    }
+
+    .section-chevron {
+      transition: transform 0.2s ease;
+      font-size: 12px;
+      color: var(--gray-500);
+    }
+
+    .report-section-header.expanded .section-chevron {
+      transform: rotate(90deg);
+    }
+
+    .report-section-content {
+      display: none;
+      padding: 20px;
+      border-top: 1px solid var(--gray-200);
+    }
+
+    .report-section-content.visible {
+      display: block;
+    }
+
+    .section-title {
+      flex: 1;
+    }
+
+    .section-count {
+      font-size: 12px;
+      color: var(--gray-500);
+      font-weight: 400;
+    }
+
+    /* Case Cards - Grouped Seeds */
+    .case-groups {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .case-card {
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+
+    .case-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: var(--gray-50);
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .case-header:hover {
+      background: var(--gray-100);
+    }
+
+    .case-chevron {
+      transition: transform 0.2s ease;
+      font-size: 10px;
+      color: var(--gray-400);
+    }
+
+    .case-header.expanded .case-chevron {
+      transform: rotate(90deg);
+    }
+
+    .case-id {
+      font-weight: 600;
+      font-family: 'SF Mono', monospace;
+      font-size: 13px;
+    }
+
+    .case-category {
+      color: var(--gray-500);
+      font-size: 12px;
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .seed-count {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--gray-500);
+    }
+
+    .case-details {
+      display: none;
+      padding: 16px;
+      background: white;
+      border-top: 1px solid var(--gray-100);
+    }
+
+    .case-details.visible {
+      display: block;
+    }
+
+    .seed-detail {
+      padding: 14px;
+      background: var(--gray-50);
+      border-radius: var(--radius-sm);
+      margin-bottom: 12px;
+    }
+
+    .seed-detail:last-child {
+      margin-bottom: 0;
+    }
+
+    .seed-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .seed-id-badge {
+      font-size: 11px;
+      font-family: 'SF Mono', monospace;
+      background: var(--gray-200);
+      padding: 3px 8px;
+      border-radius: 4px;
+      color: var(--gray-700);
+    }
+
+    .verdict-mini {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .verdict-mini.likely_malicious,
+    .verdict-mini.malicious {
+      background: var(--red-light);
+      color: var(--red);
+    }
+
+    .verdict-mini.suspicious {
+      background: #FEF3C7;
+      color: #92400E;
+    }
+
+    .verdict-mini.benign {
+      background: var(--green-light);
+      color: #166534;
+    }
+
+    .verdict-mini.unknown {
+      background: var(--gray-100);
+      color: var(--gray-500);
+    }
+
+    .seed-summary {
+      font-size: 13px;
+      color: var(--gray-700);
+      line-height: 1.5;
+      margin-bottom: 8px;
+    }
+
+    .attack-chain {
+      font-size: 12px;
+      color: var(--gray-600);
+      background: white;
+      padding: 10px 12px;
+      border-radius: 6px;
+      border-left: 3px solid var(--orange);
+    }
+
+    /* Execution Plan Cards */
+    .execution-plan {
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      margin-bottom: 16px;
+      background: white;
+    }
+
+    .execution-plan:last-child {
+      margin-bottom: 0;
+    }
+
+    .plan-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--gray-100);
+    }
+
+    .plan-case {
+      font-weight: 600;
+      font-family: 'SF Mono', monospace;
+      font-size: 13px;
+      color: var(--blue);
+    }
+
+    .plan-target {
+      color: var(--gray-600);
+      font-size: 13px;
+    }
+
+    .plan-section {
+      margin-bottom: 16px;
+    }
+
+    .plan-section:last-child {
+      margin-bottom: 0;
+    }
+
+    .plan-section h5 {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: var(--gray-600);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .prereq-list,
+    .criteria-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .prereq-list li,
+    .criteria-list li {
+      padding: 8px 12px;
+      background: var(--gray-50);
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+
+    .prereq-list li code {
+      font-size: 12px;
+      color: var(--gray-700);
+    }
+
+    .steps-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      counter-reset: step;
+    }
+
+    .step-item {
+      margin-bottom: 14px;
+      padding-left: 32px;
+      position: relative;
+    }
+
+    .step-item::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 22px;
+      height: 22px;
+      background: var(--blue);
+      color: white;
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .step-name {
+      font-weight: 500;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+
+    .step-command {
+      display: block;
+      padding: 10px 14px;
+      background: #1a1a2e;
+      color: #5ac8fa;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: 'SF Mono', monospace;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Evidence Index */
+    .evidence-index-table {
+      width: 100%;
+      font-size: 13px;
+      border-collapse: collapse;
+    }
+
+    .evidence-index-table th {
+      text-align: left;
+      padding: 10px 12px;
+      background: var(--gray-50);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--gray-600);
+    }
+
+    .evidence-index-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--gray-100);
+      vertical-align: top;
+    }
+
+    .evidence-index-table code {
+      font-size: 11px;
+      background: var(--gray-100);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* Dashboard: Summary Cards Grid */
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .summary-card {
+      background: var(--gray-50);
+      border-radius: var(--radius);
+      padding: 16px;
+      text-align: center;
+    }
+
+    .summary-card-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .summary-card-value {
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--gray-900);
+    }
+
+    /* Dashboard: Section headers */
+    .dashboard-section {
+      margin-top: 24px;
+    }
+
+    .dashboard-section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dashboard-section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--gray-200);
+    }
+
+    /* Dashboard: Attack chain */
+    .attack-chain {
+      background: var(--gray-50);
+      border-radius: var(--radius);
+      padding: 16px;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    /* Dashboard: Path chain */
+    .path-chain {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-family: 'SF Mono', monospace;
+      font-size: 12px;
+    }
+
+    .path-step {
+      padding: 10px 14px;
+      background: var(--gray-50);
+      border-radius: 4px;
+      border-left: 3px solid var(--blue);
+      word-break: break-all;
+    }
+
+    .path-step.seed {
+      border-left-color: var(--red);
+      background: var(--red-light);
+    }
+
+    .path-arrow {
+      color: var(--gray-400);
+      text-align: center;
+      padding: 2px 0;
+    }
+
+    /* Dashboard: Expandable rows */
+    .expandable-trigger {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .expandable-trigger:hover td {
+      background: var(--gray-100) !important;
+    }
+
+    .expandable-content {
+      display: none;
+    }
+
+    .expandable-content.visible {
+      display: table-row;
+    }
+
+    .expandable-content td {
+      padding: 16px;
+      background: var(--gray-50);
+    }
+
+    /* Dashboard: Permissions */
+    .permission-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .permission-badge {
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: 'SF Mono', monospace;
+    }
+
+    .permission-badge.dangerous {
+      background: var(--red-light);
+      color: var(--red);
+    }
+
+    .permission-badge.normal {
+      background: var(--gray-100);
+      color: var(--gray-600);
+    }
+
+    /* Dashboard: Callsite table */
+    .callsite-table {
+      width: 100%;
+      font-size: 13px;
+    }
+
+    .callsite-table th {
+      font-size: 11px;
+      padding: 10px 12px;
+    }
+
+    .callsite-table td {
+      padding: 10px 12px;
+    }
+
+    .callsite-table .mono {
+      font-size: 11px;
+    }
+
+    /* Final Report Hero Card */
+    .report-hero {
+      background: linear-gradient(135deg, var(--card-bg) 0%, var(--gray-50) 100%);
+      border: 1px solid var(--gray-200);
+      border-radius: 16px;
+      padding: 28px 32px;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .report-hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+    }
+
+    .report-hero.critical::before {
+      background: linear-gradient(90deg, #ff3b30 0%, #ff6b6b 100%);
+    }
+
+    .report-hero.high::before {
+      background: linear-gradient(90deg, #ff9500 0%, #ffb347 100%);
+    }
+
+    .report-hero.medium::before {
+      background: linear-gradient(90deg, #ffcc00 0%, #ffe066 100%);
+    }
+
+    .report-hero.low::before,
+    .report-hero.benign::before {
+      background: linear-gradient(90deg, #34c759 0%, #6bdb8b 100%);
+    }
+
+    .report-hero-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 20px;
+    }
+
+    .report-hero-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .report-verdict {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 20px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .report-verdict.critical {
+      background: var(--red-light);
+      color: var(--red);
+    }
+
+    .report-verdict.high {
+      background: var(--orange-light);
+      color: #B45309;
+    }
+
+    .report-verdict.medium {
+      background: #FEF3C7;
+      color: #92400E;
+    }
+
+    .report-verdict.low,
+    .report-verdict.benign {
+      background: var(--green-light);
+      color: #166534;
+    }
+
+    .report-verdict-icon {
+      font-size: 24px;
+    }
+
+    .report-summary {
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--gray-700);
+      margin-bottom: 20px;
+    }
+
+    .report-findings {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .report-finding {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    .report-finding-icon {
+      font-size: 16px;
+    }
+
+    .report-finding-count {
+      font-weight: 600;
+      color: var(--gray-900);
+    }
+
+    .report-finding-label {
+      color: var(--gray-600);
+    }
+
+    .report-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .report-action-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.15s ease;
+      cursor: pointer;
+      border: none;
+    }
+
+    .report-action-btn.primary {
+      background: var(--blue);
+      color: white;
+    }
+
+    .report-action-btn.primary:hover {
+      background: #0056cc;
+    }
+
+    .report-action-btn.secondary {
+      background: var(--gray-100);
+      color: var(--gray-700);
+    }
+
+    .report-action-btn.secondary:hover {
+      background: var(--gray-200);
+    }
+
+    .report-pending {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 20px;
+      background: var(--gray-50);
+      border-radius: 8px;
+      color: var(--gray-500);
+      font-size: 14px;
+    }
+
+    .report-pending .spinner {
+      width: 20px;
+      height: 20px;
+      border-width: 2px;
+    }
   </style>
+  <!-- Cytoscape.js for interactive graph visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
 </head>
 <body>
-  <a href="/runs">&larr; Back to runs</a>
-  <h1>Run {{ analysis_id }}</h1>
-  <p>Artifacts dir: {{ artifacts_dir }}</p>
-  {% if run_id %}
-  <p>Run ID: <code>{{ run_id }}</code></p>
-  {% endif %}
-
-  <div class="section">
-    <h2>Stage Timeline</h2>
-    <table id="stage-table">
-      <thead>
-        <tr>
-          <th>Stage</th>
-          <th>Start</th>
-          <th>End</th>
-          <th>Status</th>
-          <th>Duration (s)</th>
-        </tr>
-      </thead>
-      <tbody id="stage-body">
-        {% for stage in stages %}
-        <tr data-stage="{{ stage.stage }}">
-          <td>{{ stage.stage }}</td>
-          <td>{{ stage.start_ts or "-" }}</td>
-          <td>{{ stage.end_ts or "-" }}</td>
-          <td>{{ stage.status or "-" }}</td>
-          <td>{{ stage.duration_sec or "-" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <div class="section">
-    <h2>Execution Flow</h2>
-    <div class="flow-toggle">
-      <label>
-        <input type="checkbox" id="toggle-all-events">
-        Show all events
-      </label>
-      <label>
-        <input type="checkbox" id="toggle-live" checked>
-        Live
-      </label>
-      <span id="live-status" class="status-pill status-live">Connecting</span>
-    </div>
-    {% if execution_flow %}
-    <table id="flow-table">
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Event</th>
-          <th>Stage</th>
-          <th>Summary</th>
-          <th>Ref</th>
-          <th>Details</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for event in execution_flow %}
-        <tr data-kind="{{ 'stage' if event.is_stage else 'event' }}" class="level-{{ event.level }}">
-          <td>{{ event.ts or "-" }}</td>
-          <td>{{ event.event_type or "-" }}</td>
-          <td>{{ event.stage or "-" }}</td>
-          <td>{{ event.summary or "-" }}</td>
-          <td>
-            {% if event.ref %}
-            <a href="/runs/{{ analysis_id }}/artifact/{{ event.ref }}">{{ event.ref }}</a>
-            {% else %}-{% endif %}
-          </td>
-          <td>
-            {% if event.details %}
-            <details>
-              <summary>Details</summary>
-              <pre>{{ event.details }}</pre>
-            </details>
-            {% else %}-{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-      <p>No events recorded.</p>
-    {% endif %}
-  </div>
-
-  <div class="section">
-    <h2>Seeding</h2>
-    {% if seeding %}
-    <div class="grid">
-      <div class="card">
-        <div class="pill">Callsites</div>
-        <div>{{ seeding.callsite_count }}</div>
+  <header class="header">
+    <div class="header-inner">
+      <a href="/runs" class="back-link">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+        Runs
+      </a>
+      <div class="header-title">
+        <h1>{{ analysis_id[:16] }}{% if analysis_id|length > 16 %}…{% endif %}</h1>
+        {% if run_id %}
+        <div class="run-id">{{ run_id }}</div>
+        {% endif %}
       </div>
-      <div class="card">
-        <div class="pill">Categories</div>
-        <pre>{{ seeding.category_counts }}</pre>
-      </div>
-      <div class="card">
-        <div class="pill">Confidence</div>
-        <pre>{{ seeding.confidence_counts }}</pre>
+      <div id="connection-status" class="connection-status connecting">
+        <span class="dot"></span>
+        <span class="label">Connecting</span>
       </div>
     </div>
-    {% if seeding.ref %}
-      <p><a href="/runs/{{ analysis_id }}/artifact/{{ seeding.ref }}">View seed index</a></p>
-    {% endif %}
-    {% else %}
-    <p>No seeding stats recorded.</p>
-    {% endif %}
+  </header>
+
+  <!-- Progress Bar -->
+  <div class="progress-container">
+    <div class="progress-wrapper">
+      <div class="progress-bar">
+        <div class="progress-fill" id="overallProgress"></div>
+      </div>
+      <span class="progress-text" id="progressText">Waiting for stages...</span>
+    </div>
   </div>
 
-  <div class="section">
-    <h2>Sensitive API Hits</h2>
-    {% if sensitive_api %}
-      <p>Total hits: {{ sensitive_api.total_hits }}</p>
-      {% if sensitive_api.ref %}
-      <a href="/runs/{{ analysis_id }}/artifact/{{ sensitive_api.ref }}">View sensitive_api_hits.json</a>
-      {% endif %}
-    {% else %}
-      <p>No sensitive API hits recorded.</p>
-    {% endif %}
-  </div>
-
-  <div class="section">
-    <h2>Threat Triage (Recon)</h2>
-    {% if recon %}
-      <p>Threat level: <strong>{{ recon.threat_level }}</strong> | Cases: {{ recon.case_count }}</p>
-      {% if recon.fallback_reason %}
-      <p>LLM fallback reason: <code>{{ recon.fallback_reason }}</code></p>
-      {% endif %}
-      {% if recon.llm_valid is not none %}
-      <p>LLM valid: <code>{{ recon.llm_valid }}</code></p>
-      {% endif %}
-      {% if recon.ref %}
-      <a href="/runs/{{ analysis_id }}/artifact/{{ recon.ref }}">View recon JSON</a>
-      {% endif %}
-    {% else %}
-      <p>No recon output recorded.</p>
-    {% endif %}
-  </div>
-
-  <div class="section">
-    <h2>Soot Graphs</h2>
-    {% if graphs %}
-      <div class="grid">
-        <div class="card">
-          <div class="pill">Nodes</div>
-          <div>{{ graphs.node_count }}</div>
+  <main class="main">
+    <!-- Stage Timeline -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          Stage Timeline
         </div>
-        <div class="card">
-          <div class="pill">Edges</div>
-          <div>{{ graphs.edge_count }}</div>
-        </div>
-        <div class="card">
-          <div class="pill">CFG Files</div>
-          <div>{{ graphs.cfg_count }}</div>
+        <div class="toggle-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-live" checked>
+            Live Updates
+          </label>
         </div>
       </div>
-      {% if graphs.callgraph_ref %}
-      <p><a href="/runs/{{ analysis_id }}/artifact/{{ graphs.callgraph_ref }}">View callgraph JSON</a></p>
+      <div class="table-wrapper">
+        <table id="stage-table">
+          <thead>
+            <tr>
+              <th>Stage</th>
+              <th>Started</th>
+              <th>Completed</th>
+              <th>Status</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody id="stage-body">
+            {% for stage in stages %}
+            <tr data-stage="{{ stage.stage }}">
+              <td class="mono">{{ stage.stage }}</td>
+              <td class="mono">{{ stage.start_ts[:19] if stage.start_ts else "—" }}</td>
+              <td class="mono">{{ stage.end_ts[:19] if stage.end_ts else "—" }}</td>
+              <td>
+                {% if stage.status == 'ok' or stage.status == 'completed' %}
+                <span class="pill ok">✓ Complete</span>
+                {% elif stage.status == 'running' %}
+                <span class="pill running">● Running</span>
+                {% elif stage.status == 'error' or stage.status == 'failed' %}
+                <span class="pill error">✕ Failed</span>
+                {% else %}
+                <span class="pill neutral">{{ stage.status or "—" }}</span>
+                {% endif %}
+              </td>
+              <td class="mono">{{ "%.1f"|format(stage.duration_sec) ~ "s" if stage.duration_sec else "—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Final Report Hero -->
+    {% if threat_report %}
+    <div class="report-hero {{ threat_report.verdict|lower if threat_report.verdict else 'unknown' }}" id="reportHero">
+      <div class="report-hero-header">
+        <div>
+          <div class="report-hero-title">Final Threat Report</div>
+          <div class="report-verdict {{ threat_report.verdict|lower if threat_report.verdict else 'unknown' }}">
+            {% if threat_report.verdict|lower == 'critical' %}
+            <span class="report-verdict-icon">🚨</span>
+            {% elif threat_report.verdict|lower == 'high' %}
+            <span class="report-verdict-icon">⚠️</span>
+            {% elif threat_report.verdict|lower == 'medium' %}
+            <span class="report-verdict-icon">⚡</span>
+            {% else %}
+            <span class="report-verdict-icon">✓</span>
+            {% endif %}
+            {{ threat_report.verdict }}
+          </div>
+        </div>
+      </div>
+
+      <div class="report-summary">
+        {{ threat_report.summary[:500] }}{% if threat_report.summary|length > 500 %}...{% endif %}
+      </div>
+
+      {% if threat_report.seed_summaries %}
+      <div class="report-findings">
+        <div class="report-finding">
+          <span class="report-finding-icon">🔍</span>
+          <span class="report-finding-count">{{ threat_report.seed_summaries|length }}</span>
+          <span class="report-finding-label">Cases Analyzed</span>
+        </div>
+        {% set malicious_count = threat_report.seed_summaries | selectattr('tier2.intent_verdict', 'equalto', 'likely_malicious') | list | length %}
+        {% if malicious_count > 0 %}
+        <div class="report-finding">
+          <span class="report-finding-icon">🎯</span>
+          <span class="report-finding-count">{{ malicious_count }}</span>
+          <span class="report-finding-label">Likely Malicious</span>
+        </div>
+        {% endif %}
+        {% set categories = threat_report.seed_summaries | map(attribute='category_id') | unique | list %}
+        {% if categories|length > 0 %}
+        <div class="report-finding">
+          <span class="report-finding-icon">📁</span>
+          <span class="report-finding-count">{{ categories|length }}</span>
+          <span class="report-finding-label">Categories</span>
+        </div>
+        {% endif %}
+      </div>
       {% endif %}
-      {% if graphs.class_hierarchy_ref %}
-      <p><a href="/runs/{{ analysis_id }}/artifact/{{ graphs.class_hierarchy_ref }}">View class hierarchy JSON</a></p>
-      {% endif %}
+
+      <div class="report-actions">
+        <a href="/runs/{{ analysis_id }}/artifact/runs/{{ run_id }}/report/threat_report.json" class="report-action-btn primary">
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          View Full Report
+        </a>
+        <button onclick="copyReportSummary()" class="report-action-btn secondary" id="copyReportBtn">
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+          </svg>
+          Copy Summary
+        </button>
+      </div>
+    </div>
     {% else %}
-      <p>No callgraph stats recorded.</p>
+    <div class="report-hero" id="reportHero" style="display: none;">
+      <div class="report-pending">
+        <div class="spinner"></div>
+        <span>Analysis in progress... Report will appear when complete.</span>
+      </div>
+    </div>
     {% endif %}
+
+    <!-- Stats Overview -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Callsites</div>
+        <div class="stat-value blue">{{ seeding.callsite_count if seeding else "—" }}</div>
+        {% if seeding and seeding.ref %}
+        <a href="/runs/{{ analysis_id }}/artifact/{{ seeding.ref }}" class="artifact-link">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          View Index
+        </a>
+        {% endif %}
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Sensitive API Hits</div>
+        <div class="stat-value orange">{{ sensitive_api.total_hits if sensitive_api else "—" }}</div>
+        {% if sensitive_api and sensitive_api.ref %}
+        <a href="/runs/{{ analysis_id }}/artifact/{{ sensitive_api.ref }}" class="artifact-link">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          View Hits
+        </a>
+        {% endif %}
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Investigation Cases</div>
+        <div class="stat-value">{{ recon.case_count if recon else "—" }}</div>
+        {% if recon %}
+        <div class="stat-sub">Threat:
+          <span class="threat-badge {{ recon.threat_level|lower if recon.threat_level else 'unknown' }}">
+            {{ recon.threat_level or "Unknown" }}
+          </span>
+        </div>
+        {% endif %}
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">FlowDroid Flows</div>
+        <div class="stat-value green">{{ flowdroid.flow_count if flowdroid else "—" }}</div>
+        {% if flowdroid and flowdroid.ref %}
+        <a href="/runs/{{ analysis_id }}/artifact/{{ flowdroid.ref }}" class="artifact-link">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          View Flows
+        </a>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Graphs & Bundles Row -->
+    <div class="section-grid">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/>
+            </svg>
+            Soot Graphs
+          </div>
+        </div>
+        <div class="card-body">
+          {% if graphs %}
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; text-align: center;">
+            <div>
+              <div class="stat-label">Nodes</div>
+              <div style="font-size: 24px; font-weight: 600; color: var(--gray-900);">{{ graphs.node_count }}</div>
+            </div>
+            <div>
+              <div class="stat-label">Edges</div>
+              <div style="font-size: 24px; font-weight: 600; color: var(--gray-900);">{{ graphs.edge_count }}</div>
+            </div>
+            <div>
+              <div class="stat-label">CFG Files</div>
+              <div style="font-size: 24px; font-weight: 600; color: var(--gray-900);">{{ graphs.cfg_count }}</div>
+            </div>
+          </div>
+          <div style="margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
+            {% if graphs.callgraph_ref %}
+            <a href="/runs/{{ analysis_id }}/artifact/{{ graphs.callgraph_ref }}" class="artifact-link">Callgraph</a>
+            {% endif %}
+            {% if graphs.class_hierarchy_ref %}
+            <a href="/runs/{{ analysis_id }}/artifact/{{ graphs.class_hierarchy_ref }}" class="artifact-link">Class Hierarchy</a>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="empty-state">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            <div>No graph data available</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+            </svg>
+            Context Bundles
+          </div>
+        </div>
+        <div class="card-body">
+          {% if bundles %}
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; text-align: center;">
+            <div>
+              <div class="stat-label">Total Bundles</div>
+              <div style="font-size: 24px; font-weight: 600; color: var(--gray-900);">{{ bundles.bundle_count }}</div>
+            </div>
+            <div>
+              <div class="stat-label">Avg Slice Units</div>
+              <div style="font-size: 24px; font-weight: 600; color: var(--gray-900);">{{ bundles.avg_slice_units|round(1) if bundles.avg_slice_units else "—" }}</div>
+            </div>
+          </div>
+          {% if bundles.sample_slice_refs or bundles.entrypoint_paths_ref %}
+          <div style="margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
+            {% if bundles.entrypoint_paths_ref %}
+            <a href="/runs/{{ analysis_id }}/artifact/{{ bundles.entrypoint_paths_ref }}" class="artifact-link">Entrypoints</a>
+            {% endif %}
+            {% for ref in bundles.sample_slice_refs[:2] %}
+            <a href="/runs/{{ analysis_id }}/artifact/{{ ref }}" class="artifact-link">Sample {{ loop.index }}</a>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% else %}
+          <div class="empty-state">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+            <div>No bundle data available</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Execution Flow -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+          Execution Flow
+        </div>
+        <div class="toggle-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-all-events">
+            Show All Events
+          </label>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        {% if execution_flow %}
+        <table id="flow-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Event</th>
+              <th>Stage</th>
+              <th>Summary</th>
+              <th>Ref</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="flow-body">
+            {% for event in execution_flow %}
+            <tr data-kind="{{ 'stage' if event.is_stage else 'event' }}" class="level-{{ event.level }}">
+              <td class="mono">{{ event.ts[:19] if event.ts else "—" }}</td>
+              <td class="mono">{{ event.event_type or "—" }}</td>
+              <td>{{ event.stage or "—" }}</td>
+              <td>{{ event.summary or "—" }}</td>
+              <td>
+                {% if event.ref %}
+                <a href="/runs/{{ analysis_id }}/artifact/{{ event.ref }}">{{ event.ref|truncate(30) }}</a>
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if event.details %}
+                <details>
+                  <summary>View</summary>
+                  <pre>{{ event.details }}</pre>
+                </details>
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+          <div>No events recorded yet</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- LLM I/O -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+          </svg>
+          LLM I/O
+        </div>
+      </div>
+      <div class="table-wrapper">
+        {% if llm_events %}
+        <table>
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Step</th>
+              <th>Seed</th>
+              <th>Artifact</th>
+              <th>Size</th>
+              <th>Prompt</th>
+              <th>Payload</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for event in llm_events %}
+            <tr>
+              <td class="mono">{{ event.event_type }}</td>
+              <td>{{ event.llm_step or "—" }}</td>
+              <td class="mono" style="max-width: 120px; overflow: hidden; text-overflow: ellipsis;">{{ event.seed_id or "—" }}</td>
+              <td>
+                {% if event.ref %}
+                <a href="/runs/{{ analysis_id }}/artifact/{{ event.ref }}">{{ event.ref|truncate(25) }}</a>
+                {% else %}—{% endif %}
+              </td>
+              <td class="mono">{{ event.size or "—" }}</td>
+              <td class="mono">{{ event.prompt_chars or "—" }}</td>
+              <td class="mono">{{ event.payload_chars or "—" }}</td>
+              <td>
+                {% if event.error_type %}
+                <span class="pill error">{{ event.error_type }}</span>
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          <div>No LLM events recorded</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- API + Tool Events -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+          API + Tool Events
+        </div>
+      </div>
+      <div class="table-wrapper">
+        {% if api_events %}
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Event</th>
+              <th>Method</th>
+              <th>Path/Tool</th>
+              <th>Status</th>
+              <th>Ref</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for event in api_events %}
+            <tr>
+              <td class="mono">{{ event.ts[:19] if event.ts else "—" }}</td>
+              <td class="mono">{{ event.event_type }}</td>
+              <td>{{ event.method or "—" }}</td>
+              <td class="mono" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ event.path or "—" }}</td>
+              <td>
+                {% if event.status %}
+                  {% if event.status|string|int < 400 %}
+                  <span class="pill ok">{{ event.status }}</span>
+                  {% else %}
+                  <span class="pill error">{{ event.status }}</span>
+                  {% endif %}
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if event.ref %}
+                <a href="/runs/{{ analysis_id }}/artifact/{{ event.ref }}">{{ event.ref|truncate(20) }}</a>
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if event.extra %}
+                <details>
+                  <summary>View</summary>
+                  <pre>{{ event.extra }}</pre>
+                </details>
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+          <div>No API/tool events recorded</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </main>
+
+  <!-- JSON/CFG Modal -->
+  <div id="artifactModal" class="modal-overlay hidden">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modalTitle">Viewing: artifact.json</h3>
+        <div class="modal-actions">
+          <div class="modal-tabs hidden" id="modalTabs">
+            <button class="modal-tab active" data-view="json">JSON</button>
+            <button class="modal-tab" data-view="graph">Graph</button>
+          </div>
+          <button class="modal-btn" id="copyJsonBtn" title="Copy JSON to clipboard">Copy</button>
+          <button class="modal-btn modal-close" id="closeModalBtn" title="Close (Esc)">×</button>
+        </div>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <div class="modal-loading">
+          <div class="spinner"></div>
+          <span>Loading...</span>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <div class="section">
-    <h2>Context Bundles</h2>
-    {% if bundles %}
-      <p>Total bundles: {{ bundles.bundle_count }} | Avg slice units: {{ bundles.avg_slice_units }}</p>
-      {% if bundles.sample_slice_refs %}
-        <ul>
-        {% for ref in bundles.sample_slice_refs %}
-          <li><a href="/runs/{{ analysis_id }}/artifact/{{ ref }}">{{ ref }}</a></li>
-        {% endfor %}
-        </ul>
-      {% endif %}
-      {% if bundles.sample_path_refs %}
-        <p>Sample entrypoint paths:</p>
-        <ul>
-        {% for ref in bundles.sample_path_refs %}
-          <li><a href="/runs/{{ analysis_id }}/artifact/{{ ref }}">{{ ref }}</a></li>
-        {% endfor %}
-        </ul>
-      {% endif %}
-      {% if bundles.entrypoint_paths_ref %}
-        <p><a href="/runs/{{ analysis_id }}/artifact/{{ bundles.entrypoint_paths_ref }}">View entrypoint paths summary</a></p>
-      {% endif %}
-    {% else %}
-      <p>No context bundle stats recorded.</p>
-    {% endif %}
-  </div>
-
-  <div class="section">
-    <h2>FlowDroid</h2>
-    {% if flowdroid %}
-      <p>Flow count: {{ flowdroid.flow_count }}</p>
-      {% if flowdroid.ref %}
-      <a href="/runs/{{ analysis_id }}/artifact/{{ flowdroid.ref }}">View FlowDroid summary</a>
-      {% endif %}
-    {% else %}
-      <p>No FlowDroid summary recorded.</p>
-    {% endif %}
-  </div>
-
-  <div class="section">
-    <h2>LLM I/O</h2>
-    {% if llm_events %}
-    <table>
-      <thead>
-        <tr>
-          <th>Event</th>
-          <th>Step</th>
-          <th>Seed</th>
-          <th>Ref</th>
-          <th>Size</th>
-          <th>Prompt chars</th>
-          <th>Payload chars</th>
-          <th>Error</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for event in llm_events %}
-        <tr>
-          <td>{{ event.event_type }}</td>
-          <td>{{ event.llm_step or "-" }}</td>
-          <td>{{ event.seed_id or "-" }}</td>
-          <td>
-            {% if event.ref %}
-            <a href="/runs/{{ analysis_id }}/artifact/{{ event.ref }}">{{ event.ref }}</a>
-            {% else %}-{% endif %}
-          </td>
-          <td>{{ event.size or "-" }}</td>
-          <td>{{ event.prompt_chars or "-" }}</td>
-          <td>{{ event.payload_chars or "-" }}</td>
-          <td>{{ event.error_type or "-" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-      <p>No LLM events recorded.</p>
-    {% endif %}
-  </div>
-
-  <div class="section">
-    <h2>API + Tool Events</h2>
-    {% if api_events %}
-    <table>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Event</th>
-          <th>Method</th>
-          <th>Path/Tool</th>
-          <th>Status</th>
-          <th>Ref</th>
-          <th>Extra</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for event in api_events %}
-        <tr>
-          <td>{{ event.ts or "-" }}</td>
-          <td>{{ event.event_type }}</td>
-          <td>{{ event.method or "-" }}</td>
-          <td>{{ event.path or "-" }}</td>
-          <td>{{ event.status or "-" }}</td>
-          <td>
-            {% if event.ref %}
-            <a href="/runs/{{ analysis_id }}/artifact/{{ event.ref }}">{{ event.ref }}</a>
-            {% else %}-{% endif %}
-          </td>
-          <td>{% if event.extra %}<pre>{{ event.extra }}</pre>{% else %}-{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-      <p>No API/tool events recorded.</p>
-    {% endif %}
-  </div>
   <script>
-    const toggle = document.getElementById('toggle-all-events');
-    const liveToggle = document.getElementById('toggle-live');
-    const liveStatus = document.getElementById('live-status');
-    const flowTable = document.getElementById('flow-table');
-    const flowBody = flowTable ? flowTable.querySelector('tbody') : null;
-    const stageTable = document.getElementById('stage-table');
-    const stageBody = stageTable ? stageTable.querySelector('tbody') : null;
-    const rows = Array.from(document.querySelectorAll('#flow-table tbody tr'));
+    // Configuration
     const analysisId = "{{ analysis_id }}";
     const runId = "{{ run_id or '' }}";
+    const MAX_RECONNECT_DELAY = 30000;
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    const POLL_INTERVAL = 5000;
+
+    // State
     let eventSource = null;
+    let reconnectAttempts = 0;
+    let pollInterval = null;
+    let isPolling = false;
+
+    // DOM Elements
+    const statusEl = document.getElementById('connection-status');
+    const statusLabel = statusEl.querySelector('.label');
+    const toggleLive = document.getElementById('toggle-live');
+    const toggleAllEvents = document.getElementById('toggle-all-events');
+    const stageBody = document.getElementById('stage-body');
+    const flowBody = document.getElementById('flow-body');
+    const flowRows = flowBody ? Array.from(flowBody.querySelectorAll('tr')) : [];
+    const progressFill = document.getElementById('overallProgress');
+    const progressText = document.getElementById('progressText');
+
+    // Stage state
     const stageRows = new Map();
     const stageState = new Map();
 
+    // Initialize stage tracking
     if (stageBody) {
-      stageBody.querySelectorAll('tr[data-stage]').forEach((tr) => {
-        const stageName = tr.dataset.stage;
-        if (stageName) {
-          stageRows.set(stageName, tr);
+      stageBody.querySelectorAll('tr[data-stage]').forEach(tr => {
+        const name = tr.dataset.stage;
+        if (name) {
+          stageRows.set(name, tr);
           const cells = tr.querySelectorAll('td');
           if (cells.length >= 5) {
-            const startTs = (cells[1].textContent || '').trim();
-            const endTs = (cells[2].textContent || '').trim();
-            const status = (cells[3].textContent || '').trim();
-            stageState.set(stageName, {
-              start_ts: startTs && startTs !== '-' ? startTs : null,
-              end_ts: endTs && endTs !== '-' ? endTs : null,
-              status: status && status !== '-' ? status : null,
+            stageState.set(name, {
+              start_ts: cells[1].textContent.trim() !== '—' ? cells[1].textContent.trim() : null,
+              end_ts: cells[2].textContent.trim() !== '—' ? cells[2].textContent.trim() : null,
+              status: null
             });
           }
         }
       });
     }
 
+    // Connection status
+    function setStatus(state, label) {
+      statusEl.className = 'connection-status ' + state;
+      statusLabel.textContent = label;
+    }
+
+    // Stage weights - LLM stages take much longer
+    const stageWeights = {
+      'static_preprocess': 1,
+      'graph_extraction': 2,
+      'sensitive_api_matching': 1,
+      'recon': 5,           // LLM - heavy
+      'seeding': 1,
+      'context_bundles': 1,
+      'tier1': 8,           // LLM - heaviest (multiple seeds)
+      'tier2': 5,           // LLM - heavy
+      'reporting': 3,       // LLM - moderate
+    };
+    const defaultWeight = 2;
+
+    // Update progress bar
+    function updateProgress() {
+      if (!progressFill || !progressText) return;
+
+      const stageCount = stageState.size;
+      if (stageCount === 0) {
+        progressFill.style.width = '0%';
+        progressFill.classList.remove('active');
+        progressText.textContent = 'Waiting for stages...';
+        return;
+      }
+
+      let completedWeight = 0;
+      let totalWeight = 0;
+      let running = 0;
+      let completed = 0;
+
+      for (const [name, state] of stageState) {
+        const weight = stageWeights[name] || defaultWeight;
+        totalWeight += weight;
+
+        if (state.status === 'ok' || state.status === 'completed' || state.status === 'error' || state.status === 'failed') {
+          completedWeight += weight;
+          completed++;
+        } else if (state.status === 'running') {
+          running++;
+        }
+      }
+
+      const pct = totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100) : 0;
+      progressFill.style.width = pct + '%';
+
+      if (running > 0) {
+        progressFill.classList.add('active');
+        progressText.textContent = `${completed} of ${stageCount} stages (${pct}%)`;
+      } else if (completed === stageCount) {
+        progressFill.classList.remove('active');
+        progressText.textContent = `All ${stageCount} stages complete`;
+      } else {
+        progressFill.classList.remove('active');
+        progressText.textContent = `${completed} of ${stageCount} stages (${pct}%)`;
+      }
+    }
+
+    // Parse timestamp
     function parseTs(ts) {
       if (!ts) return null;
       const ms = Date.parse(ts);
       return Number.isFinite(ms) ? ms : null;
     }
 
-    function formatDurationSec(startTs, endTs) {
+    // Format duration
+    function formatDuration(startTs, endTs) {
       const start = parseTs(startTs);
       const end = parseTs(endTs);
-      if (start === null || end === null) return '-';
-      const sec = (end - start) / 1000.0;
-      if (!Number.isFinite(sec) || sec < 0) return '-';
-      return sec.toFixed(1);
+      if (start === null || end === null) return '—';
+      const sec = (end - start) / 1000;
+      if (!Number.isFinite(sec) || sec < 0) return '—';
+      return sec.toFixed(1) + 's';
     }
 
+    // Get or create stage row
     function upsertStageRow(stageName) {
       if (!stageBody) return null;
       if (stageRows.has(stageName)) return stageRows.get(stageName);
+
       const tr = document.createElement('tr');
       tr.dataset.stage = stageName;
       tr.innerHTML = `
-        <td>${stageName}</td>
-        <td>-</td>
-        <td>-</td>
-        <td>-</td>
-        <td>-</td>
+        <td class="mono">${stageName}</td>
+        <td class="mono">—</td>
+        <td class="mono">—</td>
+        <td><span class="pill neutral">—</span></td>
+        <td class="mono">—</td>
       `;
       stageBody.appendChild(tr);
       stageRows.set(stageName, tr);
       return tr;
     }
 
+    // Update stage timeline
     function updateStageTimeline(event) {
       const eventType = event.event_type || '';
       if (!eventType.startsWith('stage.')) return;
+
       const stageName = event.stage;
       if (!stageName) return;
+
       const current = stageState.get(stageName) || { start_ts: null, end_ts: null, status: null };
+
+      const wasRunning = current.status === 'running';
+
       if (eventType === 'stage.start') {
         current.start_ts = event.ts || current.start_ts;
         current.end_ts = null;
@@ -394,38 +2700,43 @@
       } else {
         return;
       }
+
       stageState.set(stageName, current);
       const tr = upsertStageRow(stageName);
       if (!tr) return;
+
+      // Update progress bar on stage changes
+      updateProgress();
+
+      // Flash animation when stage completes
+      if (wasRunning && eventType === 'stage.end') {
+        tr.classList.add('stage-just-completed');
+        tr.addEventListener('animationend', () => tr.classList.remove('stage-just-completed'), { once: true });
+      }
+
       const cells = tr.querySelectorAll('td');
       if (cells.length < 5) return;
-      cells[1].textContent = current.start_ts || '-';
-      cells[2].textContent = current.end_ts || '-';
-      cells[3].textContent = current.status || '-';
-      cells[4].textContent = current.start_ts && current.end_ts
-        ? formatDurationSec(current.start_ts, current.end_ts)
-        : '-';
+
+      cells[1].textContent = current.start_ts ? current.start_ts.slice(0, 19) : '—';
+      cells[2].textContent = current.end_ts ? current.end_ts.slice(0, 19) : '—';
+
+      let pillClass = 'neutral';
+      let pillText = current.status || '—';
+      if (current.status === 'ok' || current.status === 'completed') {
+        pillClass = 'ok';
+        pillText = '✓ Complete';
+      } else if (current.status === 'running') {
+        pillClass = 'running';
+        pillText = '● Running';
+      } else if (current.status === 'error' || current.status === 'failed') {
+        pillClass = 'error';
+        pillText = '✕ Failed';
+      }
+      cells[3].innerHTML = `<span class="pill ${pillClass}">${pillText}</span>`;
+      cells[4].textContent = formatDuration(current.start_ts, current.end_ts);
     }
 
-    function applyFilter() {
-      const showAll = toggle && toggle.checked;
-      rows.forEach((row) => {
-        const kind = row.dataset.kind;
-        row.style.display = showAll || kind === 'stage' ? '' : 'none';
-      });
-    }
-
-    function setLiveStatus(active, label) {
-      if (!liveStatus) return;
-      liveStatus.textContent = label;
-      liveStatus.classList.remove('status-live', 'status-off');
-      liveStatus.classList.add(active ? 'status-live' : 'status-off');
-    }
-
-    function isStageEvent(eventType) {
-      return eventType.startsWith('stage.') || eventType === 'run.start' || eventType === 'run.end';
-    }
-
+    // Event level
     function eventLevel(event) {
       const status = event.status || event.status_code;
       if (event.error) return 'error';
@@ -434,124 +2745,2000 @@
       return 'info';
     }
 
+    // Event summary
     function eventSummary(event) {
-      const eventType = event.event_type || '-';
-      if (eventType === 'run.start') {
-        return `run.start mode=${event.mode || '-'}`;
+      const type = event.event_type || '-';
+      if (type === 'run.start') return `run.start mode=${event.mode || '-'}`;
+      if (type === 'run.end') return `run.end status=${event.status || '-'}`;
+      if (type.startsWith('stage.')) {
+        const s = event.status ? ` status=${event.status}` : '';
+        return `${event.stage || '-'}${s}`;
       }
-      if (eventType === 'run.end') {
-        return `run.end status=${event.status || '-'}`;
-      }
-      if (eventType.startsWith('stage.')) {
-        const status = event.status ? ` status=${event.status}` : '';
-        return `${event.stage || '-'}${status}`;
-      }
-      if (eventType.startsWith('llm.')) {
+      if (type.startsWith('llm.')) {
         const step = event.llm_step || '-';
         const seed = event.seed_id || '-';
-        if (eventType === 'llm.fallback') {
-          return `llm.fallback step=${step} seed=${seed} reason=${event.error_type || '-'}`;
-        }
-        if (eventType === 'llm.parse_error') {
-          return `llm.parse_error step=${step} seed=${seed} type=${event.error_type || '-'}`;
-        }
-        return `${eventType} step=${step} seed=${seed}`;
+        return `${type} step=${step} seed=${seed}`;
       }
-      if (eventType.startsWith('api.')) {
-        return `${event.http_method || '-'} ${event.path || '-'}`;
-      }
-      if (eventType.startsWith('tool.')) {
-        return event.tool || eventType;
-      }
-      return eventType;
+      if (type.startsWith('api.')) return `${event.http_method || '-'} ${event.path || '-'}`;
+      if (type.startsWith('tool.')) return event.tool || type;
+      return type;
     }
 
+    // Build details JSON
     function buildDetails(event) {
-      const drop = new Set(['ts', 'event_type', 'analysis_id', 'run_id', 'stage', 'ref']);
+      const skip = new Set(['ts', 'event_type', 'analysis_id', 'run_id', 'stage', 'ref']);
       const extra = {};
-      Object.keys(event || {}).forEach((key) => {
-        if (!drop.has(key)) {
-          extra[key] = event[key];
-        }
-      });
-      const keys = Object.keys(extra);
-      if (!keys.length) return null;
+      for (const key of Object.keys(event || {})) {
+        if (!skip.has(key)) extra[key] = event[key];
+      }
+      if (!Object.keys(extra).length) return null;
       return JSON.stringify(extra, null, 2);
     }
 
+    // Add event row
     function addEventRow(event) {
       if (!flowBody) return;
-      const eventType = event.event_type || '-';
-      const isStage = isStageEvent(eventType);
+
+      const type = event.event_type || '-';
+      const isStage = type.startsWith('stage.') || type === 'run.start' || type === 'run.end';
       const level = eventLevel(event);
       const summary = eventSummary(event);
       const details = buildDetails(event);
+
       const tr = document.createElement('tr');
       tr.dataset.kind = isStage ? 'stage' : 'event';
-      tr.className = `level-${level}`;
-      const ref = event.ref ? `<a href="/runs/${analysisId}/artifact/${event.ref}">${event.ref}</a>` : '-';
+      tr.className = `level-${level} new-row`;
+
+      // Remove animation class after it completes
+      tr.addEventListener('animationend', () => tr.classList.remove('new-row'), { once: true });
+
+      const ref = event.ref
+        ? `<a href="/runs/${analysisId}/artifact/${event.ref}">${event.ref.slice(0, 30)}</a>`
+        : '—';
       const detailCell = details
-        ? `<details><summary>Details</summary><pre>${details}</pre></details>`
-        : '-';
+        ? `<details><summary>View</summary><pre>${details}</pre></details>`
+        : '—';
+
       tr.innerHTML = `
-        <td>${event.ts || '-'}</td>
-        <td>${eventType}</td>
-        <td>${event.stage || '-'}</td>
+        <td class="mono">${event.ts ? event.ts.slice(0, 19) : '—'}</td>
+        <td class="mono">${type}</td>
+        <td>${event.stage || '—'}</td>
         <td>${summary}</td>
         <td>${ref}</td>
         <td>${detailCell}</td>
       `;
+
       flowBody.appendChild(tr);
-      rows.push(tr);
-      applyFilter();
+      flowRows.push(tr);
+      applyEventFilter();
     }
 
+    // Filter events
+    function applyEventFilter() {
+      const showAll = toggleAllEvents && toggleAllEvents.checked;
+      flowRows.forEach(row => {
+        const kind = row.dataset.kind;
+        row.style.display = showAll || kind === 'stage' ? '' : 'none';
+      });
+    }
+
+    // Connect SSE
     function connectStream() {
-      if (!flowBody) return;
       if (eventSource) {
         eventSource.close();
       }
+
       const params = new URLSearchParams();
-      if (runId) {
-        params.set('run_id', runId);
-      }
+      if (runId) params.set('run_id', runId);
       params.set('from_start', 'false');
+
+      setStatus('connecting', 'Connecting');
       eventSource = new EventSource(`/api/runs/stream/${analysisId}?${params.toString()}`);
-      setLiveStatus(true, 'Connecting');
+
       eventSource.onopen = () => {
-        setLiveStatus(true, 'Connected');
+        setStatus('connected', 'Connected');
+        reconnectAttempts = 0;
+        stopPolling();
       };
-      eventSource.onmessage = (message) => {
+
+      eventSource.addEventListener('ledger', (e) => {
         try {
-          const event = JSON.parse(message.data);
+          const event = JSON.parse(e.data);
           updateStageTimeline(event);
           addEventRow(event);
         } catch (err) {
-          console.warn('Failed to parse event', err);
+          console.warn('Failed to parse event:', err);
         }
-      };
+      });
+
+      // Handle backend error events (e.g., file not found timeout)
+      eventSource.addEventListener('error', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          console.error('Stream error:', data.error);
+          setStatus('disconnected', data.error || 'Stream error');
+          eventSource.close();
+        } catch (err) {
+          // Not a JSON error event, likely connection error
+        }
+      });
+
       eventSource.onerror = () => {
-        setLiveStatus(false, 'Disconnected');
+        eventSource.close();
+
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          setStatus('polling', 'Polling');
+          startPolling();
+          return;
+        }
+
+        setStatus('reconnecting', 'Reconnecting');
+        reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), MAX_RECONNECT_DELAY);
+        setTimeout(connectStream, delay);
       };
     }
 
-    if (toggle) {
-      toggle.addEventListener('change', applyFilter);
+    // Polling fallback
+    function startPolling() {
+      if (isPolling) return;
+      isPolling = true;
+
+      pollInterval = setInterval(async () => {
+        try {
+          const url = runId
+            ? `/api/runs/${analysisId}/${runId}`
+            : `/api/runs/${analysisId}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            // Could refresh data here
+            setStatus('polling', 'Polling');
+          }
+        } catch (err) {
+          setStatus('disconnected', 'Disconnected');
+        }
+      }, POLL_INTERVAL);
     }
-    if (liveToggle) {
-      liveToggle.addEventListener('change', () => {
-        if (liveToggle.checked) {
+
+    function stopPolling() {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+      isPolling = false;
+    }
+
+    // Toggle live updates
+    if (toggleLive) {
+      toggleLive.addEventListener('change', () => {
+        if (toggleLive.checked) {
+          reconnectAttempts = 0;
           connectStream();
-        } else if (eventSource) {
-          eventSource.close();
-          setLiveStatus(false, 'Paused');
+        } else {
+          if (eventSource) eventSource.close();
+          stopPolling();
+          setStatus('disconnected', 'Paused');
         }
       });
     }
-    applyFilter();
-    if (liveToggle && liveToggle.checked) {
+
+    // Toggle all events filter
+    if (toggleAllEvents) {
+      toggleAllEvents.addEventListener('change', applyEventFilter);
+    }
+
+    // Initialize
+    applyEventFilter();
+    updateProgress();
+    if (toggleLive && toggleLive.checked) {
       connectStream();
     }
+
+    // ============================================================
+    // Smart Artifact Modal Viewer
+    // ============================================================
+
+    // Modal state
+    let currentJsonData = null;
+    let currentArtifactUrl = null;
+    let currentView = 'formatted';
+
+    // Modal DOM elements
+    const modalOverlay = document.getElementById('artifactModal');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalBody = document.getElementById('modalBody');
+    const modalTabs = document.getElementById('modalTabs');
+    const copyBtn = document.getElementById('copyJsonBtn');
+    const closeBtn = document.getElementById('closeModalBtn');
+
+    // Copy report summary to clipboard
+    function copyReportSummary() {
+      const reportSummary = document.querySelector('.report-summary');
+      const reportVerdict = document.querySelector('.report-verdict');
+      if (!reportSummary) return;
+
+      const verdict = reportVerdict ? reportVerdict.textContent.trim() : 'Unknown';
+      const summary = reportSummary.textContent.trim();
+      const text = `Threat Assessment: ${verdict}\n\n${summary}`;
+
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('copyReportBtn');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = `
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+          </svg>
+          Copied!
+        `;
+        setTimeout(() => { btn.innerHTML = originalHTML; }, 2000);
+      });
+    }
+
+    // Escape HTML for safe display
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // ============================================================
+    // Threat Report Helper Functions
+    // ============================================================
+
+    // Create a collapsible accordion section
+    function createReportSection(title, content, startExpanded = false, count = null) {
+      const countHtml = count !== null ? `<span class="section-count">(${count})</span>` : '';
+      return `
+        <div class="report-section">
+          <div class="report-section-header ${startExpanded ? 'expanded' : ''}"
+               onclick="this.classList.toggle('expanded'); this.nextElementSibling.classList.toggle('visible')">
+            <span class="section-chevron">▶</span>
+            <span class="section-title">${escapeHtml(title)}</span>
+            ${countHtml}
+          </div>
+          <div class="report-section-content ${startExpanded ? 'visible' : ''}">
+            ${content}
+          </div>
+        </div>
+      `;
+    }
+
+    // Get the worst verdict from a list (for grouping cases)
+    function getWorstVerdict(verdicts) {
+      const priority = {
+        'likely_malicious': 0,
+        'malicious': 0,
+        'suspicious': 1,
+        'benign': 2,
+        'unknown': 3
+      };
+      let worst = 'unknown';
+      let worstPriority = 999;
+      for (const v of verdicts) {
+        const p = priority[v?.toLowerCase()] ?? 999;
+        if (p < worstPriority) {
+          worstPriority = p;
+          worst = v?.toLowerCase() || 'unknown';
+        }
+      }
+      return worst;
+    }
+
+    // Render individual seed detail card
+    function renderSeedDetail(seed) {
+      const verdict = (seed.tier2?.intent_verdict || 'unknown').toLowerCase();
+      return `
+        <div class="seed-detail">
+          <div class="seed-header">
+            <code class="seed-id-badge">${escapeHtml(seed.seed_id || 'Unknown')}</code>
+            <span class="verdict-mini ${verdict}">${escapeHtml(verdict)}</span>
+          </div>
+          ${seed.tier1?.function_summary ? `
+            <div class="seed-summary">${escapeHtml(seed.tier1.function_summary)}</div>
+          ` : ''}
+          ${seed.tier2?.attack_chain_summary ? `
+            <div class="attack-chain">${escapeHtml(seed.tier2.attack_chain_summary)}</div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    // Render cases grouped by case_id
+    function renderCaseGroups(seeds) {
+      if (!seeds?.length) return '<p style="color: var(--gray-500);">No cases analyzed.</p>';
+
+      // Group seeds by case_id
+      const groups = {};
+      seeds.forEach(seed => {
+        const caseId = seed.case_id || 'Ungrouped';
+        if (!groups[caseId]) groups[caseId] = [];
+        groups[caseId].push(seed);
+      });
+
+      let html = '<div class="case-groups">';
+      for (const [caseId, caseSeeds] of Object.entries(groups)) {
+        // Get worst verdict in group
+        const verdicts = caseSeeds.map(s => s.tier2?.intent_verdict || 'unknown');
+        const worstVerdict = getWorstVerdict(verdicts);
+        const category = caseSeeds[0].category_id || caseSeeds[0].category || 'Unknown';
+
+        html += `
+          <div class="case-card">
+            <div class="case-header" onclick="this.classList.toggle('expanded'); this.nextElementSibling.classList.toggle('visible')">
+              <span class="case-chevron">▶</span>
+              <span class="case-id">${escapeHtml(caseId)}</span>
+              <span class="case-category">${escapeHtml(category)}</span>
+              <span class="verdict-badge ${worstVerdict}">${escapeHtml(worstVerdict.toUpperCase())}</span>
+              <span class="seed-count">${caseSeeds.length} seed${caseSeeds.length > 1 ? 's' : ''}</span>
+            </div>
+            <div class="case-details">
+              ${caseSeeds.map(seed => renderSeedDetail(seed)).join('')}
+            </div>
+          </div>
+        `;
+      }
+      html += '</div>';
+      return html;
+    }
+
+    // Render execution guidance section
+    function renderExecutionGuidance(guidance) {
+      if (!guidance?.length) return '<p style="color: var(--gray-500);">No execution guidance available.</p>';
+
+      return guidance.map(plan => `
+        <div class="execution-plan">
+          <div class="plan-header">
+            <span class="plan-case">${escapeHtml(plan.case_id || 'Unknown')}</span>
+            <span class="plan-target">${escapeHtml(plan.target_capability || '')}</span>
+          </div>
+
+          ${plan.prerequisites?.length ? `
+            <div class="plan-section">
+              <h5>Prerequisites</h5>
+              <ul class="prereq-list">
+                ${plan.prerequisites.map(p => `
+                  <li><code>${escapeHtml(p.check || '')}</code></li>
+                `).join('')}
+              </ul>
+            </div>
+          ` : ''}
+
+          ${plan.steps?.length ? `
+            <div class="plan-section">
+              <h5>Execution Steps</h5>
+              <ul class="steps-list">
+                ${plan.steps.map(step => `
+                  <li class="step-item">
+                    <div class="step-name">${escapeHtml(step.name || 'Step')}</div>
+                    <code class="step-command">${escapeHtml(step.command || '')}</code>
+                  </li>
+                `).join('')}
+              </ul>
+            </div>
+          ` : ''}
+
+          ${plan.success_criteria?.length ? `
+            <div class="plan-section">
+              <h5>Success Criteria</h5>
+              <ul class="criteria-list">
+                ${plan.success_criteria.map(c => `
+                  <li>${escapeHtml(c.description || c.check || '')}</li>
+                `).join('')}
+              </ul>
+            </div>
+          ` : ''}
+
+          ${plan.cleanup?.length ? `
+            <div class="plan-section">
+              <h5>Cleanup</h5>
+              <ul class="criteria-list">
+                ${plan.cleanup.map(cmd => `
+                  <li><code>${escapeHtml(cmd)}</code></li>
+                `).join('')}
+              </ul>
+            </div>
+          ` : ''}
+        </div>
+      `).join('');
+    }
+
+    // Render evidence support index
+    function renderEvidenceIndex(evidenceIndex) {
+      if (!evidenceIndex || Object.keys(evidenceIndex).length === 0) {
+        return '<p style="color: var(--gray-500);">No evidence index available.</p>';
+      }
+
+      let html = `
+        <table class="evidence-index-table">
+          <thead>
+            <tr>
+              <th>Evidence ID</th>
+              <th>Support Units</th>
+              <th>Artifact</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      for (const [evidenceId, entry] of Object.entries(evidenceIndex)) {
+        const units = entry.support_unit_ids?.join(', ') || '-';
+        const artifact = entry.artifact || '-';
+        html += `
+          <tr>
+            <td><code>${escapeHtml(evidenceId)}</code></td>
+            <td>${escapeHtml(units)}</td>
+            <td>${artifact !== '-' ? `<a href="#" class="artifact-link">${escapeHtml(artifact.split('/').pop())}</a>` : '-'}</td>
+          </tr>
+        `;
+      }
+
+      html += '</tbody></table>';
+      return html;
+    }
+
+    // ============================================================
+    // Artifact Type Detection
+    // ============================================================
+
+    function detectArtifactType(data, filename) {
+      if (!data || typeof data !== 'object') return 'unknown';
+
+      // Threat Report
+      if (data.verdict && data.seed_summaries) {
+        return 'threat_report';
+      }
+
+      // Tier 2 Output (Intent Analysis)
+      if (data.tier2 && (data.tier2.intent_verdict || data.tier2.attack_chain_summary)) {
+        return 'tier2_output';
+      }
+      if (data.intent_verdict || data.attack_chain_summary) {
+        return 'tier2_output';
+      }
+
+      // Tier 1 Output (Code Analysis)
+      if (data.tier1 && (data.tier1.function_summary || data.tier1.facts)) {
+        return 'tier1_output';
+      }
+
+      // LLM Recon Input
+      if (data.prompt && data.payload && data.payload.manifest_summary) {
+        return 'llm_recon_input';
+      }
+
+      // Suspicious API Index (callsites)
+      if (data.callsites && Array.isArray(data.callsites)) {
+        return 'suspicious_api_index';
+      }
+
+      // Sensitive API hits
+      if (data.summary && data.summary.by_category && data.catalog_version) {
+        return 'sensitive_api_hits';
+      }
+
+      // Manifest
+      if (data.package_name && data.permissions && Array.isArray(data.permissions)) {
+        return 'manifest';
+      }
+
+      // Context bundle
+      if (data.sliced_cfg && data.fcg_neighborhood) {
+        return 'context_bundle';
+      }
+
+      // Slice with graph
+      if (data.slice && data.slice.units && data.slice.edges) {
+        return 'slice';
+      }
+
+      // Callgraph summary
+      if (data.node_count !== undefined && data.edge_count !== undefined && data.entrypoints) {
+        return 'callgraph_summary';
+      }
+
+      // Standard CFG/graph
+      if (Array.isArray(data.nodes) && Array.isArray(data.edges)) {
+        return 'graph';
+      }
+
+      // Entrypoint paths (array format)
+      if (Array.isArray(data) && data.length > 0 && data[0].path_methods) {
+        return 'entrypoint_paths';
+      }
+
+      return 'generic';
+    }
+
+    // ============================================================
+    // Artifact Renderers
+    // ============================================================
+
+    // Render sensitive API hits
+    function renderSensitiveApiHits(data, container) {
+      const summary = data.summary || {};
+      const categories = summary.by_category || {};
+      const apk = data.apk || {};
+
+      const sortedCategories = Object.entries(categories)
+        .sort((a, b) => (b[1].count || 0) - (a[1].count || 0));
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Sensitive API Analysis</div>
+            <div class="artifact-subtitle">${escapeHtml(apk.package_name || 'Unknown package')}</div>
+          </div>
+          <div class="artifact-stats">
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${summary.total_hits || 0}</div>
+              <div class="artifact-stat-label">Total Hits</div>
+            </div>
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${Object.keys(categories).length}</div>
+              <div class="artifact-stat-label">Categories</div>
+            </div>
+          </div>
+        </div>
+
+        <table class="category-table">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Count</th>
+              <th>Priority</th>
+              <th>Weight</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      for (const [name, info] of sortedCategories) {
+        const priority = (info.priority || 'unknown').toLowerCase();
+        html += `
+          <tr>
+            <td><span class="category-name">${escapeHtml(name)}</span></td>
+            <td>${info.count || 0}</td>
+            <td><span class="priority-badge ${priority}">${escapeHtml(info.priority || 'Unknown')}</span></td>
+            <td>${(info.weight || 0).toFixed(2)}</td>
+          </tr>
+        `;
+      }
+
+      html += `
+          </tbody>
+        </table>
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+    }
+
+    // Render slice with interactive Cytoscape graph
+    function renderSlice(data, container, artifactUrl) {
+      const seedId = data.seed_id || 'Unknown';
+      const apiSig = data.api_signature || (data.api_signatures || [])[0] || 'Unknown';
+      const caller = data.caller_method || 'Unknown';
+      const units = data.slice?.units || [];
+      const edges = data.slice?.edges || [];
+
+      const canvasId = 'cfgCanvas_' + Date.now();
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Program Slice</div>
+            <div class="artifact-subtitle">${escapeHtml(seedId)}</div>
+          </div>
+          <div class="artifact-stats">
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${units.length}</div>
+              <div class="artifact-stat-label">Statements</div>
+            </div>
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${edges.length}</div>
+              <div class="artifact-stat-label">Edges</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="method-label">API Signature</div>
+        <div class="method-signature">${escapeHtml(apiSig)}</div>
+
+        <div class="method-label">Caller Method</div>
+        <div class="method-signature">${escapeHtml(caller)}</div>
+
+        <div class="method-label">Slice Graph</div>
+        <div class="cfg-legend">
+          <div class="cfg-legend-item"><div class="cfg-legend-dot" style="background:#34c759"></div> Entry</div>
+          <div class="cfg-legend-item"><div class="cfg-legend-dot" style="background:#ff3b30"></div> Seed</div>
+          <div class="cfg-legend-item"><div class="cfg-legend-dot" style="background:#007aff"></div> Statement</div>
+        </div>
+        <div class="cfg-canvas" id="${canvasId}">
+          <div class="cfg-controls">
+            <button class="cfg-control-btn" data-action="zoomIn" title="Zoom In">+</button>
+            <button class="cfg-control-btn" data-action="zoomOut" title="Zoom Out">−</button>
+            <button class="cfg-control-btn" data-action="fit" title="Fit to View">⊡</button>
+          </div>
+        </div>
+
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+
+      // Initialize Cytoscape graph
+      setTimeout(() => {
+        initCytoscapeGraph(canvasId, units, edges, container);
+      }, 100);
+    }
+
+    // Initialize Cytoscape.js graph
+    function initCytoscapeGraph(canvasId, units, edges, container) {
+      const canvasEl = document.getElementById(canvasId);
+      if (!canvasEl || typeof cytoscape === 'undefined') {
+        canvasEl.innerHTML = '<div class="graph-error">Graph library not loaded</div>';
+        return;
+      }
+
+      // Build nodes
+      const nodes = units.map(u => ({
+        data: {
+          id: u.unit_id,
+          label: truncateLabel(u.stmt, 45)
+        },
+        classes: u.tags?.includes('SEED') ? 'seed' : (u.unit_id === 'u0' ? 'entry' : '')
+      }));
+
+      // Build edges
+      const cyEdges = edges.map((e, i) => ({
+        data: {
+          id: 'e' + i,
+          source: e.from,
+          target: e.to
+        }
+      }));
+
+      // Register dagre layout
+      if (typeof cytoscapeDagre !== 'undefined') {
+        cytoscape.use(cytoscapeDagre);
+      }
+
+      const cy = cytoscape({
+        container: canvasEl,
+        elements: [...nodes, ...cyEdges],
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'label': 'data(label)',
+              'text-valign': 'center',
+              'text-halign': 'center',
+              'background-color': '#007aff',
+              'color': '#fff',
+              'font-size': '9px',
+              'font-family': 'SF Mono, monospace',
+              'text-wrap': 'ellipsis',
+              'text-max-width': '130px',
+              'width': '150px',
+              'height': '36px',
+              'shape': 'roundrectangle',
+              'border-width': 2,
+              'border-color': '#005ecb',
+              'text-outline-width': 0
+            }
+          },
+          {
+            selector: 'node.entry',
+            style: {
+              'background-color': '#34c759',
+              'border-color': '#28a745'
+            }
+          },
+          {
+            selector: 'node.seed',
+            style: {
+              'background-color': '#ff3b30',
+              'border-color': '#dc3545'
+            }
+          },
+          {
+            selector: 'edge',
+            style: {
+              'width': 2,
+              'line-color': '#5ac8fa',
+              'target-arrow-color': '#5ac8fa',
+              'target-arrow-shape': 'triangle',
+              'curve-style': 'bezier',
+              'arrow-scale': 1.2
+            }
+          }
+        ],
+        layout: {
+          name: 'dagre',
+          rankDir: 'TB',
+          nodeSep: 50,
+          rankSep: 60,
+          animate: false
+        },
+        minZoom: 0.1,
+        maxZoom: 3,
+        wheelSensitivity: 0.3
+      });
+
+      // Zoom controls
+      container.querySelectorAll('.cfg-control-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const action = btn.dataset.action;
+          if (action === 'zoomIn') cy.zoom(cy.zoom() * 1.3);
+          else if (action === 'zoomOut') cy.zoom(cy.zoom() / 1.3);
+          else if (action === 'fit') cy.fit(40);
+        });
+      });
+
+      // Fit after layout
+      cy.on('layoutstop', () => cy.fit(40));
+    }
+
+    // Truncate label for graph nodes
+    function truncateLabel(text, max) {
+      if (!text) return '';
+      text = text.replace(/\s+/g, ' ').trim();
+      return text.length > max ? text.slice(0, max) + '…' : text;
+    }
+
+    // Render callgraph summary
+    function renderCallgraphSummary(data, container) {
+      const entrypoints = data.entrypoints || [];
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Callgraph Summary</div>
+            <div class="artifact-subtitle">Static analysis graph overview</div>
+          </div>
+          <div class="artifact-stats">
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${(data.node_count || 0).toLocaleString()}</div>
+              <div class="artifact-stat-label">Nodes</div>
+            </div>
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${(data.edge_count || 0).toLocaleString()}</div>
+              <div class="artifact-stat-label">Edges</div>
+            </div>
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${data.entrypoint_count || entrypoints.length}</div>
+              <div class="artifact-stat-label">Entrypoints</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="method-label">Sample Entrypoints (first 10)</div>
+        <div class="raw-json-container" style="max-height: 250px;">
+      `;
+
+      for (const ep of entrypoints.slice(0, 10)) {
+        html += escapeHtml(ep) + '\n';
+      }
+      if (entrypoints.length > 10) {
+        html += `\n... and ${entrypoints.length - 10} more`;
+      }
+
+      html += `
+        </div>
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+    }
+
+    // Render generic graph with Cytoscape or stats for large graphs
+    function renderGraph(data, container, artifactUrl) {
+      const nodes = data.nodes || [];
+      const edges = data.edges || [];
+      const canvasId = 'cfgCanvas_' + Date.now();
+
+      // For very large graphs, show stats instead of trying to render
+      if (nodes.length > 500) {
+        renderLargeGraphStats(data, container, nodes, edges);
+        return;
+      }
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Control Flow Graph</div>
+            <div class="artifact-subtitle">Method-level control flow</div>
+          </div>
+          <div class="artifact-stats">
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${nodes.length}</div>
+              <div class="artifact-stat-label">Nodes</div>
+            </div>
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${edges.length}</div>
+              <div class="artifact-stat-label">Edges</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="method-label">Graph Visualization</div>
+        <div class="cfg-legend">
+          <div class="cfg-legend-item"><div class="cfg-legend-dot" style="background:#34c759"></div> Entry</div>
+          <div class="cfg-legend-item"><div class="cfg-legend-dot" style="background:#ff3b30"></div> Exit</div>
+          <div class="cfg-legend-item"><div class="cfg-legend-dot" style="background:#007aff"></div> Node</div>
+        </div>
+        <div class="cfg-canvas" id="${canvasId}">
+          <div class="cfg-controls">
+            <button class="cfg-control-btn" data-action="zoomIn" title="Zoom In">+</button>
+            <button class="cfg-control-btn" data-action="zoomOut" title="Zoom Out">−</button>
+            <button class="cfg-control-btn" data-action="fit" title="Fit to View">⊡</button>
+          </div>
+        </div>
+
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+
+      // Initialize Cytoscape graph
+      setTimeout(() => {
+        initGenericCytoscapeGraph(canvasId, nodes, edges, container);
+      }, 100);
+    }
+
+    // Render large graph as statistics dashboard
+    function renderLargeGraphStats(data, container, nodes, edges) {
+      // Compute graph statistics
+      const nodeCount = nodes.length;
+      const edgeCount = edges.length;
+      const avgDegree = nodeCount > 0 ? (edgeCount * 2 / nodeCount).toFixed(2) : 0;
+
+      // Detect node ID field (method for callgraph, id/node_id for CFG)
+      const getNodeId = (n) => n.method || n.id || n.node_id || '';
+      const getNodeLabel = (n) => n.method || n.label || n.stmt || n.id || '';
+
+      // Detect edge source/target fields
+      const getEdgeSrc = (e) => e.caller || e.from || e.source || '';
+      const getEdgeTgt = (e) => e.callee || e.to || e.target || '';
+
+      // Count node types if available
+      const nodeTypes = {};
+      nodes.forEach(n => {
+        const type = n.type || (n.is_android_framework ? 'framework' : 'app');
+        nodeTypes[type] = (nodeTypes[type] || 0) + 1;
+      });
+
+      // Find high-degree nodes (hubs)
+      const inDegree = {};
+      const outDegree = {};
+      edges.forEach(e => {
+        const src = getEdgeSrc(e);
+        const tgt = getEdgeTgt(e);
+        if (src) outDegree[src] = (outDegree[src] || 0) + 1;
+        if (tgt) inDegree[tgt] = (inDegree[tgt] || 0) + 1;
+      });
+
+      // Top 10 nodes by out-degree
+      const topOutDegree = Object.entries(outDegree)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
+
+      // Top 10 nodes by in-degree
+      const topInDegree = Object.entries(inDegree)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
+
+      // Sample nodes
+      const sampleNodes = nodes.slice(0, 20);
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Graph Analysis</div>
+            <div class="artifact-subtitle">Large graph - showing statistics</div>
+          </div>
+        </div>
+
+        <div class="summary-cards">
+          <div class="summary-card">
+            <div class="summary-card-title">Nodes</div>
+            <div class="summary-card-value">${nodeCount.toLocaleString()}</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card-title">Edges</div>
+            <div class="summary-card-value">${edgeCount.toLocaleString()}</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card-title">Avg Degree</div>
+            <div class="summary-card-value">${avgDegree}</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card-title">Density</div>
+            <div class="summary-card-value">${nodeCount > 1 ? ((edgeCount / (nodeCount * (nodeCount - 1))) * 100).toFixed(4) : 0}%</div>
+          </div>
+        </div>
+      `;
+
+      // Node type breakdown
+      if (Object.keys(nodeTypes).length > 1) {
+        html += `
+          <div class="dashboard-section">
+            <div class="dashboard-section-title">Node Types</div>
+            <div class="permission-list">
+              ${Object.entries(nodeTypes).map(([type, count]) =>
+                `<span class="permission-badge normal">${escapeHtml(type)}: ${count.toLocaleString()}</span>`
+              ).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      // Top hubs
+      html += `
+        <div class="dashboard-section">
+          <div class="dashboard-section-title">Top Callers (by out-degree)</div>
+          <div class="raw-json-container" style="max-height: 200px;">
+      `;
+      for (const [nodeId, degree] of topOutDegree) {
+        const node = nodes.find(n => getNodeId(n) === nodeId);
+        const label = node ? getNodeLabel(node) : nodeId;
+        html += `${degree.toString().padStart(4)} calls → ${escapeHtml(truncateLabel(label, 80))}\n`;
+      }
+      html += `</div></div>`;
+
+      html += `
+        <div class="dashboard-section">
+          <div class="dashboard-section-title">Top Callees (by in-degree)</div>
+          <div class="raw-json-container" style="max-height: 200px;">
+      `;
+      for (const [nodeId, degree] of topInDegree) {
+        const node = nodes.find(n => getNodeId(n) === nodeId);
+        const label = node ? getNodeLabel(node) : nodeId;
+        html += `${degree.toString().padStart(4)} refs  ← ${escapeHtml(truncateLabel(label, 80))}\n`;
+      }
+      html += `</div></div>`;
+
+      // Build sampled graph for visualization (top connected nodes)
+      const sampleCanvasId = 'sampleGraph_' + Date.now();
+      const sampleSize = Math.min(50, nodeCount);
+
+      // Get top nodes by total degree
+      const totalDegree = {};
+      Object.entries(inDegree).forEach(([id, deg]) => {
+        totalDegree[id] = (totalDegree[id] || 0) + deg;
+      });
+      Object.entries(outDegree).forEach(([id, deg]) => {
+        totalDegree[id] = (totalDegree[id] || 0) + deg;
+      });
+
+      const topNodes = Object.entries(totalDegree)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, sampleSize)
+        .map(([id]) => id);
+
+      const topNodeSet = new Set(topNodes);
+      const sampleEdges = edges.filter(e => {
+        const src = getEdgeSrc(e);
+        const tgt = getEdgeTgt(e);
+        return topNodeSet.has(src) && topNodeSet.has(tgt);
+      }).slice(0, 150);
+
+      html += `
+        <div class="dashboard-section">
+          <div class="dashboard-section-title">Graph Preview (Top ${sampleSize} connected nodes)</div>
+          <div class="cfg-legend">
+            <div class="cfg-legend-item"><div class="cfg-legend-dot" style="background:#007aff"></div> Node</div>
+            <div class="cfg-legend-item"><div class="cfg-legend-dot" style="background:#ff9500"></div> Hub (high degree)</div>
+          </div>
+          <div class="cfg-canvas" id="${sampleCanvasId}" style="min-height: 350px;">
+            <div class="cfg-controls">
+              <button class="cfg-control-btn" data-action="zoomIn">+</button>
+              <button class="cfg-control-btn" data-action="zoomOut">−</button>
+              <button class="cfg-control-btn" data-action="fit">⊡</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      html += `
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+
+      // Initialize sample graph with Cytoscape
+      setTimeout(() => {
+        initSampleGraph(sampleCanvasId, topNodes, sampleEdges, nodes, totalDegree, container, getNodeId, getNodeLabel, getEdgeSrc, getEdgeTgt);
+      }, 100);
+    }
+
+    // Initialize sample graph for large graphs
+    function initSampleGraph(canvasId, nodeIds, edges, allNodes, degrees, container, getNodeId, getNodeLabel, getEdgeSrc, getEdgeTgt) {
+      const canvasEl = document.getElementById(canvasId);
+      if (!canvasEl || typeof cytoscape === 'undefined') return;
+
+      const maxDegree = Math.max(...Object.values(degrees), 1);
+
+      // Sanitize ID for Cytoscape (remove special chars)
+      const sanitizeId = (id) => id.replace(/[<>:(),\[\]\s]/g, '_').slice(0, 100);
+
+      const cyNodes = nodeIds.map(id => {
+        const node = allNodes.find(n => getNodeId(n) === id);
+        const label = node ? getNodeLabel(node) : id;
+        const degree = degrees[id] || 0;
+        const isHub = degree > maxDegree * 0.3;
+        return {
+          data: { id: sanitizeId(id), label: truncateLabel(label, 30), degree },
+          classes: isHub ? 'hub' : ''
+        };
+      });
+
+      const cyEdges = edges.map((e, i) => ({
+        data: {
+          id: 'e' + i,
+          source: sanitizeId(getEdgeSrc(e)),
+          target: sanitizeId(getEdgeTgt(e))
+        }
+      }));
+
+      if (typeof cytoscapeDagre !== 'undefined') {
+        cytoscape.use(cytoscapeDagre);
+      }
+
+      const cy = cytoscape({
+        container: canvasEl,
+        elements: [...cyNodes, ...cyEdges],
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'label': '',  // Hide labels for cleaner look
+              'background-color': '#007aff',
+              'width': 'mapData(degree, 1, 100, 8, 24)',
+              'height': 'mapData(degree, 1, 100, 8, 24)',
+              'border-width': 1,
+              'border-color': '#005ecb'
+            }
+          },
+          {
+            selector: 'node.hub',
+            style: {
+              'background-color': '#ff9500',
+              'border-color': '#cc7600',
+              'width': 'mapData(degree, 1, 100, 12, 32)',
+              'height': 'mapData(degree, 1, 100, 12, 32)'
+            }
+          },
+          {
+            selector: 'edge',
+            style: {
+              'width': 0.5,
+              'line-color': 'rgba(90, 200, 250, 0.15)',
+              'curve-style': 'unbundled-bezier',
+              'control-point-distances': [40],
+              'control-point-weights': [0.5],
+              'target-arrow-shape': 'none'
+            }
+          },
+          {
+            selector: 'edge[?isHighDegree]',
+            style: {
+              'line-color': 'rgba(255, 149, 0, 0.3)',
+              'width': 1
+            }
+          }
+        ],
+        layout: {
+          name: 'circle',
+          animate: false,
+          avoidOverlap: true,
+          spacingFactor: 1.2,
+          startAngle: 0,
+          sweep: 2 * Math.PI,
+          clockwise: true,
+          sort: (a, b) => (b.data('degree') || 0) - (a.data('degree') || 0)
+        },
+        minZoom: 0.3,
+        maxZoom: 3,
+        wheelSensitivity: 0.3
+      });
+
+      // Add hover effect to show node details
+      cy.on('mouseover', 'node', function(e) {
+        const node = e.target;
+        node.style({
+          'background-color': '#34c759',
+          'border-color': '#28a745',
+          'width': 20,
+          'height': 20
+        });
+        // Highlight connected edges
+        node.connectedEdges().style({
+          'line-color': 'rgba(52, 199, 89, 0.6)',
+          'width': 1.5
+        });
+      });
+
+      cy.on('mouseout', 'node', function(e) {
+        const node = e.target;
+        const isHub = node.hasClass('hub');
+        const deg = node.data('degree') || 1;
+        const size = Math.min(8 + (deg / maxDegree) * 16, 24);
+        node.style({
+          'background-color': isHub ? '#ff9500' : '#007aff',
+          'border-color': isHub ? '#cc7600' : '#005ecb',
+          'width': size,
+          'height': size
+        });
+        node.connectedEdges().style({
+          'line-color': 'rgba(90, 200, 250, 0.15)',
+          'width': 0.5
+        });
+      });
+
+      // Show tooltip on click
+      cy.on('tap', 'node', function(e) {
+        const node = e.target;
+        const label = node.data('label') || 'Unknown';
+        const degree = node.data('degree') || 0;
+        alert(`Method: ${label}\nConnections: ${degree}`);
+      });
+
+      container.querySelectorAll('.cfg-control-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const action = btn.dataset.action;
+          if (action === 'zoomIn') cy.zoom(cy.zoom() * 1.3);
+          else if (action === 'zoomOut') cy.zoom(cy.zoom() / 1.3);
+          else if (action === 'fit') cy.fit(40);
+        });
+      });
+
+      cy.on('layoutstop', () => cy.fit(40));
+    }
+
+    // Initialize generic CFG graph
+    function initGenericCytoscapeGraph(canvasId, nodeData, edgeData, container) {
+      const canvasEl = document.getElementById(canvasId);
+      if (!canvasEl || typeof cytoscape === 'undefined') return;
+
+      const nodes = nodeData.map(n => ({
+        data: {
+          id: n.id || n.node_id,
+          label: truncateLabel(n.label || n.stmt || n.id, 45)
+        },
+        classes: n.type === 'entry' ? 'entry' : (n.type === 'exit' ? 'exit' : '')
+      }));
+
+      const edges = edgeData.map((e, i) => ({
+        data: {
+          id: 'e' + i,
+          source: e.from,
+          target: e.to
+        }
+      }));
+
+      if (typeof cytoscapeDagre !== 'undefined') {
+        cytoscape.use(cytoscapeDagre);
+      }
+
+      const cy = cytoscape({
+        container: canvasEl,
+        elements: [...nodes, ...edges],
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'label': 'data(label)',
+              'text-valign': 'center',
+              'text-halign': 'center',
+              'background-color': '#007aff',
+              'color': '#fff',
+              'font-size': '9px',
+              'font-family': 'SF Mono, monospace',
+              'text-wrap': 'ellipsis',
+              'text-max-width': '130px',
+              'width': '150px',
+              'height': '36px',
+              'shape': 'roundrectangle',
+              'border-width': 2,
+              'border-color': '#005ecb'
+            }
+          },
+          {
+            selector: 'node.entry',
+            style: { 'background-color': '#34c759', 'border-color': '#28a745' }
+          },
+          {
+            selector: 'node.exit',
+            style: { 'background-color': '#ff3b30', 'border-color': '#dc3545' }
+          },
+          {
+            selector: 'edge',
+            style: {
+              'width': 2,
+              'line-color': '#5ac8fa',
+              'target-arrow-color': '#5ac8fa',
+              'target-arrow-shape': 'triangle',
+              'curve-style': 'bezier'
+            }
+          }
+        ],
+        layout: { name: 'dagre', rankDir: 'TB', nodeSep: 50, rankSep: 60, animate: false },
+        minZoom: 0.1,
+        maxZoom: 3,
+        wheelSensitivity: 0.3
+      });
+
+      container.querySelectorAll('.cfg-control-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const action = btn.dataset.action;
+          if (action === 'zoomIn') cy.zoom(cy.zoom() * 1.3);
+          else if (action === 'zoomOut') cy.zoom(cy.zoom() / 1.3);
+          else if (action === 'fit') cy.fit(40);
+        });
+      });
+
+      cy.on('layoutstop', () => cy.fit(40));
+    }
+
+    // ============================================================
+    // New Dashboard Renderers
+    // ============================================================
+
+    // Render Threat Report
+    function renderThreatReport(data, container) {
+      const verdict = (data.verdict || 'unknown').toLowerCase();
+      const summary = data.executive_summary || data.summary || 'No summary available.';
+      const seeds = data.seed_summaries || [];
+      const executionGuidance = data.execution_guidance || [];
+      const evidenceIndex = data.evidence_support_index || {};
+
+      // Count unique cases
+      const uniqueCases = new Set(seeds.map(s => s.case_id || 'Ungrouped')).size;
+
+      let html = `
+        <div class="verdict-banner ${verdict}">
+          <div class="verdict-label">${escapeHtml(data.verdict || 'Unknown')}</div>
+          <div class="verdict-subtitle">Threat Assessment</div>
+        </div>
+      `;
+
+      // Executive Summary section (expanded by default)
+      html += createReportSection(
+        'Executive Summary',
+        `<div style="font-size: 14px; line-height: 1.6; color: var(--gray-700);">${escapeHtml(summary)}</div>`,
+        true
+      );
+
+      // Cases Analyzed section (expanded by default)
+      html += createReportSection(
+        'Cases Analyzed',
+        renderCaseGroups(seeds),
+        true,
+        uniqueCases
+      );
+
+      // Execution Guidance section (collapsed by default)
+      if (executionGuidance.length > 0) {
+        html += createReportSection(
+          'Execution Guidance',
+          renderExecutionGuidance(executionGuidance),
+          false,
+          executionGuidance.length
+        );
+      }
+
+      // Evidence Support Index section (collapsed by default)
+      if (Object.keys(evidenceIndex).length > 0) {
+        html += createReportSection(
+          'Evidence Support Index',
+          renderEvidenceIndex(evidenceIndex),
+          false,
+          Object.keys(evidenceIndex).length
+        );
+      }
+
+      // MITRE Candidates section (collapsed by default)
+      if (data.mitre_candidates?.length > 0) {
+        const mitreHtml = data.mitre_candidates.map(m => `
+          <div class="evidence-card">
+            <div style="font-weight: 600;">${escapeHtml(m.technique_id || m.id || 'Unknown')}</div>
+            <div style="font-size: 13px; color: var(--gray-600);">${escapeHtml(m.technique_name || m.name || '')}</div>
+            ${m.description ? `<div style="font-size: 12px; color: var(--gray-500); margin-top: 8px;">${escapeHtml(m.description)}</div>` : ''}
+          </div>
+        `).join('');
+        html += createReportSection(
+          'MITRE ATT&CK Candidates',
+          mitreHtml,
+          false,
+          data.mitre_candidates.length
+        );
+      }
+
+      // View toggle for raw JSON
+      html += `
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+    }
+
+    // Render Tier 2 Output (Intent Analysis)
+    function renderTier2Output(data, container) {
+      const tier2 = data.tier2 || data;
+      const verdict = (tier2.intent_verdict || 'unknown').toLowerCase();
+      const chain = tier2.attack_chain_summary || 'No attack chain analysis available.';
+      const evidence = tier2.evidence || [];
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Intent Analysis</div>
+            <div class="artifact-subtitle">${escapeHtml(data.seed_id || data.case_id || 'Unknown Seed')}</div>
+          </div>
+        </div>
+
+        <div class="verdict-banner ${verdict}">
+          <div class="verdict-label">${escapeHtml(tier2.intent_verdict || 'Unknown')}</div>
+          <div class="verdict-subtitle">Behavioral Verdict</div>
+        </div>
+
+        <div class="dashboard-section">
+          <div class="dashboard-section-title">Attack Chain Summary</div>
+          <div class="attack-chain">${escapeHtml(chain)}</div>
+        </div>
+      `;
+
+      if (evidence.length > 0) {
+        html += `
+          <div class="dashboard-section">
+            <div class="dashboard-section-title">Evidence (${evidence.length})</div>
+        `;
+        for (const ev of evidence) {
+          html += `
+            <div class="evidence-card">
+              <div class="evidence-claim">${escapeHtml(ev.claim || ev.description || 'No claim')}</div>
+              ${ev.seed_refs ? `<div class="evidence-refs">References: ${escapeHtml(ev.seed_refs.join(', '))}</div>` : ''}
+            </div>
+          `;
+        }
+        html += `</div>`;
+      }
+
+      html += `
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+    }
+
+    // Render Tier 1 Output (Code Analysis)
+    function renderTier1Output(data, container) {
+      const tier1 = data.tier1 || data;
+      const summary = tier1.function_summary || 'No function summary available.';
+      const facts = tier1.facts || [];
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Code Analysis</div>
+            <div class="artifact-subtitle">${escapeHtml(data.seed_id || 'Unknown Seed')}</div>
+          </div>
+        </div>
+
+        <div class="dashboard-section">
+          <div class="dashboard-section-title">Function Summary</div>
+          <div class="attack-chain">${escapeHtml(summary)}</div>
+        </div>
+      `;
+
+      if (facts.length > 0) {
+        html += `
+          <div class="dashboard-section">
+            <div class="dashboard-section-title">Extracted Facts (${facts.length})</div>
+            <ul class="facts-list">
+        `;
+        for (const fact of facts) {
+          const text = typeof fact === 'string' ? fact : (fact.text || fact.fact || JSON.stringify(fact));
+          const units = fact.support_units || fact.units || [];
+          html += `
+            <li class="fact-item">
+              <div class="fact-text">${escapeHtml(text)}</div>
+              ${units.length > 0 ? `<div class="fact-units">${units.map(u => `<span class="unit-badge">${escapeHtml(u)}</span>`).join('')}</div>` : ''}
+            </li>
+          `;
+        }
+        html += `</ul></div>`;
+      }
+
+      html += `
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+    }
+
+    // Render LLM Recon Input
+    function renderLlmReconInput(data, container) {
+      const payload = data.payload || {};
+      const manifest = payload.manifest_summary || {};
+      const hits = payload.sensitive_api_summary || {};
+      const prompt = data.prompt || '';
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Recon Agent Input</div>
+            <div class="artifact-subtitle">LLM context payload</div>
+          </div>
+        </div>
+
+        <div class="summary-cards">
+          <div class="summary-card">
+            <div class="summary-card-title">Package</div>
+            <div style="font-size: 14px; font-weight: 500; word-break: break-all;">${escapeHtml(manifest.package_name || 'Unknown')}</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card-title">Permissions</div>
+            <div class="summary-card-value">${manifest.permission_count || (manifest.permissions || []).length || 0}</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card-title">Components</div>
+            <div class="summary-card-value">${(manifest.activity_count || 0) + (manifest.service_count || 0) + (manifest.receiver_count || 0)}</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card-title">API Hits</div>
+            <div class="summary-card-value">${hits.total_hits || Object.values(hits.by_category || {}).reduce((a, b) => a + (b.count || 0), 0) || 0}</div>
+          </div>
+        </div>
+      `;
+
+      if (prompt) {
+        html += `
+          <div class="dashboard-section">
+            <div class="dashboard-section-title">Prompt Preview</div>
+            <div class="raw-json-container" style="max-height: 200px;">${escapeHtml(prompt.slice(0, 1000))}${prompt.length > 1000 ? '\n\n... (truncated)' : ''}</div>
+          </div>
+        `;
+      }
+
+      html += `
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+    }
+
+    // Render Suspicious API Index
+    function renderSuspiciousApiIndex(data, container) {
+      const callsites = data.callsites || [];
+      const apkId = data.apk_id || 'Unknown';
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Suspicious API Callsites</div>
+            <div class="artifact-subtitle">${escapeHtml(apkId)}</div>
+          </div>
+          <div class="artifact-stats">
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${callsites.length}</div>
+              <div class="artifact-stat-label">Callsites</div>
+            </div>
+          </div>
+        </div>
+
+        <table class="callsite-table">
+          <thead>
+            <tr>
+              <th>Seed ID</th>
+              <th>Category</th>
+              <th>Priority</th>
+              <th>Caller</th>
+              <th>Reachable</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      for (const cs of callsites.slice(0, 50)) {
+        // Get priority from nested callsite_descriptor or root level
+        const descriptor = cs.callsite_descriptor || {};
+        const priority = (descriptor.recon_severity || descriptor.priority || cs.priority || 'unknown').toString().toLowerCase();
+        const callerClass = (cs.caller_class || cs.caller_method || '').split('.').pop() || 'Unknown';
+
+        // Get reachability from nested structure
+        const reachability = descriptor.reachability || {};
+        const isReachable = reachability.reachable_from_entrypoint === true;
+        const pathLen = reachability.shortest_path_len;
+
+        html += `
+          <tr>
+            <td class="mono" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(cs.seed_id || cs.hit_id || 'Unknown')}</td>
+            <td>${escapeHtml(cs.category || 'Unknown')}</td>
+            <td><span class="priority-badge ${priority}">${escapeHtml(priority.toUpperCase())}</span></td>
+            <td class="mono">${escapeHtml(callerClass)}</td>
+            <td>${isReachable ? `<span class="pill ok">Yes${pathLen ? ` (${pathLen})` : ''}</span>` : '<span class="pill neutral">No</span>'}</td>
+          </tr>
+        `;
+      }
+
+      if (callsites.length > 50) {
+        html += `<tr><td colspan="5" style="text-align: center; color: var(--gray-500);">... and ${callsites.length - 50} more callsites</td></tr>`;
+      }
+
+      html += `
+          </tbody>
+        </table>
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+    }
+
+    // Render Manifest
+    function renderManifest(data, container) {
+      const packageName = data.package_name || 'Unknown';
+      const permissions = data.permissions || [];
+      const dangerousPerms = ['CAMERA', 'RECORD_AUDIO', 'READ_CONTACTS', 'WRITE_CONTACTS', 'READ_SMS', 'SEND_SMS', 'READ_CALL_LOG', 'WRITE_CALL_LOG', 'READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE', 'ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'READ_PHONE_STATE', 'CALL_PHONE', 'PROCESS_OUTGOING_CALLS'];
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">App Manifest</div>
+            <div class="artifact-subtitle">${escapeHtml(packageName)}</div>
+          </div>
+        </div>
+
+        <div class="summary-cards">
+          <div class="summary-card">
+            <div class="summary-card-title">Version</div>
+            <div style="font-size: 16px; font-weight: 600;">${escapeHtml(data.version_name || data.version_code || 'Unknown')}</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card-title">SDK Range</div>
+            <div style="font-size: 16px; font-weight: 600;">${data.min_sdk || '?'} - ${data.target_sdk || '?'}</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card-title">Activities</div>
+            <div class="summary-card-value">${(data.activities || []).length}</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card-title">Services</div>
+            <div class="summary-card-value">${(data.services || []).length}</div>
+          </div>
+        </div>
+
+        <div class="dashboard-section">
+          <div class="dashboard-section-title">Permissions (${permissions.length})</div>
+          <div class="permission-list">
+      `;
+
+      for (const perm of permissions) {
+        const permName = perm.replace('android.permission.', '');
+        const isDangerous = dangerousPerms.some(d => permName.includes(d));
+        html += `<span class="permission-badge ${isDangerous ? 'dangerous' : 'normal'}">${escapeHtml(permName)}</span>`;
+      }
+
+      html += `
+          </div>
+        </div>
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+    }
+
+    // Render Context Bundle
+    function renderContextBundle(data, container) {
+      const seedId = data.seed_id || 'Unknown';
+      const slicedCfg = data.sliced_cfg || {};
+      const fcg = data.fcg_neighborhood || {};
+
+      const canvasId = 'cfgCanvas_' + Date.now();
+      const units = slicedCfg.units || [];
+      const edges = slicedCfg.edges || [];
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Context Bundle</div>
+            <div class="artifact-subtitle">${escapeHtml(seedId)}</div>
+          </div>
+          <div class="artifact-stats">
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${units.length}</div>
+              <div class="artifact-stat-label">Slice Units</div>
+            </div>
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${fcg.k || 0}</div>
+              <div class="artifact-stat-label">FCG K-hop</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="method-label">API Signatures</div>
+        <div class="method-signature">${escapeHtml((data.api_signatures || []).join('\n') || 'Unknown')}</div>
+
+        <div class="method-label">Caller Method</div>
+        <div class="method-signature">${escapeHtml(data.caller_method || 'Unknown')}</div>
+      `;
+
+      if (units.length > 0) {
+        html += `
+          <div class="dashboard-section">
+            <div class="dashboard-section-title">Sliced CFG</div>
+            <div class="cfg-legend">
+              <div class="cfg-legend-item"><div class="cfg-legend-dot" style="background:#34c759"></div> Entry</div>
+              <div class="cfg-legend-item"><div class="cfg-legend-dot" style="background:#ff3b30"></div> Seed</div>
+              <div class="cfg-legend-item"><div class="cfg-legend-dot" style="background:#007aff"></div> Statement</div>
+            </div>
+            <div class="cfg-canvas" id="${canvasId}">
+              <div class="cfg-controls">
+                <button class="cfg-control-btn" data-action="zoomIn">+</button>
+                <button class="cfg-control-btn" data-action="zoomOut">−</button>
+                <button class="cfg-control-btn" data-action="fit">⊡</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      if (fcg.callers || fcg.callees) {
+        html += `
+          <div class="dashboard-section">
+            <div class="dashboard-section-title">FCG Neighborhood</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+              <div>
+                <div class="method-label">Callers (${(fcg.callers || []).length})</div>
+                <div class="raw-json-container" style="max-height: 150px;">${(fcg.callers || []).slice(0, 10).map(c => escapeHtml(c)).join('\n') || 'None'}</div>
+              </div>
+              <div>
+                <div class="method-label">Callees (${(fcg.callees || []).length})</div>
+                <div class="raw-json-container" style="max-height: 150px;">${(fcg.callees || []).slice(0, 10).map(c => escapeHtml(c)).join('\n') || 'None'}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      html += `
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+
+      if (units.length > 0) {
+        setTimeout(() => {
+          initCytoscapeGraph(canvasId, units, edges, container);
+        }, 100);
+      }
+    }
+
+    // Render Entrypoint Paths
+    function renderEntrypointPaths(data, container) {
+      const paths = Array.isArray(data) ? data : (data.paths || []);
+
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Entrypoint Paths</div>
+            <div class="artifact-subtitle">Reachability analysis</div>
+          </div>
+          <div class="artifact-stats">
+            <div class="artifact-stat">
+              <div class="artifact-stat-value">${paths.length}</div>
+              <div class="artifact-stat-label">Total Paths</div>
+            </div>
+          </div>
+        </div>
+
+        <table class="callsite-table">
+          <thead>
+            <tr>
+              <th>Seed ID</th>
+              <th>Category</th>
+              <th>Path Length</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      for (const p of paths.slice(0, 30)) {
+        const pathMethods = p.path_methods || [];
+        // Get reachability from nested structure
+        const reachability = p.reachability || {};
+        const isReachable = reachability.reachable_from_entrypoint === true;
+        const category = p.category_id || p.category || 'Unknown';
+
+        html += `
+          <tr class="expandable-trigger" onclick="this.nextElementSibling.classList.toggle('visible')">
+            <td class="mono" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis;">▶ ${escapeHtml(p.seed_id || p.hit_id || 'Unknown')}</td>
+            <td>${escapeHtml(category)}</td>
+            <td>${pathMethods.length}</td>
+            <td>${isReachable ? '<span class="pill ok">Reachable</span>' : '<span class="pill neutral">Unknown</span>'}</td>
+          </tr>
+          <tr class="expandable-content">
+            <td colspan="4">
+              <div class="path-chain">
+                ${pathMethods.map((m, i) => `
+                  <div class="path-step ${i === pathMethods.length - 1 ? 'seed' : ''}">${escapeHtml(m)}</div>
+                  ${i < pathMethods.length - 1 ? '<div class="path-arrow">↓</div>' : ''}
+                `).join('')}
+              </div>
+            </td>
+          </tr>
+        `;
+      }
+
+      if (paths.length > 30) {
+        html += `<tr><td colspan="4" style="text-align: center; color: var(--gray-500);">... and ${paths.length - 30} more paths</td></tr>`;
+      }
+
+      html += `
+          </tbody>
+        </table>
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="formatted">Formatted</button>
+          <button class="view-toggle-btn" data-view="raw">Raw JSON</button>
+        </div>
+        <div id="rawJsonView" class="raw-json-container" style="display: none; margin-top: 16px;"></div>
+      `;
+
+      container.innerHTML = html;
+      setupViewToggle(container, data);
+    }
+
+    // Render generic JSON
+    function renderGenericJson(data, container) {
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">JSON Data</div>
+            <div class="artifact-subtitle">${typeof data === 'object' ? Object.keys(data).length + ' keys' : 'Value'}</div>
+          </div>
+        </div>
+        <div class="raw-json-container" style="max-height: none;">${escapeHtml(JSON.stringify(data, null, 2))}</div>
+      `;
+
+      container.innerHTML = html;
+    }
+
+    // Setup view toggle buttons
+    function setupViewToggle(container, data) {
+      const rawView = container.querySelector('#rawJsonView');
+      if (rawView) {
+        rawView.textContent = JSON.stringify(data, null, 2);
+      }
+
+      container.querySelectorAll('.view-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const view = btn.dataset.view;
+          container.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+
+          if (view === 'raw' && rawView) {
+            rawView.style.display = 'block';
+          } else if (rawView) {
+            rawView.style.display = 'none';
+          }
+        });
+      });
+    }
+
+    // ============================================================
+    // Modal Control
+    // ============================================================
+
+    function openModal(title) {
+      modalTitle.textContent = `Viewing: ${title}`;
+      modalOverlay.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+      modalOverlay.classList.add('hidden');
+      document.body.style.overflow = '';
+      currentJsonData = null;
+      currentArtifactUrl = null;
+      currentView = 'formatted';
+    }
+
+    function showLoading() {
+      modalBody.innerHTML = `
+        <div class="modal-loading">
+          <div class="spinner"></div>
+          <span>Loading...</span>
+        </div>
+      `;
+      modalTabs.classList.add('hidden');
+    }
+
+    function showError(message) {
+      modalBody.innerHTML = `<div class="modal-error">${escapeHtml(message)}</div>`;
+      modalTabs.classList.add('hidden');
+    }
+
+    // Main render function
+    function renderArtifact(data, filename, artifactUrl) {
+      currentJsonData = data;
+      currentArtifactUrl = artifactUrl;
+      modalTabs.classList.add('hidden');
+
+      const type = detectArtifactType(data, filename);
+
+      switch (type) {
+        case 'threat_report':
+          renderThreatReport(data, modalBody);
+          break;
+        case 'tier2_output':
+          renderTier2Output(data, modalBody);
+          break;
+        case 'tier1_output':
+          renderTier1Output(data, modalBody);
+          break;
+        case 'llm_recon_input':
+          renderLlmReconInput(data, modalBody);
+          break;
+        case 'suspicious_api_index':
+          renderSuspiciousApiIndex(data, modalBody);
+          break;
+        case 'sensitive_api_hits':
+          renderSensitiveApiHits(data, modalBody);
+          break;
+        case 'manifest':
+          renderManifest(data, modalBody);
+          break;
+        case 'context_bundle':
+          renderContextBundle(data, modalBody);
+          break;
+        case 'slice':
+          renderSlice(data, modalBody, artifactUrl);
+          break;
+        case 'callgraph_summary':
+          renderCallgraphSummary(data, modalBody);
+          break;
+        case 'graph':
+          renderGraph(data, modalBody, artifactUrl);
+          break;
+        case 'entrypoint_paths':
+          renderEntrypointPaths(data, modalBody);
+          break;
+        default:
+          renderGenericJson(data, modalBody);
+      }
+    }
+
+    // Intercept artifact links
+    document.addEventListener('click', async (e) => {
+      const link = e.target.closest('a[href*="/artifact/"]');
+      if (!link) return;
+
+      e.preventDefault();
+      const url = link.href;
+      const filename = url.split('/').pop();
+
+      openModal(filename);
+      showLoading();
+
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const text = await response.text();
+        let data;
+
+        try {
+          data = JSON.parse(text);
+        } catch (parseErr) {
+          // Not JSON, show as plain text
+          modalBody.innerHTML = `<div class="raw-json-container" style="max-height: none;">${escapeHtml(text)}</div>`;
+          currentJsonData = { _raw: text };
+          return;
+        }
+
+        renderArtifact(data, filename, url);
+      } catch (err) {
+        showError(err.message);
+      }
+    });
+
+    // Close modal on escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !modalOverlay.classList.contains('hidden')) {
+        closeModal();
+      }
+    });
+
+    // Close modal on overlay click
+    modalOverlay.addEventListener('click', (e) => {
+      if (e.target === modalOverlay) {
+        closeModal();
+      }
+    });
+
+    // Close button
+    closeBtn.addEventListener('click', closeModal);
+
+    // Copy button
+    copyBtn.addEventListener('click', () => {
+      if (!currentJsonData) return;
+
+      const text = JSON.stringify(currentJsonData, null, 2);
+      navigator.clipboard.writeText(text).then(() => {
+        copyBtn.textContent = 'Copied!';
+        copyBtn.classList.add('copied');
+        setTimeout(() => {
+          copyBtn.textContent = 'Copy';
+          copyBtn.classList.remove('copied');
+        }, 2000);
+      }).catch(err => {
+        console.error('Copy failed:', err);
+      });
+    });
   </script>
 </body>
 </html>

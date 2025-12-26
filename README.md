@@ -5,14 +5,16 @@ LLM-assisted Android APK malware analysis pipeline aligned to LAMD: deterministi
 ## What This Implements
 
 - Knox Vision API client for static metadata, decompiled source access, bytecode method lookup, and APK download.
-- Local static extractors (manifest, strings, certs) using Androguard + ZIP parsing.
+- Local static extractors (manifest, strings, certs, component intent-filters) using Androguard + ZIP parsing.
 - Callgraph-sensitive API matcher (catalog-driven) with reachability from Android entrypoints.
 - Recon agent with tool runner to build investigation cases from sensitive API hits.
 - Suspicious API seeding via recon cases or DEX invocation indexing (Androguard 4.x tested), with Knox/JADX fallback.
-- Java-based Soot extractor that exports call graph JSON and per-method CFG JSON, using component lifecycle entrypoints and the latest `android.jar`.
+- Java-based Soot extractor that exports call graph JSON and per-method CFG JSON, using component lifecycle entrypoints plus FlowDroid callback analysis (fast/default) to include framework-invoked callbacks.
 - Context bundle builder with backward CFG slices, branch conditions, and k-hop callgraph neighborhoods.
+- **Token-optimized LLM payloads**: Tier1 and Tier2 inputs are shaped to maximize value per token (filtered permissions, filtered strings, filtered FCG, optional JADX source).
 - Tiered LLM reasoning (Recon -> Tier1 -> Verifier -> Tier1 Repair -> Tier2 -> Report) with tolerant JSON parsing and structured driver guidance output.
 - Tier1 repair agent with JADX-based tool access (source lookup, method body extraction) for failed or low-confidence verifications.
+- **Execution-ready driver guidance**: Tier2 output includes both human-readable `driver_plan` and machine-executable `execution_guidance` for consumption by a smaller execution LLM (e.g., Qwen 30B) with explicit commands, verification steps, and failure handling.
 - Targeted FlowDroid execution via CLI jar + sources/sinks subset generation.
 - MITRE Mobile ATT&CK mapping via local rules and optional dataset fetch.
 - Artifacts are stored under `artifacts/{analysis_id}/runs/{run_id}/` for traceability, with per-run logs in `artifacts/{analysis_id}/observability/runs/{run_id}.jsonl`.
@@ -58,10 +60,67 @@ Identifiers:
 11) Reporting:
    - Produce the final threat report + MITRE mappings + driver guidance.
 
+## Token Optimization Architecture
+
+The pipeline separates **stored bundles** (full data for debugging/downstream) from **LLM payloads** (optimized subsets for token efficiency).
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Token Optimization Flow                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Context Bundle (Full)              Tier1 Payload (Shaped)                   │
+│  ├── seed_id                   ──►  ├── seed_id                              │
+│  ├── api_category                   ├── api_category                         │
+│  ├── sliced_cfg                     ├── sliced_cfg                           │
+│  ├── branch_conditions              ├── branch_conditions                    │
+│  ├── control_flow_path              ├── control_flow_path                    │
+│  ├── case_context                   ├── case_context                         │
+│  ├── static_context ────────────►   ├── permissions_relevant (filtered)     │
+│  │   ├── permissions (full)         ├── strings_filtered (scored)           │
+│  │   ├── strings_nearby (raw)       └── caller_method_source (JADX, gated)  │
+│  │   └── ...                                                                 │
+│  ├── fcg_neighborhood ──────────►   (excluded from Tier1, kept for Tier2)   │
+│  └── callsite_descriptor            (excluded, case_context is sufficient)   │
+│                                                                              │
+│  Savings: ~25-35% tokens per Tier1 call                                      │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Tier2 Input (Raw)                  Tier2 Payload (Shaped)                   │
+│  ├── seeds[].tier1 (full)      ──►  ├── seeds[].tier1 (consolidated)         │
+│  ├── fcg (150+ methods)             ├── fcg (app methods only, ~20)          │
+│  ├── static_context (full)          ├── static_context (minimal)             │
+│  │   ├── permissions                │   ├── package_name                     │
+│  │   ├── strings_nearby             │   └── component_triggers               │
+│  │   └── ...                        ├── case_context (minimal)               │
+│  └── case_context (full)            │   ├── recon_rationale                  │
+│                                     │   ├── tags                             │
+│                                     │   └── reachability                     │
+│                                                                              │
+│  Savings: ~30-40% tokens per Tier2 call                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Tier1 Payload Shaping
+
+- **Permission filtering**: Only permissions matching the API category's `permission_hints` from the catalog (suffix matching). Falls back to dangerous permissions if no matches.
+- **String filtering**: Removes library noise (androidx, kotlin, etc.), preserves IPs/URLs, scores by suspiciousness.
+- **JADX source gating**: Includes decompiled Java source for high-priority seeds (priority ≤ 2) or top 10 by index.
+- **Compact JSON**: All LLM payloads use compact JSON serialization (no indentation).
+
+### Tier2 Payload Shaping
+
+- **FCG filtering**: Removes library methods (androidx, android, java, kotlin), keeps only app-specific callers/callees (max 20 each).
+- **Tier1 consolidation**: Extracts driver-relevant fields only (trigger_surface, required_inputs, path_constraints, observable_effects).
+- **Context minimization**: Removes strings_nearby, permissions (already processed by Tier1), keeps component_triggers and reachability.
+
 ## Detailed Workflow and Tool Usage
 
 Stage A: Static preprocess (local APK + Knox)
 - **Androguard APK parser** (`src/apk_analyzer/analyzers/static_extractors.py`): extracts manifest metadata (package, version, permissions, components, SDK) from the APK.
+- **Component intent-filters** (`extract_component_intents`): extracts intent-filter data (actions, categories, data schemes) for activities, services, and receivers. Component names are normalized (`.MyService` → `com.pkg.MyService`).
 - **ZIP parsing** (built-in `zipfile`): extracts ASCII strings from `classes*.dex` and assets; extracts cert blobs from `META-INF/*.RSA|*.DSA|*.EC`.
 - **Knox Vision API** (`src/apk_analyzer/clients/knox_client.py`, combined mode): pulls full analysis, manifest, components, threat indicators; if present, Knox manifest overrides the local manifest.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/static/manifest.json`, `strings.json`, `cert.json`, `knox_full.json`, `components.json`, `permissions.json`.
@@ -76,12 +135,14 @@ Stage A2: APK-only decompile (opt-in)
 Stage B: Graph extraction
 - **Soot extractor (Java)** (`java/soot-extractor`): builds call graph + per-method CFGs using Android platform jars.
 - Entry points are derived from Android component lifecycles (Activity/Service/Receiver/Provider/Application/AccessibilityService) across application classes.
+- **FlowDroid callback analyzer** (optional, enabled by default): adds framework-invoked callbacks (listeners/observers/etc.) as entrypoints. Outputs `graphs/callbacks.json` and embeds callback metadata in `graphs/callgraph.json`.
 - Android jar selection uses the APK target SDK when available:
   - exact match if present,
   - otherwise nearest higher available,
   - otherwise highest available as fallback.
 - Callgraph edges combine Soot callgraph edges with direct Jimple invoke edges to avoid missing framework calls.
 - **Outputs**: `artifacts/{analysis_id}/runs/{run_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`, `graphs/class_hierarchy.json`, `graphs/entrypoints.json`.
+- **Callback outputs**: `graphs/callbacks.json` (FlowDroid callback methods + registration sites), and `callgraph.json` metadata includes `callback_count` and `flowdroid_callbacks_enabled`.
 
 Stage C: Sensitive API matching (catalog-driven)
 - **Sensitive API catalog** (`config/android_sensitive_api_catalog.json`): maps Soot signatures to categories, priorities, and tags. Includes:
@@ -115,6 +176,11 @@ Stage F: Context bundles + CFG slices
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/graphs/slices/<seed_id>.json`, `graphs/context_bundles/<seed_id>.json`, `graphs/entrypoint_paths/<seed_id>.json`, `graphs/entrypoint_paths.json`.
 
 Stage G: Tier1 + Verifier + Repair (LLM grounding)
+- **Payload shaping** (`shape_tier1_payload` in `orchestrator.py`): optimizes context bundles before LLM calls:
+  - Filters permissions to category-relevant subset (suffix matching against catalog `permission_hints`)
+  - Filters strings to remove library noise, preserves IPs/URLs, scores by suspiciousness
+  - Optionally includes JADX-decompiled source for high-priority seeds
+  - Excludes `fcg_neighborhood` (Tier2 only) and `callsite_descriptor` (redundant with `case_context`)
 - **Tier1** (`src/apk_analyzer/agents/tier1_summarizer.py`): summarizes behavior and extracts execution constraints (branch predicates, required inputs, triggers).
 - **Verifier**: enforces evidence grounding against slice units and context bundles; only verified seeds advance.
 - **Tier1 Repair** (`src/apk_analyzer/agents/tier1_tools.py`): if verification fails or confidence < 0.7, a repair pass runs with JADX-based tools:
@@ -130,17 +196,31 @@ Stage H: Targeted taint analysis (optional)
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/taint/flowdroid_summary.json`.
 
 Stage I: Tier2 intent + driver guidance
-- **Tier2**: produces driver guidance (ADB/UI Automator/Frida-friendly) using Tier1 + control-flow paths + static context + case context + FlowDroid summary (if present).
+- **Payload shaping** (`shape_tier2_payload` in `orchestrator.py`): optimizes Tier2 input:
+  - Filters FCG to app-specific methods only (removes androidx, android, kotlin, java prefixes)
+  - Consolidates Tier1 outputs to driver-relevant fields (trigger_surface, required_inputs, path_constraints, observable_effects)
+  - Minimizes static_context (keeps package_name, component_triggers only)
+  - Minimizes case_context (keeps recon_rationale, tags, reachability only)
+- **Tier2**: produces driver guidance (ADB/UI Automator/Frida-friendly) using shaped Tier1 + control-flow paths + filtered static context + FlowDroid summary (if present).
+- **Execution-ready format**: `execution_guidance` is a case-level, machine-readable format designed for consumption by a smaller execution LLM (e.g., Qwen 30B):
+  - Commands are complete and copy-pasteable (full package names, component names)
+  - ADB commands must start with `adb` or `adb shell` prefix
+  - Frida commands must be full executable format: `frida -U -n <pkg> -e "<js>"`
+  - Each step includes verification commands and expected output (no placeholder commands)
+  - Failure handling is explicit (`on_fail`: abort/retry/skip only)
+  - Assumes full device control (Samsung engineering device with OEM access)
+- **driver_plan vs execution_guidance**: `driver_plan` is for human/UI consumption; `execution_guidance` is the machine-executable format with case_id, seed_ids, prerequisites, steps, success_criteria, and cleanup.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/tier2/*.json`.
 
 Stage J: Reporting + MITRE mapping
 - **MITRE mapping** (`config/mitre/` + `src/apk_analyzer/analyzers/mitre_mapper.py`): maps extracted evidence to ATT&CK techniques.
 - **Report** (`src/apk_analyzer/agents/report.py`): synthesizes final threat report with structured `driver_guidance` for dynamic analysis automation.
-- **Driver guidance fields**: each entry includes:
-  - `case_id`, `seed_id`, `category_id`: traceability to investigation cases
-  - `driver_plan`: array of executable steps with `method` (adb/frida/manual/netcat), `details` (concrete command), `targets_seeds`
+- **Driver guidance fields**: each Tier2 output includes:
+  - `case_id`, `primary_seed_id`, `seed_ids_analyzed`: traceability to investigation cases
+  - `driver_plan`: human-readable array of executable steps with `method` (adb/frida/manual/netcat), `details` (concrete command), `targets_seeds`
   - `environment_setup`: required setup (listeners, permissions, Frida hooks)
   - `execution_checks`: how to verify the behavior was triggered
+  - `execution_guidance`: machine-executable format with `prerequisites`, `steps` (each with `command`, `verify`, `on_fail`, `timeout_sec`), `success_criteria`, and `cleanup`
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/report/threat_report.json`.
 
 ## Repo Layout
@@ -197,6 +277,8 @@ mvn -f FlowDroid/pom.xml -pl soot-infoflow-cmd -am package -DskipTests
 - `analysis.android_platforms_dir` should point to your Android SDK `platforms/` directory.
 - `analysis.flowdroid_jar_path` should point to `FlowDroid/soot-infoflow-cmd/target/soot-infoflow-cmd-jar-with-dependencies.jar`.
 - `analysis.soot_extractor_jar_path` should point to `java/soot-extractor/build/libs/soot-extractor.jar`.
+- `analysis.flowdroid_callbacks_enabled` enables FlowDroid callback analysis for entrypoints (default: true).
+- `analysis.flowdroid_callbacks_mode` controls callback analysis precision: `fast` (higher coverage) or `default` (more conservative).
 
 5) Run analysis (default combined mode requires both APK path and Knox APK ID):
 
@@ -331,10 +413,25 @@ Notes:
 
 This UI is purpose-built for debugging the pipeline: it shows **seeding details, recon output, Soot stats, entrypoint paths, slice counts, Knox API calls, tool invocations, and exact LLM prompts/returns** per run.
 
+### Features
+
+- **Live SSE streaming**: Real-time event updates via Server-Sent Events
+- **Progress bar**: Shows overall pipeline progress with glowing indicator when stages are running
+- **Stage animations**: Running stages pulse, completed stages flash green
+- **Event animations**: New events slide in with blue highlight
+- **Auto-reconnect**: Exponential backoff (1s, 2s, 4s... max 30s) with polling fallback
+- **Connection status**: Visual indicator showing Connected/Reconnecting/Polling/Disconnected
+
 ### Start the UI server
 
 ```bash
 docker compose up -d obs-ui
+```
+
+To restart after code changes:
+
+```bash
+docker compose restart obs-ui
 ```
 
 ### Run an analysis (emits run ledger)
@@ -346,8 +443,13 @@ docker compose run --rm aag \
 
 ### Open the UI
 
-- Run list: `http://localhost:8000/runs`
-- Run details: click an analysis/run ID to view stage timeline, seeding stats, recon output, Soot stats, API/tool events, and LLM I/O.
+- **Run list**: `http://localhost:8000/runs` - Live-updating list of all analysis runs
+- **Run details**: Click an analysis/run ID to view:
+  - Stage timeline with live progress
+  - Execution flow (all events with filtering)
+  - LLM I/O table
+  - API/tool events table
+  - Direct links to artifacts
 
 Each run writes its own `observability/runs/<run_id>.jsonl` log, so reruns of the same APK no longer mix trace events.
 Artifacts are linked directly (e.g. `runs/<run_id>/llm_inputs/`, `runs/<run_id>/llm_outputs/`, `runs/<run_id>/graphs/slices/`, `runs/<run_id>/graphs/entrypoint_paths/`) so you can inspect the exact payloads.
@@ -500,4 +602,5 @@ pytest
 - APK-only mode runs JADX in a temp directory that is deleted after analysis. JADX exit code 1 is tolerated (common with obfuscated code); the pipeline checks for actual `.java` file output instead. If JADX produces no output, the pipeline falls back to DEX-only seeding with reduced recall and no repair tools.
 - The Tier1 repair agent requires JADX output to function. In combined mode without APK-only decompilation, repair tools are not available.
 - LLM integration uses Vertex API keys for public Gemini models; service-account auth requires a custom client.
-- The final report's `driver_guidance` is designed for consumption by an execution LLM that can drive dynamic analysis via ADB, Frida, or manual steps.
+- **Token optimization**: Tier1 and Tier2 payloads are shaped to reduce token usage by 25-40% while preserving all driver-relevant information. Full context bundles are preserved in artifacts for debugging.
+- **Execution LLM compatibility**: The Tier2 output's `execution_guidance` is designed for consumption by a smaller execution LLM (e.g., Qwen Code 30B) that can drive dynamic analysis via ADB, Frida, or manual steps. Commands are complete (ADB with `adb shell` prefix, Frida with full `frida -U -n <pkg> -e "<js>"` format), verification is explicit (no placeholder commands), and failure handling follows strict rules (`on_fail`: abort/retry/skip only).

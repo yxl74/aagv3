@@ -40,6 +40,7 @@ class ReportAgent:
                 "analysis_artifacts": payload.get("analysis_artifacts", {}),
                 "mitre_candidates": payload.get("mitre_candidates", []),
                 "driver_guidance": payload.get("driver_guidance", []),
+                "execution_guidance": payload.get("execution_guidance", []),
             }
         response = self.llm_client.complete(self.prompt, payload, model=self.model)
         fallback = {
@@ -51,6 +52,7 @@ class ReportAgent:
             "analysis_artifacts": payload.get("analysis_artifacts", {}),
             "mitre_candidates": payload.get("mitre_candidates", []),
             "driver_guidance": payload.get("driver_guidance", []),
+            "execution_guidance": payload.get("execution_guidance", []),
         }
         result = coerce_llm_dict(
             response,
@@ -64,6 +66,7 @@ class ReportAgent:
                 "analysis_artifacts",
                 "mitre_candidates",
                 "driver_guidance",
+                "execution_guidance",
             ),
         )
         if result is fallback and self.event_logger:
@@ -78,6 +81,7 @@ class ReportAgent:
                     "analysis_artifacts",
                     "mitre_candidates",
                     "driver_guidance",
+                    "execution_guidance",
                 ),
             )
             payload_info = info or {"error_type": "invalid_output"}

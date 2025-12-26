@@ -2,90 +2,856 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>APK Analysis Runs</title>
   <style>
-    body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 24px; color: #111; }
-    table { border-collapse: collapse; width: 100%; margin-top: 16px; }
-    th, td { border-bottom: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; }
-    th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; }
-    a { color: #2563eb; text-decoration: none; }
-    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: 12px; }
-    .form-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
-    .form-row label { display: flex; flex-direction: column; font-size: 13px; gap: 4px; }
-    .form-row input, .form-row select { padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; min-width: 240px; }
-    .form-actions { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
-    .btn { padding: 8px 14px; border-radius: 8px; border: none; background: #2563eb; color: #fff; cursor: pointer; }
-    .status { font-size: 13px; color: #6b7280; }
+    :root {
+      --blue: #007AFF;
+      --blue-light: #E3F2FF;
+      --blue-hover: #0056CC;
+      --green: #34C759;
+      --green-light: #E8F9EC;
+      --orange: #FF9500;
+      --orange-light: #FFF4E5;
+      --red: #FF3B30;
+      --red-light: #FFEBE9;
+      --gray-50: #F9FAFB;
+      --gray-100: #F3F4F6;
+      --gray-200: #E5E7EB;
+      --gray-300: #D1D5DB;
+      --gray-400: #9CA3AF;
+      --gray-500: #6B7280;
+      --gray-600: #4B5563;
+      --gray-700: #374151;
+      --gray-800: #1F2937;
+      --gray-900: #111827;
+      --white: #FFFFFF;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -1px rgba(0,0,0,0.04);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04);
+      --radius: 12px;
+      --radius-sm: 8px;
+      --radius-xs: 6px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', sans-serif;
+      background: var(--gray-50);
+      color: var(--gray-900);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Header */
+    .header {
+      background: var(--white);
+      border-bottom: 1px solid var(--gray-200);
+      padding: 20px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      background: rgba(255,255,255,0.85);
+    }
+
+    .header-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header-title h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--gray-900);
+      letter-spacing: -0.02em;
+    }
+
+    .header-title .logo {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--blue) 0%, #5856D6 100%);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .header-title .logo svg {
+      width: 18px;
+      height: 18px;
+      color: var(--white);
+    }
+
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    /* Connection Status */
+    .connection-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--gray-100);
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+
+    .connection-status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--gray-400);
+      transition: background 0.2s ease;
+    }
+
+    .connection-status.connected {
+      background: var(--green-light);
+      color: #166534;
+    }
+
+    .connection-status.connected .dot {
+      background: var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .connection-status.connecting {
+      background: var(--blue-light);
+      color: var(--blue);
+    }
+
+    .connection-status.connecting .dot {
+      background: var(--blue);
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    .connection-status.disconnected {
+      background: var(--gray-100);
+      color: var(--gray-600);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.9); }
+    }
+
+    /* Count Badge */
+    .count-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      background: var(--blue-light);
+      color: var(--blue);
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    /* Main */
+    .main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    /* Card */
+    .card {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      border: 1px solid var(--gray-200);
+      overflow: hidden;
+      margin-bottom: 24px;
+      transition: box-shadow 0.2s ease;
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-md);
+    }
+
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--gray-100);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--gray-900);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-title svg {
+      width: 18px;
+      height: 18px;
+      color: var(--blue);
+    }
+
+    .card-body {
+      padding: 20px;
+    }
+
+    /* Form */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--gray-600);
+    }
+
+    .form-group input,
+    .form-group select {
+      padding: 10px 14px;
+      border: 1px solid var(--gray-300);
+      border-radius: var(--radius-sm);
+      font-size: 15px;
+      font-family: inherit;
+      background: var(--white);
+      color: var(--gray-900);
+      transition: all 0.15s ease;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+      outline: none;
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px var(--blue-light);
+    }
+
+    .form-group input::placeholder {
+      color: var(--gray-400);
+    }
+
+    .form-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-top: 8px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 15px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary {
+      background: var(--blue);
+      color: var(--white);
+    }
+
+    .btn-primary:hover {
+      background: var(--blue-hover);
+    }
+
+    .btn-primary:active {
+      transform: scale(0.98);
+    }
+
+    .btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .btn-delete {
+      background: none;
+      border: none;
+      padding: 6px;
+      cursor: pointer;
+      color: var(--gray-400);
+      border-radius: 4px;
+      transition: color 0.15s ease, background 0.15s ease;
+    }
+
+    .btn-delete:hover {
+      color: var(--red);
+      background: var(--red-light);
+    }
+
+    .btn-delete:active {
+      transform: scale(0.95);
+    }
+
+    .btn-delete svg {
+      display: block;
+    }
+
+    .form-status {
+      font-size: 14px;
+      color: var(--gray-500);
+    }
+
+    .form-status.success {
+      color: var(--green);
+    }
+
+    .form-status.error {
+      color: var(--red);
+    }
+
+    /* Table */
+    .table-wrapper {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th {
+      text-align: left;
+      padding: 12px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+    }
+
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--gray-100);
+      vertical-align: middle;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tbody tr {
+      transition: background 0.1s ease;
+    }
+
+    tbody tr:hover td {
+      background: var(--gray-50);
+    }
+
+    /* Monospace */
+    .mono {
+      font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
+      font-size: 13px;
+    }
+
+    /* Links */
+    a {
+      color: var(--blue);
+      text-decoration: none;
+      transition: opacity 0.15s ease;
+    }
+
+    a:hover {
+      opacity: 0.7;
+    }
+
+    /* Status Pills */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .pill.ok, .pill.success, .pill.completed {
+      background: var(--green-light);
+      color: #166534;
+    }
+
+    .pill.running, .pill.in-progress {
+      background: var(--blue-light);
+      color: var(--blue);
+    }
+
+    .pill.error, .pill.failed {
+      background: var(--red-light);
+      color: var(--red);
+    }
+
+    .pill.neutral {
+      background: var(--gray-100);
+      color: var(--gray-600);
+    }
+
+    /* Run ID Cell */
+    .run-id-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .run-id-cell .primary {
+      font-weight: 500;
+      color: var(--gray-900);
+    }
+
+    .run-id-cell .secondary {
+      font-size: 12px;
+      color: var(--gray-500);
+    }
+
+    /* Empty State */
+    .empty-state {
+      padding: 60px 20px;
+      text-align: center;
+      color: var(--gray-500);
+    }
+
+    .empty-state svg {
+      width: 64px;
+      height: 64px;
+      color: var(--gray-300);
+      margin-bottom: 16px;
+    }
+
+    .empty-state h3 {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--gray-700);
+      margin-bottom: 8px;
+    }
+
+    .empty-state p {
+      font-size: 14px;
+      max-width: 400px;
+      margin: 0 auto;
+    }
+
+    /* Animation */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card {
+      animation: fadeIn 0.3s ease forwards;
+    }
+
+    /* Live badge */
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      background: var(--green-light);
+      color: #166534;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .live-badge .dot {
+      width: 6px;
+      height: 6px;
+      background: var(--green);
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .header-inner {
+        flex-wrap: wrap;
+      }
+      .header-meta {
+        width: 100%;
+        justify-content: space-between;
+        margin-top: 12px;
+      }
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>APK Analysis Runs</h1>
-  <div class="pill">Total runs: {{ runs|length }}</div>
-  <p>Artifacts dir: {{ artifacts_dir }}</p>
-  <form id="start-run-form">
-    <div class="form-row">
-      <label>
-        APK path
-        <input type="text" id="apk-path" placeholder="/workspace/app.apk" required>
-      </label>
-      <label>
-        Mode
-        <select id="run-mode">
-          <option value="apk-only" selected>apk-only</option>
-          <option value="combined">combined</option>
-        </select>
-      </label>
-      <label>
-        Knox APK ID (combined only)
-        <input type="text" id="knox-id" placeholder="optional">
-      </label>
+  <header class="header">
+    <div class="header-inner">
+      <div class="header-title">
+        <div class="logo">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+        </div>
+        <h1>APK Analysis</h1>
+      </div>
+      <div class="header-meta">
+        <span class="count-badge" id="run-count">{{ runs|length }} runs</span>
+        <div id="connection-status" class="connection-status connecting">
+          <span class="dot"></span>
+          <span class="label">Connecting</span>
+        </div>
+      </div>
     </div>
-    <div class="form-actions">
-      <button class="btn" type="submit">Start run</button>
-      <span class="status" id="start-run-status">Idle</span>
-    </div>
-  </form>
-  {% if runs|length == 0 %}
-  <p>No runs found. Check that ARTIFACTS_DIR points to your `artifacts/` folder.</p>
-  {% endif %}
+  </header>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Analysis ID</th>
-        <th>Run ID</th>
-        <th>Mode</th>
-        <th>Start</th>
-        <th>Status</th>
-        <th>Events</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for run in runs %}
-      <tr>
-        <td><a href="/runs/{{ run.analysis_id }}/{{ run.run_id }}">{{ run.analysis_id }}</a></td>
-        <td>{{ run.run_id or "legacy" }}</td>
-        <td>{{ run.mode or "unknown" }}</td>
-        <td>{{ run.start_ts or "-" }}</td>
-        <td>{{ run.end_status or "-" }}</td>
-        <td>{{ run.event_count }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <main class="main">
+    <!-- Start Run Form -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+          </svg>
+          Start New Analysis
+        </div>
+      </div>
+      <div class="card-body">
+        <form id="start-run-form">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="apk-path">APK Path</label>
+              <input type="text" id="apk-path" placeholder="/path/to/app.apk" required>
+            </div>
+            <div class="form-group">
+              <label for="run-mode">Mode</label>
+              <select id="run-mode">
+                <option value="apk-only" selected>APK Only</option>
+                <option value="combined">Combined</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="knox-id">Knox APK ID (optional)</label>
+              <input type="text" id="knox-id" placeholder="For combined mode">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              Start Analysis
+            </button>
+            <span class="form-status" id="start-run-status"></span>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Runs Table -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+          </svg>
+          Analysis Runs
+        </div>
+        <span class="live-badge"><span class="dot"></span> Live</span>
+      </div>
+      <div class="table-wrapper">
+        {% if runs|length == 0 %}
+        <div class="empty-state">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          <h3>No Analysis Runs</h3>
+          <p>Start a new analysis by entering an APK path above, or check that ARTIFACTS_DIR points to your artifacts folder.</p>
+        </div>
+        {% else %}
+        <table id="runs-table">
+          <thead>
+            <tr>
+              <th>Analysis</th>
+              <th>Run ID</th>
+              <th>Mode</th>
+              <th>Started</th>
+              <th>Status</th>
+              <th>Events</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="runs-body">
+            {% for run in runs %}
+            <tr data-run-id="{{ run.run_id or run.analysis_id }}" data-analysis-id="{{ run.analysis_id }}">
+              <td>
+                <a href="/runs/{{ run.analysis_id }}{% if run.run_id %}/{{ run.run_id }}{% endif %}" class="mono">
+                  {{ run.analysis_id[:20] }}{% if run.analysis_id|length > 20 %}…{% endif %}
+                </a>
+              </td>
+              <td class="run-id-cell">
+                {% if run.run_id %}
+                <span class="primary mono">{{ run.run_id[:30] }}{% if run.run_id|length > 30 %}…{% endif %}</span>
+                {% else %}
+                <span class="secondary">legacy</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if run.mode %}
+                <span class="pill neutral">{{ run.mode }}</span>
+                {% else %}
+                <span style="color: var(--gray-400);">—</span>
+                {% endif %}
+              </td>
+              <td class="mono">{{ run.start_ts[:19] if run.start_ts else "—" }}</td>
+              <td>
+                {% if run.end_status == 'ok' or run.end_status == 'completed' or run.end_status == 'success' %}
+                <span class="pill ok">✓ Complete</span>
+                {% elif run.end_status == 'running' %}
+                <span class="pill running">● Running</span>
+                {% elif run.end_status == 'error' or run.end_status == 'failed' %}
+                <span class="pill error">✕ Failed</span>
+                {% elif run.end_status %}
+                <span class="pill neutral">{{ run.end_status }}</span>
+                {% else %}
+                <span style="color: var(--gray-400);">—</span>
+                {% endif %}
+              </td>
+              <td class="mono">{{ run.event_count }}</td>
+              <td>
+                <button class="btn-delete" onclick="deleteRun('{{ run.analysis_id }}', '{{ run.run_id or '' }}')" title="Delete run">
+                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="16" height="16">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                  </svg>
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </div>
+  </main>
+
   <script>
+    // State
+    let eventSource = null;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_DELAY = 30000;
+
+    // DOM Elements
+    const statusEl = document.getElementById('connection-status');
+    const statusLabel = statusEl.querySelector('.label');
+    const runCountEl = document.getElementById('run-count');
+    const runsBody = document.getElementById('runs-body');
     const form = document.getElementById('start-run-form');
-    const statusEl = document.getElementById('start-run-status');
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
+    const formStatus = document.getElementById('start-run-status');
+
+    // Connection status
+    function setStatus(state, label) {
+      statusEl.className = 'connection-status ' + state;
+      statusLabel.textContent = label;
+    }
+
+    // Format status pill
+    function formatStatus(status) {
+      if (!status) return '<span style="color: var(--gray-400);">—</span>';
+      if (['ok', 'completed', 'success'].includes(status)) {
+        return '<span class="pill ok">✓ Complete</span>';
+      }
+      if (status === 'running') {
+        return '<span class="pill running">● Running</span>';
+      }
+      if (['error', 'failed'].includes(status)) {
+        return '<span class="pill error">✕ Failed</span>';
+      }
+      return `<span class="pill neutral">${status}</span>`;
+    }
+
+    // Format mode pill
+    function formatMode(mode) {
+      if (!mode) return '<span style="color: var(--gray-400);">—</span>';
+      return `<span class="pill neutral">${mode}</span>`;
+    }
+
+    // Truncate string
+    function truncate(str, len) {
+      if (!str) return '';
+      return str.length > len ? str.slice(0, len) + '…' : str;
+    }
+
+    // Update runs table
+    function updateRunsTable(runs) {
+      if (!runsBody) return;
+
+      runCountEl.textContent = `${runs.length} runs`;
+
+      // Clear and rebuild
+      runsBody.innerHTML = '';
+
+      for (const run of runs) {
+        const tr = document.createElement('tr');
+        tr.dataset.runId = run.run_id || run.analysis_id;
+        tr.dataset.analysisId = run.analysis_id;
+
+        const href = run.run_id
+          ? `/runs/${run.analysis_id}/${run.run_id}`
+          : `/runs/${run.analysis_id}`;
+
+        const runIdCell = run.run_id
+          ? `<span class="primary mono">${truncate(run.run_id, 30)}</span>`
+          : '<span class="secondary">legacy</span>';
+
+        const startTs = run.start_ts ? run.start_ts.slice(0, 19) : '—';
+        const runIdParam = run.run_id ? `'${run.run_id}'` : "''";
+
+        tr.innerHTML = `
+          <td><a href="${href}" class="mono">${truncate(run.analysis_id, 20)}</a></td>
+          <td class="run-id-cell">${runIdCell}</td>
+          <td>${formatMode(run.mode)}</td>
+          <td class="mono">${startTs}</td>
+          <td>${formatStatus(run.end_status)}</td>
+          <td class="mono">${run.event_count || 0}</td>
+          <td>
+            <button class="btn-delete" onclick="deleteRun('${run.analysis_id}', ${runIdParam})" title="Delete run">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="16" height="16">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+              </svg>
+            </button>
+          </td>
+        `;
+        runsBody.appendChild(tr);
+      }
+    }
+
+    // Delete a run
+    async function deleteRun(analysisId, runId) {
+      const label = runId ? `run "${runId}"` : `analysis "${analysisId}"`;
+      if (!confirm(`Are you sure you want to delete ${label}?\n\nThis will permanently delete all artifacts for this run.`)) {
+        return;
+      }
+
+      try {
+        const url = runId
+          ? `/api/runs/${analysisId}/${runId}`
+          : `/api/runs/${analysisId}`;
+
+        const res = await fetch(url, { method: 'DELETE' });
+        if (!res.ok) {
+          const error = await res.json();
+          alert(`Failed to delete: ${error.detail || 'Unknown error'}`);
+          return;
+        }
+
+        const data = await res.json();
+        console.log('Deleted:', data);
+
+        // Remove the row from the table
+        const selector = runId
+          ? `tr[data-run-id="${runId}"]`
+          : `tr[data-analysis-id="${analysisId}"]`;
+        const row = document.querySelector(selector);
+        if (row) {
+          row.style.transition = 'opacity 0.3s ease';
+          row.style.opacity = '0';
+          setTimeout(() => row.remove(), 300);
+        }
+
+        // Update count
+        const remaining = document.querySelectorAll('#runs-body tr').length - 1;
+        runCountEl.textContent = `${remaining} runs`;
+      } catch (err) {
+        console.error('Delete failed:', err);
+        alert('Failed to delete run. See console for details.');
+      }
+    }
+
+    // Connect SSE
+    function connectStream() {
+      if (eventSource) {
+        eventSource.close();
+      }
+
+      setStatus('connecting', 'Connecting');
+      eventSource = new EventSource('/api/runs/list/stream');
+
+      eventSource.onopen = () => {
+        setStatus('connected', 'Live');
+        reconnectAttempts = 0;
+      };
+
+      eventSource.addEventListener('runs', (e) => {
+        try {
+          const runs = JSON.parse(e.data);
+          updateRunsTable(runs);
+        } catch (err) {
+          console.warn('Failed to parse runs:', err);
+        }
+      });
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        setStatus('disconnected', 'Offline');
+
+        reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), MAX_RECONNECT_DELAY);
+        setTimeout(connectStream, delay);
+      };
+    }
+
+    // Start run form
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
       const apkPath = document.getElementById('apk-path').value.trim();
       const mode = document.getElementById('run-mode').value;
       const knoxId = document.getElementById('knox-id').value.trim();
+
       if (!apkPath) {
-        statusEl.textContent = 'APK path is required.';
+        formStatus.textContent = 'APK path is required';
+        formStatus.className = 'form-status error';
         return;
       }
-      statusEl.textContent = 'Starting...';
+
+      formStatus.textContent = 'Starting analysis...';
+      formStatus.className = 'form-status';
+
       try {
         const response = await fetch('/api/runs/start', {
           method: 'POST',
@@ -96,20 +862,31 @@
             knox_apk_id: knoxId || null,
           }),
         });
+
         if (!response.ok) {
           const err = await response.json();
-          statusEl.textContent = err.detail || 'Failed to start run.';
+          formStatus.textContent = err.detail || 'Failed to start analysis';
+          formStatus.className = 'form-status error';
           return;
         }
+
         const data = await response.json();
-        statusEl.textContent = `Started: ${data.analysis_id}`;
+        formStatus.textContent = 'Started! Redirecting...';
+        formStatus.className = 'form-status success';
+
         if (data.analysis_id && data.run_id) {
           window.location.href = `/runs/${data.analysis_id}/${data.run_id}`;
+        } else if (data.analysis_id) {
+          window.location.href = `/runs/${data.analysis_id}`;
         }
       } catch (err) {
-        statusEl.textContent = 'Failed to start run.';
+        formStatus.textContent = 'Failed to start analysis';
+        formStatus.className = 'form-status error';
       }
     });
+
+    // Initialize
+    connectStream();
   </script>
 </body>
 </html>

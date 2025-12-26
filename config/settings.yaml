@@ -14,20 +14,24 @@ analysis:
   filter_common_libraries: true  # Filter androidx, google, kotlin library noise
   k_hop: 2
   max_seed_count: 20
+  flowdroid_callbacks_enabled: true
+  flowdroid_callbacks_timeout_sec: 300
+  flowdroid_callbacks_max_per_component: 500
+  flowdroid_callbacks_mode: "fast"
 llm:
   enabled: true
   provider: "vertex"
   api_key: "AQ.Ab8RN6KGJLaUG4w59C8brejLIj2SwhpuJmCc-520PBcIQBtP8w"
   base_url: "https://aiplatform.googleapis.com/v1"
   verify_ssl: false
-  timeout_sec: 60
+  timeout_sec: 1500
   model_orchestrator: "gemini-3-pro-preview"
-  model_recon: "gemini-3-flash-preview"
+  model_recon: "gemini-3-pro-preview"
   recon_max_tool_rounds: 3
   model_tier1: "gemini-3-flash-preview"
   model_verifier: "gemini-3-pro-preview"
   model_tier2: "gemini-3-flash-preview"
-  model_report: "gemini-3-flash-preview"
+  model_report: "gemini-3-pro-preview"
 telemetry:
   enabled: false
   service_name: "apk-analysis-agent"

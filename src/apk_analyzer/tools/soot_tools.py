@@ -15,6 +15,10 @@ def run_soot_extractor(
     k_hop: int = 2,
     target_sdk: int | None = None,
     android_jar: str | Path | None = None,
+    flowdroid_callbacks_enabled: bool = True,
+    flowdroid_callbacks_timeout_sec: int | None = None,
+    flowdroid_callbacks_max_per_component: int | None = None,
+    flowdroid_callbacks_mode: str | None = None,
     timeout_sec: int = 600,
 ) -> Optional[Path]:
     apk_path = Path(apk_path)
@@ -39,6 +43,16 @@ def run_soot_extractor(
         "--k-hop",
         str(k_hop),
     ]
+    if flowdroid_callbacks_enabled:
+        cmd.append("--flowdroid-callbacks")
+        if flowdroid_callbacks_timeout_sec:
+            cmd.extend(["--flowdroid-callbacks-timeout", str(flowdroid_callbacks_timeout_sec)])
+        if flowdroid_callbacks_max_per_component:
+            cmd.extend(["--flowdroid-callbacks-max-per-component", str(flowdroid_callbacks_max_per_component)])
+        if flowdroid_callbacks_mode:
+            cmd.extend(["--flowdroid-callbacks-mode", str(flowdroid_callbacks_mode)])
+    else:
+        cmd.append("--no-flowdroid-callbacks")
     if target_sdk:
         cmd.extend(["--target-sdk", str(target_sdk)])
     if android_jar:

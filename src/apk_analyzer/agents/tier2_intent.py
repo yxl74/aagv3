@@ -51,6 +51,7 @@ class Tier2IntentAgent:
                 seed_ids=seed_ids,
                 reason="LLM disabled; no intent inference.",
                 flowdroid_summary=payload.get("flowdroid_summary") or {},
+                package_name=payload.get("static_context", {}).get("package_name", ""),
             )
 
         response = self.llm_client.complete(self.prompt, payload, model=self.model)
@@ -61,6 +62,7 @@ class Tier2IntentAgent:
             seed_ids=seed_ids,
             reason="LLM output invalid; no intent inference.",
             flowdroid_summary=payload.get("flowdroid_summary") or {},
+            package_name=payload.get("static_context", {}).get("package_name", ""),
         )
 
         # Required keys for case-level output
@@ -87,6 +89,21 @@ class Tier2IntentAgent:
             # Keep flowdroid_summary from input if not in output
             if "flowdroid_summary" not in result:
                 result["flowdroid_summary"] = payload.get("flowdroid_summary") or {}
+            # Ensure execution_guidance is present (skeleton if LLM omitted it)
+            if "execution_guidance" not in result:
+                result["execution_guidance"] = {
+                    "case_id": case_id,
+                    "primary_seed_id": primary_seed_id,
+                    "seed_ids": seed_ids,
+                    "category_id": "",
+                    "package_name": payload.get("static_context", {}).get("package_name", ""),
+                    "target_capability": "",
+                    "environment_capabilities": {"adb_root": True, "frida_available": True},
+                    "prerequisites": [],
+                    "steps": [],
+                    "success_criteria": [],
+                    "cleanup": [],
+                }
 
         if result is fallback and self.event_logger:
             info = describe_llm_failure(response, required_keys=required_keys)
@@ -108,6 +125,7 @@ class Tier2IntentAgent:
         seed_ids: List[str],
         reason: str,
         flowdroid_summary: Dict[str, Any],
+        package_name: str = "",
     ) -> Dict[str, Any]:
         """Build fallback response for case-level Tier2."""
         return {
@@ -128,4 +146,18 @@ class Tier2IntentAgent:
             "taint_recommended": False,
             "taint_question": "",
             "flowdroid_summary": flowdroid_summary,
+            # Execution guidance skeleton for Qwen runner
+            "execution_guidance": {
+                "case_id": case_id,
+                "primary_seed_id": primary_seed_id,
+                "seed_ids": seed_ids,
+                "category_id": "",
+                "package_name": package_name,
+                "target_capability": "",
+                "environment_capabilities": {"adb_root": True, "frida_available": True},
+                "prerequisites": [],
+                "steps": [],
+                "success_criteria": [],
+                "cleanup": [],
+            },
         }

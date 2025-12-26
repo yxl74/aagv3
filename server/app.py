@@ -369,6 +369,23 @@ def _render_run_detail(
     run_id = run_id_override or next((e.get("run_id") for e in events if e.get("run_id")), None)
     if not run_id and events_path:
         run_id = _run_id_from_path(events_path)
+
+    # Load threat report if available
+    threat_report = None
+    # Try to find report in run directory
+    report_candidates = []
+    if events_path:
+        report_candidates.append(events_path.parent / "report" / "threat_report.json")
+    if run_id:
+        report_candidates.append(ARTIFACTS_DIR / analysis_id / "runs" / run_id / "report" / "threat_report.json")
+    for report_path in report_candidates:
+        if report_path.exists():
+            try:
+                threat_report = json.loads(report_path.read_text())
+                break
+            except Exception:
+                pass
+
     return templates.TemplateResponse(
         "run_detail.html",
         {
@@ -387,6 +404,45 @@ def _render_run_detail(
             "api_events": api_events,
             "execution_flow": execution_flow,
             "artifacts_dir": str(ARTIFACTS_DIR),
+            "threat_report": threat_report,
+        },
+    )
+
+
+@app.get("/api/runs/list/stream")
+def stream_run_list():
+    """Stream run list updates via SSE."""
+    async def _run_list_stream():
+        last_state: Dict[str, Any] = {}
+        while True:
+            runs = _list_runs()
+            current_state = {r.get("run_id") or r.get("analysis_id"): r for r in runs}
+            if current_state != last_state:
+                yield f"event: runs\n"
+                yield f"data: {json.dumps(runs, ensure_ascii=True)}\n\n"
+                last_state = current_state
+            yield ": heartbeat\n\n"
+            await asyncio.sleep(2)
+    return StreamingResponse(
+        _run_list_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.get("/api/runs/stream/{analysis_id}")
+def stream_run(analysis_id: str, run_id: str | None = None, from_start: bool = False):
+    return StreamingResponse(
+        _event_stream(analysis_id, run_id, from_start=from_start),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
         },
     )
 
@@ -460,9 +516,12 @@ async def _event_stream(
     run_id: str | None,
     from_start: bool,
     heartbeat_sec: float = 5.0,
+    max_wait_sec: float = 30.0,
 ):
     last_heartbeat = asyncio.get_event_loop().time()
     events_path: Path | None = None
+    event_id = 0
+    waited = 0.0
     while not events_path:
         if run_id:
             events_path = _resolve_run_path(analysis_id, run_id)
@@ -470,8 +529,12 @@ async def _event_stream(
             events_path = _latest_run_path(analysis_id)
         if events_path:
             break
+        if waited >= max_wait_sec:
+            yield f'event: error\ndata: {{"error": "Events file not found after {max_wait_sec:.0f}s", "analysis_id": "{analysis_id}", "run_id": "{run_id or ""}"}}\n\n'
+            return
         yield ": waiting-for-events\n\n"
         await asyncio.sleep(0.5)
+        waited += 0.5
 
     if not events_path:
         return
@@ -484,6 +547,9 @@ async def _event_stream(
             if line:
                 payload = line.strip()
                 if payload:
+                    event_id += 1
+                    yield f"id: {event_id}\n"
+                    yield f"event: ledger\n"
                     yield f"data: {payload}\n\n"
                 continue
             now = asyncio.get_event_loop().time()
@@ -531,12 +597,50 @@ def start_run(payload: StartRunRequest):
     }
 
 
-@app.get("/api/runs/stream/{analysis_id}")
-def stream_run(analysis_id: str, run_id: str | None = None, from_start: bool = False):
-    return StreamingResponse(
-        _event_stream(analysis_id, run_id, from_start=from_start),
-        media_type="text/event-stream",
-    )
+@app.delete("/api/runs/{analysis_id}/{run_id}")
+def delete_run(analysis_id: str, run_id: str):
+    """Delete a specific run and its artifacts."""
+    import shutil
+
+    # Delete run directory
+    run_dir = ARTIFACTS_DIR / analysis_id / "runs" / run_id
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+
+    # Delete observability log
+    obs_log = ARTIFACTS_DIR / analysis_id / "observability" / "runs" / f"{run_id}.jsonl"
+    if obs_log.exists():
+        obs_log.unlink()
+
+    # Check if analysis has any remaining runs
+    runs_dir = ARTIFACTS_DIR / analysis_id / "runs"
+    obs_runs_dir = ARTIFACTS_DIR / analysis_id / "observability" / "runs"
+    has_runs = (runs_dir.exists() and any(runs_dir.iterdir())) or \
+               (obs_runs_dir.exists() and any(obs_runs_dir.iterdir()))
+
+    return {
+        "deleted": True,
+        "analysis_id": analysis_id,
+        "run_id": run_id,
+        "analysis_empty": not has_runs,
+    }
+
+
+@app.delete("/api/runs/{analysis_id}")
+def delete_analysis(analysis_id: str):
+    """Delete an entire analysis and all its runs."""
+    import shutil
+
+    analysis_dir = ARTIFACTS_DIR / analysis_id
+    if not analysis_dir.exists():
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    shutil.rmtree(analysis_dir)
+
+    return {
+        "deleted": True,
+        "analysis_id": analysis_id,
+    }
 
 
 @app.get("/runs/{analysis_id}/artifact/{rel_path:path}")
@@ -547,3 +651,150 @@ def artifact(analysis_id: str, rel_path: str):
     if path.suffix in {".json", ".txt", ".md", ".log", ".xml"}:
         return PlainTextResponse(path.read_text(encoding="utf-8", errors="ignore"))
     return FileResponse(str(path))
+
+
+def _graph_to_dot(data: dict) -> str:
+    """Convert graph JSON (nodes/edges or slice format) to DOT format."""
+    lines = ["digraph G {"]
+    lines.append('  rankdir=TB;')
+    lines.append('  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10];')
+    lines.append('  edge [fontname="Helvetica", fontsize=9];')
+
+    # Handle slice format (units/edges)
+    if "slice" in data and isinstance(data["slice"], dict):
+        slice_data = data["slice"]
+        units = slice_data.get("units", [])
+        edges = slice_data.get("edges", [])
+
+        for unit in units:
+            uid = unit.get("unit_id", "")
+            stmt = unit.get("stmt", "")[:60].replace('"', '\\"').replace('\n', ' ')
+            tags = unit.get("tags", [])
+
+            if "SEED" in tags:
+                color = "#ff3b30"
+                fontcolor = "white"
+            elif "SOURCE" in tags:
+                color = "#34c759"
+                fontcolor = "white"
+            elif "SINK" in tags:
+                color = "#ff9500"
+                fontcolor = "white"
+            else:
+                color = "#f5f5f7"
+                fontcolor = "#1d1d1f"
+
+            lines.append(f'  {uid} [label="{uid}: {stmt}", fillcolor="{color}", fontcolor="{fontcolor}"];')
+
+        for edge in edges:
+            from_id = edge.get("from", "")
+            to_id = edge.get("to", "")
+            edge_type = edge.get("type", "")
+            style = "dashed" if "data" in edge_type else "solid"
+            lines.append(f'  {from_id} -> {to_id} [style={style}];')
+
+    # Handle standard CFG format (nodes/edges)
+    elif "nodes" in data and "edges" in data:
+        nodes = data.get("nodes", [])
+        edges = data.get("edges", [])
+
+        for idx, node in enumerate(nodes):
+            nid = node.get("id", f"n{idx}")
+            label = node.get("label", node.get("name", nid))[:50].replace('"', '\\"')
+            ntype = (node.get("type", "") or "").lower()
+
+            if ntype in ("entry", "start"):
+                color = "#34c759"
+                fontcolor = "white"
+            elif ntype in ("exit", "end", "return"):
+                color = "#ff3b30"
+                fontcolor = "white"
+            elif ntype in ("branch", "condition", "if"):
+                color = "#ff9500"
+                fontcolor = "white"
+            else:
+                color = "#e5e7eb"
+                fontcolor = "#1d1d1f"
+
+            lines.append(f'  {nid} [label="{label}", fillcolor="{color}", fontcolor="{fontcolor}"];')
+
+        for edge in edges:
+            from_id = edge.get("from", edge.get("source", ""))
+            to_id = edge.get("to", edge.get("target", ""))
+            if from_id and to_id:
+                lines.append(f'  {from_id} -> {to_id};')
+
+    lines.append("}")
+    return "\n".join(lines)
+
+
+@app.get("/runs/{analysis_id}/artifact/{rel_path:path}/render.png")
+def artifact_graph_png(analysis_id: str, rel_path: str):
+    """Render a graph JSON as PNG using Graphviz."""
+    import hashlib
+    import tempfile
+
+    path = _safe_artifact_path(analysis_id, rel_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    if path.suffix != ".json":
+        raise HTTPException(status_code=400, detail="Only JSON files can be rendered")
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+
+    # Check if it's a renderable graph
+    has_slice = "slice" in data and isinstance(data.get("slice"), dict)
+    has_nodes = "nodes" in data and "edges" in data
+
+    if not has_slice and not has_nodes:
+        raise HTTPException(status_code=400, detail="Not a renderable graph format")
+
+    # Check size limits
+    if has_nodes:
+        node_count = len(data.get("nodes", []))
+        if node_count > 500:
+            raise HTTPException(status_code=400, detail=f"Graph too large ({node_count} nodes). Max 500.")
+
+    if has_slice:
+        unit_count = len(data["slice"].get("units", []))
+        if unit_count > 200:
+            raise HTTPException(status_code=400, detail=f"Slice too large ({unit_count} units). Max 200.")
+
+    # Generate DOT
+    dot_content = _graph_to_dot(data)
+
+    # Check for cached PNG
+    cache_dir = ARTIFACTS_DIR / analysis_id / ".cache" / "png"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_key = hashlib.md5(dot_content.encode()).hexdigest()
+    cached_path = cache_dir / f"{cache_key}.png"
+
+    if cached_path.exists():
+        return FileResponse(str(cached_path), media_type="image/png")
+
+    # Render with Graphviz
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".dot", delete=False) as dot_file:
+        dot_file.write(dot_content)
+        dot_path = dot_file.name
+
+    try:
+        result = subprocess.run(
+            ["dot", "-Tpng", "-Gdpi=150", dot_path, "-o", str(cached_path)],
+            capture_output=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            error = result.stderr.decode("utf-8", errors="ignore")
+            raise HTTPException(status_code=500, detail=f"Graphviz error: {error[:200]}")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Graph rendering timed out")
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Graphviz not installed")
+    finally:
+        Path(dot_path).unlink(missing_ok=True)
+
+    return FileResponse(str(cached_path), media_type="image/png")

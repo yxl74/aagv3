@@ -31,13 +31,43 @@ public class SootExtractorMain {
         String cgAlgo = params.getOrDefault("--cg-algo", "SPARK");
         String targetSdkRaw = params.get("--target-sdk");
         String explicitJar = params.get("--android-jar");
+        boolean flowdroidCallbacksEnabled = parseBool(params.get("--flowdroid-callbacks"), true);
+        if (parseBool(params.get("--no-flowdroid-callbacks"), false)) {
+            flowdroidCallbacksEnabled = false;
+        }
+        int callbacksMaxPerComponent = parseInt(params.get("--flowdroid-callbacks-max-per-component"), 500);
+        int callbacksTimeoutSec = parseInt(params.get("--flowdroid-callbacks-timeout"), 120);
+        String callbacksMode = params.getOrDefault("--flowdroid-callbacks-mode", "default");
 
         AndroidJarSelection jarSelection = configureSoot(apkPath, androidPlatforms, cgAlgo, targetSdkRaw, explicitJar);
 
         Scene.v().loadNecessaryClasses();
         List<SootMethod> entryPoints = buildEntryPoints();
+        FlowDroidCallbackExtractor.Prepared callbackPrepared = null;
+        if (flowdroidCallbacksEnabled) {
+            try {
+                callbackPrepared = FlowDroidCallbackExtractor.prepareCallbackAnalyzer(
+                        apkPath,
+                        callbacksMaxPerComponent,
+                        callbacksTimeoutSec,
+                        callbacksMode
+                );
+            } catch (Exception e) {
+                System.err.println("FlowDroid callback preparation failed, using lifecycle entrypoints only: " + e);
+            }
+        }
         Scene.v().setEntryPoints(entryPoints);
         PackManager.v().runPacks();
+
+        FlowDroidCallbackExtractor.Result callbackResult = null;
+        if (flowdroidCallbacksEnabled && callbackPrepared != null) {
+            try {
+                callbackResult = FlowDroidCallbackExtractor.readCallbacks(callbackPrepared);
+            } catch (Exception e) {
+                System.err.println("FlowDroid callback read failed, using lifecycle entrypoints only: " + e);
+            }
+        }
+        entryPoints = mergeEntryPoints(entryPoints, callbackResult != null ? callbackResult.callbackMethods : null);
 
         File out = new File(outDir);
         if (!out.exists()) {
@@ -47,12 +77,18 @@ public class SootExtractorMain {
         writeCallGraph(
                 new File(out, "callgraph.json"),
                 entryPoints,
+                callbackResult != null ? callbackResult.callbacks : Collections.emptyList(),
+                flowdroidCallbacksEnabled,
                 apkPath,
                 androidPlatforms,
                 cgAlgo,
                 jarSelection
         );
         writeEntrypoints(new File(out, "entrypoints.json"), entryPoints);
+        if (flowdroidCallbacksEnabled) {
+            writeCallbacks(new File(out, "callbacks.json"),
+                    callbackResult != null ? callbackResult.callbacks : Collections.emptyList());
+        }
         writeClassHierarchy(new File(out, "class_hierarchy.json"));
         writeCfgs(new File(out, "cfg"), new File(out, "method_index.json"));
     }
@@ -90,6 +126,8 @@ public class SootExtractorMain {
     private static void writeCallGraph(
             File outputFile,
             List<SootMethod> entryPoints,
+            List<FlowDroidCallbackExtractor.CallbackInfo> callbacks,
+            boolean flowdroidCallbacksEnabled,
             String apkPath,
             String androidPlatforms,
             String cgAlgo,
@@ -159,15 +197,24 @@ public class SootExtractorMain {
         metadata.put("android_jar_api", jarSelection.apiLevel);
         metadata.put("application_class_count", Scene.v().getApplicationClasses().size());
         metadata.put("entrypoint_count", entryPoints.size());
+        metadata.put("callback_count", callbacks.size());
+        metadata.put("flowdroid_callbacks_enabled", flowdroidCallbacksEnabled);
         metadata.put("cg_edge_count", cgEdges);
         metadata.put("jimple_edge_count", jimpleEdges);
         metadata.put("edge_total", edges.size());
+        List<String> entrypointSources = new ArrayList<>();
+        entrypointSources.add("lifecycle");
+        if (flowdroidCallbacksEnabled) {
+            entrypointSources.add("flowdroid_callbacks");
+        }
+        metadata.put("entrypoint_sources", entrypointSources);
         List<String> entrypointSamples = new ArrayList<>();
         for (int i = 0; i < Math.min(entryPoints.size(), 50); i++) {
             entrypointSamples.add(entryPoints.get(i).getSignature());
         }
         metadata.put("entrypoints", entrypointSamples);
         payload.put("metadata", metadata);
+        payload.put("callbacks", callbacks);
 
         writeJson(outputFile, payload);
     }
@@ -488,6 +535,22 @@ public class SootExtractorMain {
         writeJson(outputFile, payload);
     }
 
+    private static void writeCallbacks(File outputFile, List<FlowDroidCallbackExtractor.CallbackInfo> callbacks)
+            throws Exception {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("callbacks", callbacks);
+        payload.put("count", callbacks.size());
+        writeJson(outputFile, payload);
+    }
+
+    private static List<SootMethod> mergeEntryPoints(List<SootMethod> base, List<SootMethod> extra) {
+        LinkedHashSet<SootMethod> merged = new LinkedHashSet<>(base);
+        if (extra != null) {
+            merged.addAll(extra);
+        }
+        return new ArrayList<>(merged);
+    }
+
     private static String edgeKey(Map<String, Object> edgeObj) {
         String caller = String.valueOf(edgeObj.get("caller"));
         String callee = String.valueOf(edgeObj.get("callee"));
@@ -563,6 +626,24 @@ public class SootExtractorMain {
             }
         }
         return params;
+    }
+
+    private static boolean parseBool(String raw, boolean defaultValue) {
+        if (raw == null) {
+            return defaultValue;
+        }
+        return "true".equalsIgnoreCase(raw) || "1".equals(raw);
+    }
+
+    private static int parseInt(String raw, int defaultValue) {
+        if (raw == null || raw.isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException ignored) {
+            return defaultValue;
+        }
     }
 
     private static String require(Map<String, String> params, String key) {

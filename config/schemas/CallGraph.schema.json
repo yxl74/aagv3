@@ -28,6 +28,19 @@
         }
       }
     },
+    "callbacks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["method"],
+        "properties": {
+          "method": {"type": "string"},
+          "type": {"type": "string"},
+          "component": {"type": "string"},
+          "registration_site": {"type": "string"}
+        }
+      }
+    },
     "metadata": {"type": "object"}
   }
 }
