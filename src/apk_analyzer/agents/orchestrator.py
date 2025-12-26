@@ -17,6 +17,9 @@ from apk_analyzer.agents.verifier import VerifierAgent
 from apk_analyzer.analyzers.context_bundle_builder import ContextBundleBuilder, build_static_context
 from apk_analyzer.analyzers.dex_invocation_indexer import ApiCallSite, DexInvocationIndexer, SuspiciousApiIndex
 from apk_analyzer.analyzers.jadx_extractors import extract_method_source, run_jadx
+from apk_analyzer.analyzers.intent_contracts import extract_intent_contracts
+from apk_analyzer.analyzers.code_artifacts import extract_file_artifacts, extract_log_hints
+from apk_analyzer.analyzers.execution_guidance_validator import validate_execution_guidance
 from apk_analyzer.analyzers.local_query import search_source_code
 from apk_analyzer.analyzers.mitre_mapper import load_rules, load_technique_index, map_evidence
 from apk_analyzer.analyzers.sources_sinks_subset import generate_subset
@@ -88,7 +91,9 @@ class Orchestrator:
             )
             full_knox = knox_client.get_full_analysis(knox_apk_id)
 
-        temp_ctx = TemporaryDirectory(prefix="jadx-") if mode == "apk-only" else _noop_context()
+        jadx_enabled = bool(self.settings.get("analysis", {}).get("jadx_enabled", True))
+        use_jadx = bool(apk_path) and jadx_enabled
+        temp_ctx = TemporaryDirectory(prefix="jadx-") if use_jadx else _noop_context()
         success = False
         try:
             with temp_ctx as tmpdir:
@@ -106,7 +111,7 @@ class Orchestrator:
                     cert_count=len(static_outputs.get("cert", {}).get("cert_files", []) or []),
                 )
 
-                if mode == "apk-only":
+                if use_jadx:
                     event_logger.stage_start("jadx")
                     with span("tool.jadx", tool_name="jadx"):
                         jadx_path = self.settings.get("analysis", {}).get("jadx_path", "jadx")
@@ -141,7 +146,23 @@ class Orchestrator:
 
                 strings = static_outputs.get("strings", {})
                 component_intents = static_outputs.get("component_intents", {})
+                intent_contracts: Dict[str, Any] = {}
+                file_artifacts: Dict[str, Any] = {}
+                log_hints: Dict[str, Any] = {}
+                if jadx_root:
+                    intent_contracts = extract_intent_contracts(jadx_root, manifest)
+                    artifact_store.write_json("static/intent_contracts.json", intent_contracts)
+                    file_artifacts = extract_file_artifacts(jadx_root)
+                    log_hints = extract_log_hints(jadx_root)
+                    artifact_store.write_json("static/file_artifacts.json", file_artifacts)
+                    artifact_store.write_json("static/log_hints.json", log_hints)
                 static_context = build_static_context(manifest, strings)
+                if intent_contracts:
+                    static_context["intent_contracts"] = intent_contracts
+                if file_artifacts:
+                    static_context["file_artifacts"] = file_artifacts
+                if log_hints:
+                    static_context["log_hints"] = log_hints
 
                 callgraph_path = None
                 callgraph_data = None
@@ -680,6 +701,9 @@ class Orchestrator:
                         "fcg": primary_bundle.get("fcg_neighborhood"),
                         "static_context": primary_bundle.get("static_context"),
                         "component_intents": component_intents,  # Intent-filters for driver synthesis
+                        "intent_contracts": (primary_bundle.get("static_context") or {}).get("intent_contracts"),
+                        "file_artifacts": (primary_bundle.get("static_context") or {}).get("file_artifacts"),
+                        "log_hints": (primary_bundle.get("static_context") or {}).get("log_hints"),
                         "case_context": primary_bundle.get("case_context"),
                         # FlowDroid results
                         "flowdroid_summary": flowdroid_summary or {},
@@ -691,6 +715,21 @@ class Orchestrator:
 
                     with llm_context("tier2", seed_id=case_seed_ids[0]):
                         tier2 = tier2_agent.run(tier2_input)
+
+                    static_ctx = primary_bundle.get("static_context") or {}
+                    intent_contracts_full = static_ctx.get("intent_contracts") or {}
+                    file_artifacts_full = static_ctx.get("file_artifacts") or {}
+                    log_hints_full = static_ctx.get("log_hints") or {}
+                    if isinstance(tier2, dict) and (intent_contracts_full or file_artifacts_full or log_hints_full):
+                        exec_guidance = tier2.get("execution_guidance")
+                        if isinstance(exec_guidance, dict):
+                            tier2["execution_guidance"] = validate_execution_guidance(
+                                exec_guidance,
+                                intent_contracts_full,
+                                file_artifacts=file_artifacts_full,
+                                log_hints=log_hints_full,
+                                package_name=package_name,
+                            )
 
                     # Save Tier2 result using case_id (or primary seed_id if same)
                     tier2_filename = case_id if case_id != case_seed_ids[0] else case_seed_ids[0]
@@ -1393,6 +1432,51 @@ def _filter_fcg(fcg: Dict[str, Any], package_name: Optional[str]) -> Dict[str, A
     }
 
 
+def _class_from_signature(signature: str) -> Optional[str]:
+    match = re.match(r"<([^:]+):", signature or "")
+    return match.group(1) if match else None
+
+
+def _referenced_components(seeds: List[Dict[str, Any]]) -> set[str]:
+    referenced: set[str] = set()
+    for seed in seeds:
+        tier1 = seed.get("tier1") or {}
+        trigger = tier1.get("trigger_surface") or {}
+        comp_name = trigger.get("component_name")
+        if comp_name:
+            referenced.add(comp_name)
+        caller = seed.get("caller_method") or ""
+        class_name = _class_from_signature(caller)
+        if class_name:
+            referenced.add(class_name)
+            if "$" in class_name:
+                referenced.add(class_name.split("$")[0])
+    return referenced
+
+
+def _filter_component_map(
+    component_map: Dict[str, Any],
+    seeds: List[Dict[str, Any]],
+    fallback_limit: int = 10,
+) -> Dict[str, Any]:
+    """
+    Filter a component->data mapping down to seed-referenced components.
+    """
+    if not component_map or not seeds:
+        return {}
+
+    referenced = _referenced_components(seeds)
+    if not referenced:
+        return dict(list(component_map.items())[:fallback_limit])
+
+    return {name: info for name, info in component_map.items() if name in referenced}
+
+
+def _filter_intent_contracts(intent_contracts: Dict[str, Any], seeds: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Filter intent contracts down to components referenced by seeds."""
+    return _filter_component_map(intent_contracts, seeds)
+
+
 def _consolidate_tier1_for_tier2(tier1: Dict[str, Any], bundle: Dict[str, Any]) -> Dict[str, Any]:
     """
     Extract driver-relevant fields from Tier1 output for Tier2.
@@ -1440,6 +1524,16 @@ def shape_tier2_payload(
         # Omit: permissions, strings_nearby (not needed for driver synthesis)
     }
 
+    # Consolidate seeds - keep driver-relevant fields only
+    seeds = tier2_input.get("seeds", [])
+    # Note: seeds already contain tier1 output and bundle info from caller
+    # We keep the existing structure as the orchestrator already passes consolidated data
+
+    # Filter component-scoped artifacts to seed-relevant components
+    intent_contracts = _filter_intent_contracts(tier2_input.get("intent_contracts", {}), seeds)
+    file_artifacts = _filter_component_map(tier2_input.get("file_artifacts", {}), seeds)
+    log_hints = _filter_component_map(tier2_input.get("log_hints", {}), seeds)
+
     # Extract minimal case_context
     case_context = tier2_input.get("case_context", {})
     minimal_case = None
@@ -1451,11 +1545,6 @@ def shape_tier2_payload(
             # Omit: other fields not needed for driver
         }
 
-    # Consolidate seeds - keep driver-relevant fields only
-    seeds = tier2_input.get("seeds", [])
-    # Note: seeds already contain tier1 output and bundle info from caller
-    # We keep the existing structure as the orchestrator already passes consolidated data
-
     payload = {
         "case_id": tier2_input.get("case_id"),
         "primary_seed_id": tier2_input.get("primary_seed_id"),
@@ -1465,6 +1554,9 @@ def shape_tier2_payload(
         "fcg": filtered_fcg,
         "static_context": minimal_static,
         "component_intents": tier2_input.get("component_intents"),  # Intent-filters for driver synthesis
+        "intent_contracts": intent_contracts,
+        "file_artifacts": file_artifacts,
+        "log_hints": log_hints,
         "case_context": minimal_case,
         "flowdroid_summary": tier2_input.get("flowdroid_summary"),
     }

@@ -7,8 +7,8 @@ LLM-assisted Android APK malware analysis pipeline aligned to LAMD: deterministi
 - Knox Vision API client for static metadata, decompiled source access, bytecode method lookup, and APK download.
 - Local static extractors (manifest, strings, certs, component intent-filters) using Androguard + ZIP parsing.
 - Callgraph-sensitive API matcher (catalog-driven) with reachability from Android entrypoints.
-- Recon agent with tool runner to build investigation cases from sensitive API hits.
-- Suspicious API seeding via recon cases or DEX invocation indexing (Androguard 4.x tested), with Knox/JADX fallback.
+- Recon agent with tool runner to build threat categories from dangerous API hits.
+- Suspicious API seeding via recon threat categories or DEX invocation indexing (Androguard 4.x tested), with Knox/JADX fallback.
 - Java-based Soot extractor that exports call graph JSON and per-method CFG JSON, using component lifecycle entrypoints plus FlowDroid callback analysis (fast/default) to include framework-invoked callbacks.
 - Context bundle builder with backward CFG slices, branch conditions, and k-hop callgraph neighborhoods.
 - **Token-optimized LLM payloads**: Tier1 and Tier2 inputs are shaped to maximize value per token (filtered permissions, filtered strings, filtered FCG, optional JADX source).
@@ -41,11 +41,11 @@ Identifiers:
 4) Graph extraction:
    - Build callgraph + per-method CFGs with Soot using Android platform jars (target SDK -> nearest higher jar selection).
    - Default callgraph algorithm is SPARK; use CHA only if you need extra coverage and can tolerate more noise.
-5) Sensitive API matching:
-   - Match callgraph edges against the sensitive API catalog and compute entrypoint reachability.
+5) Dangerous API matching:
+   - Match callgraph edges against the dangerous API catalog and compute entrypoint reachability.
 6) Recon + seeding:
-   - Recon turns sensitive hits into investigation cases.
-   - Seeding produces a `SuspiciousApiIndex` from cases; if no cases, fall back to DEX invocation indexing, then Knox/JADX search.
+   - Recon turns dangerous API hits into threat categories.
+   - Seeding produces a `SuspiciousApiIndex` from threat categories; if none, fall back to DEX invocation indexing, then Knox/JADX search.
 7) Context bundles + control-flow paths:
    - Build backward CFG slices and branch conditions per seed.
    - Derive entrypoint -> sink control-flow paths (method chain + callsite statements) and attach branch constraints.
@@ -144,8 +144,8 @@ Stage B: Graph extraction
 - **Outputs**: `artifacts/{analysis_id}/runs/{run_id}/graphs/callgraph.json`, `graphs/cfg/*.json`, `graphs/method_index.json`, `graphs/class_hierarchy.json`, `graphs/entrypoints.json`.
 - **Callback outputs**: `graphs/callbacks.json` (FlowDroid callback methods + registration sites), and `callgraph.json` metadata includes `callback_count` and `flowdroid_callbacks_enabled`.
 
-Stage C: Sensitive API matching (catalog-driven)
-- **Sensitive API catalog** (`config/android_sensitive_api_catalog.json`): maps Soot signatures to categories, priorities, and tags. Includes:
+Stage C: Dangerous API matching (catalog-driven)
+- **Dangerous API catalog** (`config/android_sensitive_api_catalog.json`): maps Soot signatures to categories, priorities, and tags. Includes:
   - Surveillance APIs (audio, camera, screen capture, location)
   - Data collection APIs (contacts, SMS, call log, media, clipboard)
   - Abuse patterns (accessibility, overlay, device admin)
@@ -157,14 +157,14 @@ Stage C: Sensitive API matching (catalog-driven)
 - Caller filtering: by default, all non-framework callers are allowed (including third-party SDKs). Set `analysis.allow_third_party_callers: false` to restrict hits to the app package.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/seeds/sensitive_api_hits.json`.
 
-Stage D: Recon + case creation (LLM)
-- **Recon agent** (`src/apk_analyzer/agents/recon.py`): consumes manifest summary + callgraph summary + sensitive hits and returns `cases` for investigation.
+Stage D: Recon + threat category creation (LLM)
+- **Recon agent** (`src/apk_analyzer/agents/recon.py`): consumes manifest summary + callgraph summary + dangerous API hits and returns `threat categories` for investigation.
 - **Category correction**: generic APIs like `ContentResolver.query()` are disambiguated by examining caller method context (e.g., `getPhotos` → COLLECTION_FILES_MEDIA, `readContacts` → COLLECTION_CONTACTS, not SMS).
-- **Recon tools** (`src/apk_analyzer/agents/recon_tools.py`): LLM may call `get_hit`, `list_hits`, `get_summary`, `get_entrypoints` to refine cases.
+- **Recon tools** (`src/apk_analyzer/agents/recon_tools.py`): LLM may call `get_hit`, `list_hits`, `get_summary`, `get_entrypoints` to refine threat categories.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/recon.json`.
 
 Stage E: Seeding (SuspiciousApiIndex)
-- If recon cases exist, they are converted into a `SuspiciousApiIndex` (high-confidence callsites).
+- If recon threat categories exist, they are converted into a `SuspiciousApiIndex` (code blocks to investigate).
 - Otherwise, **DEX invocation indexing** (`src/apk_analyzer/analyzers/dex_invocation_indexer.py`) scans DEX with Androguard (4.x tested) and matches `config/suspicious_api_catalog.json`.
 - If DEX parsing fails or yields no hits, fallback seeding uses Knox source search (combined mode) or JADX local search (apk-only mode), with lower confidence.
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/seeds/suspicious_api_index.json`.
@@ -216,7 +216,7 @@ Stage J: Reporting + MITRE mapping
 - **MITRE mapping** (`config/mitre/` + `src/apk_analyzer/analyzers/mitre_mapper.py`): maps extracted evidence to ATT&CK techniques.
 - **Report** (`src/apk_analyzer/agents/report.py`): synthesizes final threat report with structured `driver_guidance` for dynamic analysis automation.
 - **Driver guidance fields**: each Tier2 output includes:
-  - `case_id`, `primary_seed_id`, `seed_ids_analyzed`: traceability to investigation cases
+  - `case_id`, `primary_seed_id`, `seed_ids_analyzed`: traceability to threat categories
   - `driver_plan`: human-readable array of executable steps with `method` (adb/frida/manual/netcat), `details` (concrete command), `targets_seeds`
   - `environment_setup`: required setup (listeners, permissions, Frida hooks)
   - `execution_checks`: how to verify the behavior was triggered
@@ -231,7 +231,7 @@ Stage J: Reporting + MITRE mapping
   - `prompts/`: LLM prompt templates (recon.md, tier1_summarize.md, tier1_repair.md, tier2_intent.md, tier3_final.md)
 - `java/soot-extractor/`: Java Soot extractor (Gradle)
 - `config/`: settings, schemas, suspicious API catalogs, SourcesAndSinks, MITRE mapping
-- `config/android_sensitive_api_catalog.json`: catalog-driven sensitive API definitions for recon (includes DeviceAdminReceiver, banking app detection, etc.)
+- `config/android_sensitive_api_catalog.json`: catalog-driven dangerous API definitions for recon (includes DeviceAdminReceiver, banking app detection, etc.)
 - `config/suspicious_api_catalog.json`: fallback catalog for DEX-based seeding
 - `scripts/`: entrypoints and helpers
 - `server/`: FastAPI observability UI (runs at `http://localhost:8000`)
@@ -497,7 +497,7 @@ Key settings live in `config/settings.yaml`:
 - `analysis.jadx_path`: JADX binary or jar (used in apk-only mode).
 - `analysis.jadx_timeout_sec`: JADX decompile timeout.
 - `analysis.callgraph_algo`: `SPARK` (default) or `CHA`.
-- `analysis.allow_third_party_callers`: Allow non-framework third-party callers in sensitive API hits (default `true`).
+- `analysis.allow_third_party_callers`: Allow non-framework third-party callers in dangerous API hits (default `true`).
 - `analysis.k_hop`: call graph neighborhood hops.
 - `analysis.max_seed_count`: maximum seeds to process.
 - `analysis.flowdroid_timeout_sec`: FlowDroid timeout in seconds.

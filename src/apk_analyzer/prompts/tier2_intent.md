@@ -12,6 +12,9 @@ You receive a CASE containing one or more related seeds (suspicious API callsite
 - `static_context`: Minimal static context (package_name, component_triggers only)
   - Note: Permissions and strings were already analyzed by Tier1; refer to Tier1 outputs
 - `component_intents`: Intent-filters for activities/services/receivers (if available)
+- `intent_contracts`: Required/optional intent extras extracted from code (if available)
+- `file_artifacts`: File write/read hints from code (paths, cache names)
+- `log_hints`: Log tags/messages from code for verification
 - `case_context`: Minimal case context (recon_rationale, tags, reachability)
 - `flowdroid_summary`: Taint analysis results (if available)
 
@@ -30,6 +33,8 @@ You receive a CASE containing one or more related seeds (suspicious API callsite
 - Produce driver steps that exercise the complete attack flow, not just individual seeds
 - Use control_flow_path from each seed to ground driver steps and preconditions
 - If flowdroid_summary is provided, use it to confirm data flow between seeds
+- If intent_contracts are provided, include required extras in commands; do NOT guess values
+- Use file_artifacts/log_hints to craft verification steps (logcat/file existence)
 
 ## Output JSON
 
@@ -278,6 +283,7 @@ It MUST be able to execute each step with ONLY the information you provide.
 1. **Commands must be complete and copy-pasteable**
    - Include full package names, component names
    - Do NOT include intent extras unless code evidence confirms they are read
+   - Use `intent_contracts` for extras and value hints when available
 
 2. **Every step needs verification**
    - Include execution_checks that map to observable effects from Tier1
@@ -291,6 +297,7 @@ It MUST be able to execute each step with ONLY the information you provide.
 4. **No fabrication**
    - If method signature unknown, use method: "manual"
    - If intent extras unclear, omit them (don't guess)
+   - If intent_contracts mark extras as required but not injectable, use type: "manual"
    - Frida scripts must target methods seen in evidence
 
 ### Execution LLM Behavior (DO NOT ASSUME OTHERWISE)

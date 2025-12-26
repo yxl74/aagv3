@@ -349,6 +349,42 @@
       text-transform: uppercase;
       letter-spacing: 0.05em;
       margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      background: var(--blue);
+      color: white;
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .stat-card.step-1 .step-num { background: var(--orange); }
+    .stat-card.step-2 .step-num { background: var(--purple, #8b5cf6); }
+    .stat-card.step-3 .step-num { background: var(--blue); }
+
+    /* Flow arrow between stat cards */
+    .stats-grid {
+      position: relative;
+    }
+
+    .stat-card.has-arrow::after {
+      content: '→';
+      position: absolute;
+      right: -12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 18px;
+      color: var(--gray-400);
+      font-weight: 600;
     }
 
     .stat-value {
@@ -2191,20 +2227,10 @@
     </div>
     {% endif %}
 
-    <!-- Stats Overview -->
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">Callsites</div>
-        <div class="stat-value blue">{{ seeding.callsite_count if seeding else "—" }}</div>
-        {% if seeding and seeding.ref %}
-        <a href="/runs/{{ analysis_id }}/artifact/{{ seeding.ref }}" class="artifact-link">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-          View Index
-        </a>
-        {% endif %}
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Sensitive API Hits</div>
+    <!-- Stats Overview - Analysis Pipeline -->
+    <div class="stats-grid" style="display: flex; align-items: stretch; gap: 8px;">
+      <div class="stat-card step-1" style="flex: 1; position: relative;">
+        <div class="stat-label"><span class="step-num">1</span> Dangerous API Hits</div>
         <div class="stat-value orange">{{ sensitive_api.total_hits if sensitive_api else "—" }}</div>
         {% if sensitive_api and sensitive_api.ref %}
         <a href="/runs/{{ analysis_id }}/artifact/{{ sensitive_api.ref }}" class="artifact-link">
@@ -2212,10 +2238,11 @@
           View Hits
         </a>
         {% endif %}
+        <div style="position: absolute; right: -14px; top: 50%; transform: translateY(-50%); color: var(--gray-400); font-size: 20px; font-weight: bold;">→</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Investigation Cases</div>
-        <div class="stat-value">{{ recon.case_count if recon else "—" }}</div>
+      <div class="stat-card step-2" style="flex: 1; position: relative;">
+        <div class="stat-label"><span class="step-num">2</span> Threat Categories</div>
+        <div class="stat-value" style="color: var(--purple, #8b5cf6);">{{ recon.case_count if recon else "—" }}</div>
         {% if recon %}
         <div class="stat-sub">Threat:
           <span class="threat-badge {{ recon.threat_level|lower if recon.threat_level else 'unknown' }}">
@@ -2223,8 +2250,19 @@
           </span>
         </div>
         {% endif %}
+        <div style="position: absolute; right: -14px; top: 50%; transform: translateY(-50%); color: var(--gray-400); font-size: 20px; font-weight: bold;">→</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card step-3" style="flex: 1;">
+        <div class="stat-label"><span class="step-num">3</span> Code Blocks to Investigate</div>
+        <div class="stat-value blue">{{ seeding.callsite_count if seeding else "—" }}</div>
+        {% if seeding and seeding.ref %}
+        <a href="/runs/{{ analysis_id }}/artifact/{{ seeding.ref }}" class="artifact-link">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          View Code Blocks
+        </a>
+        {% endif %}
+      </div>
+      <div class="stat-card" style="flex: 1;">
         <div class="stat-label">FlowDroid Flows</div>
         <div class="stat-value green">{{ flowdroid.flow_count if flowdroid else "—" }}</div>
         {% if flowdroid and flowdroid.ref %}
@@ -3265,7 +3303,7 @@
       let html = `
         <div class="artifact-header">
           <div>
-            <div class="artifact-title">Sensitive API Analysis</div>
+            <div class="artifact-title">Dangerous API Analysis</div>
             <div class="artifact-subtitle">${escapeHtml(apk.package_name || 'Unknown package')}</div>
           </div>
           <div class="artifact-stats">
@@ -4262,13 +4300,13 @@
       let html = `
         <div class="artifact-header">
           <div>
-            <div class="artifact-title">Suspicious API Callsites</div>
+            <div class="artifact-title">Malicious Code Blocks to Investigate</div>
             <div class="artifact-subtitle">${escapeHtml(apkId)}</div>
           </div>
           <div class="artifact-stats">
             <div class="artifact-stat">
               <div class="artifact-stat-value">${callsites.length}</div>
-              <div class="artifact-stat-label">Callsites</div>
+              <div class="artifact-stat-label">Code Blocks</div>
             </div>
           </div>
         </div>
@@ -4276,10 +4314,10 @@
         <table class="callsite-table">
           <thead>
             <tr>
-              <th>Seed ID</th>
-              <th>Category</th>
-              <th>Priority</th>
-              <th>Caller</th>
+              <th>Block ID</th>
+              <th>Threat Category</th>
+              <th>Severity</th>
+              <th>Location</th>
               <th>Reachable</th>
             </tr>
           </thead>
@@ -4309,7 +4347,7 @@
       }
 
       if (callsites.length > 50) {
-        html += `<tr><td colspan="5" style="text-align: center; color: var(--gray-500);">... and ${callsites.length - 50} more callsites</td></tr>`;
+        html += `<tr><td colspan="5" style="text-align: center; color: var(--gray-500);">... and ${callsites.length - 50} more code blocks</td></tr>`;
       }
 
       html += `

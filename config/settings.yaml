@@ -9,6 +9,7 @@ analysis:
   flowdroid_timeout_sec: 900
   jadx_path: "jadx"
   jadx_timeout_sec: 600
+  jadx_enabled: true
   callgraph_algo: "SPARK"
   allow_third_party_callers: true
   filter_common_libraries: true  # Filter androidx, google, kotlin library noise
@@ -28,9 +29,9 @@ llm:
   model_orchestrator: "gemini-3-pro-preview"
   model_recon: "gemini-3-pro-preview"
   recon_max_tool_rounds: 3
-  model_tier1: "gemini-3-flash-preview"
+  model_tier1: "gemini-3-pro-preview"
   model_verifier: "gemini-3-pro-preview"
-  model_tier2: "gemini-3-flash-preview"
+  model_tier2: "gemini-3-pro-preview"
   model_report: "gemini-3-pro-preview"
 telemetry:
   enabled: false
