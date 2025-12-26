@@ -14,3 +14,5 @@ class ThreatReport:
     analysis_artifacts: Dict[str, Any] = field(default_factory=dict)
     mitre_candidates: List[Dict[str, Any]] = field(default_factory=list)
     driver_guidance: List[Dict[str, Any]] = field(default_factory=list)
+    execution_guidance: List[Dict[str, Any]] = field(default_factory=list)
+    insights: List[str] = field(default_factory=list)

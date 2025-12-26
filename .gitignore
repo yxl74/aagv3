@@ -18,6 +18,11 @@ src/apk_analysis_agent.egg-info/requires.txt
 src/apk_analysis_agent.egg-info/SOURCES.txt
 src/apk_analysis_agent.egg-info/top_level.txt
 test.apk
+
+# GCP service account credentials
+config/*.json
+config/gcp-sa-key.json
+
 UNKNOWN.egg-info/dependency_links.txt
 UNKNOWN.egg-info/PKG-INFO
 UNKNOWN.egg-info/SOURCES.txt

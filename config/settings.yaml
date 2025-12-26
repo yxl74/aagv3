@@ -22,10 +22,20 @@ analysis:
 llm:
   enabled: true
   provider: "vertex"
+  # Gemini auth method: "api_key" (default) or "service_account"
+  gemini_auth_method: "api_key"
+  # API key auth settings (used when gemini_auth_method: "api_key")
   api_key: "AQ.Ab8RN6KGJLaUG4w59C8brejLIj2SwhpuJmCc-520PBcIQBtP8w"
   base_url: "https://aiplatform.googleapis.com/v1"
   verify_ssl: false
   timeout_sec: 1500
+  # Service account auth settings (used when gemini_auth_method: "service_account")
+  # gcp_project_id: "your-gcp-project-id"
+  # gcp_location: "global"
+  # gcp_service_account_file: "config/gcp-sa-key.json"
+  # Claude settings (always uses service account, requires gcp_project_id)
+  # gcp_region: "us-central1"  # For Claude (different from gcp_location)
+  # Per-agent models (provider auto-detected from model name)
   model_orchestrator: "gemini-3-pro-preview"
   model_recon: "gemini-3-pro-preview"
   recon_max_tool_rounds: 3
