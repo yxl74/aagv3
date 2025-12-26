@@ -5,6 +5,89 @@ import os
 import ssl
 from typing import Any, Optional
 
+
+def _disable_ssl_verification():
+    """Disable SSL verification globally. Must be called before other imports."""
+    # Disable SSL verification at the lowest level
+    ssl._create_default_https_context = ssl._create_unverified_context
+
+    # Environment variables that some libraries check
+    os.environ["PYTHONHTTPSVERIFY"] = "0"
+    os.environ["CURL_CA_BUNDLE"] = ""
+    os.environ["REQUESTS_CA_BUNDLE"] = ""
+
+    # Disable urllib3 warnings
+    try:
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    except ImportError:
+        pass
+
+    # Patch requests library
+    try:
+        import requests
+        from requests.adapters import HTTPAdapter
+
+        old_init = HTTPAdapter.__init__
+        def new_init(self, *args, **kwargs):
+            old_init(self, *args, **kwargs)
+        HTTPAdapter.__init__ = new_init
+
+        # Patch Session to default verify=False
+        old_request = requests.Session.request
+        def new_request(self, method, url, **kwargs):
+            kwargs.setdefault('verify', False)
+            return old_request(self, method, url, **kwargs)
+        requests.Session.request = new_request
+    except ImportError:
+        pass
+
+    # Patch httpx
+    try:
+        import httpx
+
+        _original_client_init = httpx.Client.__init__
+        _original_async_client_init = httpx.AsyncClient.__init__
+
+        def _patched_client_init(self, *args, **kwargs):
+            kwargs['verify'] = False
+            return _original_client_init(self, *args, **kwargs)
+
+        def _patched_async_client_init(self, *args, **kwargs):
+            kwargs['verify'] = False
+            return _original_async_client_init(self, *args, **kwargs)
+
+        httpx.Client.__init__ = _patched_client_init
+        httpx.AsyncClient.__init__ = _patched_async_client_init
+    except ImportError:
+        pass
+
+    # Patch google-auth transport
+    try:
+        import google.auth.transport.requests as google_requests
+        import requests as req_lib
+
+        _original_request_init = google_requests.Request.__init__
+
+        def _patched_request_init(self, session=None):
+            if session is None:
+                session = req_lib.Session()
+            session.verify = False
+            _original_request_init(self, session)
+
+        google_requests.Request.__init__ = _patched_request_init
+    except ImportError:
+        pass
+
+    # Patch google-auth _mtls_helper if present
+    try:
+        import google.auth.transport._mtls_helper as mtls
+        mtls._GOOGLE_API_USE_CLIENT_CERTIFICATE = False
+    except (ImportError, AttributeError):
+        pass
+
+
+# Import telemetry after potential SSL patching
 from apk_analyzer.telemetry import span
 
 
@@ -45,6 +128,10 @@ class GeminiLLMClient:
         self.timeout_sec = timeout_sec
         self.verify_ssl = verify_ssl
 
+        # Disable SSL verification BEFORE setting up credentials
+        if not verify_ssl:
+            _disable_ssl_verification()
+
         # Set up service account credentials if provided
         if service_account_file:
             if not os.path.isabs(service_account_file):
@@ -55,86 +142,20 @@ class GeminiLLMClient:
                 )
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
 
-        # Disable SSL verification globally for google-auth if needed
-        if not verify_ssl:
-            # This affects the OAuth token fetch
-            import httplib2
-            httplib2.RETRIES = 1
-            os.environ["PYTHONHTTPSVERIFY"] = "0"
-
-            # For urllib3/requests used by google-auth
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
         # Import and initialize google-genai client
         try:
             from google import genai
-            import httpx
         except ImportError as e:
             raise ImportError(
                 "google-genai package required for Gemini support. "
                 "Install with: pip install google-genai"
             ) from e
 
-        # Create custom httpx client if SSL verification is disabled
-        http_options = {}
-        if not verify_ssl:
-            http_options["api_base"] = None  # Use default
-            # The genai client uses httpx internally, we need to patch it
-            self._patch_ssl_verification()
-
         self.client = genai.Client(
             vertexai=True,
             project=project_id,
             location=location,
         )
-
-    def _patch_ssl_verification(self):
-        """Patch SSL verification for google-auth and httpx."""
-        import ssl
-
-        # Create unverified SSL context
-        ssl._create_default_https_context = ssl._create_unverified_context
-
-        # Patch google.auth.transport.requests to disable SSL
-        try:
-            import google.auth.transport.requests as google_requests
-            import requests
-
-            # Create a session with SSL verification disabled
-            original_request = google_requests.Request
-
-            class InsecureRequest(original_request):
-                def __init__(self, session=None):
-                    if session is None:
-                        session = requests.Session()
-                        session.verify = False
-                    super().__init__(session)
-
-            google_requests.Request = InsecureRequest
-        except ImportError:
-            pass
-
-        # Also patch httpx for the genai client
-        try:
-            import httpx
-            original_client = httpx.Client
-            original_async_client = httpx.AsyncClient
-
-            class InsecureClient(original_client):
-                def __init__(self, *args, **kwargs):
-                    kwargs['verify'] = False
-                    super().__init__(*args, **kwargs)
-
-            class InsecureAsyncClient(original_async_client):
-                def __init__(self, *args, **kwargs):
-                    kwargs['verify'] = False
-                    super().__init__(*args, **kwargs)
-
-            httpx.Client = InsecureClient
-            httpx.AsyncClient = InsecureAsyncClient
-        except ImportError:
-            pass
 
     def complete(self, prompt: str, payload: dict, model: Optional[str] = None) -> str:
         """
