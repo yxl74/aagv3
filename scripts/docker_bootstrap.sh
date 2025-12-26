@@ -6,8 +6,6 @@ python3 -m pip install -r requirements.txt
 
 gradle -v
 
-gradle -p java/soot-extractor jar
-
 FLOWDROID_BUILD_MODE="${FLOWDROID_BUILD_MODE:-release}"
 FLOWDROID_TAG="${FLOWDROID_TAG:-v2.14.1}"
 
@@ -21,3 +19,6 @@ if [[ "${FLOWDROID_BUILD_MODE}" == "release" ]]; then
 else
   mvn -f FlowDroid/pom.xml -pl soot-infoflow-cmd -am package -DskipTests
 fi
+
+# Soot extractor depends on the FlowDroid fat jar.
+gradle -p java/soot-extractor jar

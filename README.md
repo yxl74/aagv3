@@ -123,14 +123,16 @@ Stage A: Static preprocess (local APK + Knox)
 - **Component intent-filters** (`extract_component_intents`): extracts intent-filter data (actions, categories, data schemes) for activities, services, and receivers. Component names are normalized (`.MyService` → `com.pkg.MyService`).
 - **ZIP parsing** (built-in `zipfile`): extracts ASCII strings from `classes*.dex` and assets; extracts cert blobs from `META-INF/*.RSA|*.DSA|*.EC`.
 - **Knox Vision API** (`src/apk_analyzer/clients/knox_client.py`, combined mode): pulls full analysis, manifest, components, threat indicators; if present, Knox manifest overrides the local manifest.
-- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/static/manifest.json`, `strings.json`, `cert.json`, `knox_full.json`, `components.json`, `permissions.json`.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/static/manifest.json`, `strings.json`, `cert.json`, `component_intents.json`, `knox_full.json`, `components.json`, `permissions.json`.
 
-Stage A2: APK-only decompile (opt-in)
-- **JADX** (`src/apk_analyzer/analyzers/jadx_extractors.py`): decompiles APK to a temp directory for local search and Tier1 repair tool access. The temp directory is deleted after analysis.
+Stage A2: JADX decompile (if enabled)
+- **JADX** (`src/apk_analyzer/analyzers/jadx_extractors.py`): decompiles APK to a temp directory for local search and Tier1 repair tool access. Runs for any APK analysis when `analysis.jadx_enabled: true`. The temp directory is deleted after analysis.
 - JADX exit code handling: JADX often exits with code 1 due to minor decompilation errors (obfuscated code, etc.) but still produces useful output. The pipeline checks for actual `.java` file output rather than relying on exit code.
 - **Local search helper** (`src/apk_analyzer/analyzers/local_query.py`): scans JADX output (`.java`, `.kt`, `.xml`, `.smali`) for method-name hits; used as fallback for seeding and by the Tier1 repair agent.
 - **Method body extractor** (`extract_method_source` in `jadx_extractors.py`): extracts decompiled Java source for specific methods, used by the Tier1 repair agent to provide additional context.
-- If JADX is missing or produces no output, the pipeline continues with DEX-only seeding (lower recall) and no repair tools.
+- **Code artifacts**: extracts intent extra contracts, file write hints, and log tags/messages from decompiled source to improve execution guidance quality.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/static/intent_contracts.json`, `static/file_artifacts.json`, `static/log_hints.json`.
+- If JADX is missing or produces no output, the pipeline continues with DEX-only seeding (lower recall), no repair tools, and no code-artifact hints.
 
 Stage B: Graph extraction
 - **Soot extractor (Java)** (`java/soot-extractor`): builds call graph + per-method CFGs using Android platform jars.
@@ -260,16 +262,18 @@ Optional (instead of setting `PYTHONPATH`):
 python -m pip install .
 ```
 
-2) Build the Soot extractor:
-
-```bash
-gradle -p java/soot-extractor jar
-```
-
-3) Build FlowDroid CLI jar:
+2) Build FlowDroid CLI jar (required for Soot callback analysis):
 
 ```bash
 mvn -f FlowDroid/pom.xml -pl soot-infoflow-cmd -am package -DskipTests
+```
+
+This produces `FlowDroid/soot-infoflow-cmd/target/soot-infoflow-cmd-jar-with-dependencies.jar`, which the Soot extractor uses at build time.
+
+3) Build the Soot extractor:
+
+```bash
+gradle -p java/soot-extractor jar
 ```
 
 4) Configure `config/settings.yaml`:
@@ -312,11 +316,13 @@ git submodule update --init --recursive
 docker compose build
 ```
 
-3) Bootstrap toolchain inside the container (Python deps + Soot extractor + FlowDroid jar):
+3) Bootstrap toolchain inside the container (Python deps + FlowDroid jar + Soot extractor):
 
 ```bash
 docker compose run --rm aag ./scripts/docker_bootstrap.sh
 ```
+
+The bootstrap script builds the FlowDroid fat jar first (used as a dependency by the Soot extractor), then builds `soot-extractor.jar`.
 
 By default this builds a **release** FlowDroid jar (v2.14.1) in a temp dir to avoid snapshot dependency issues.
 To build from the submodule instead:
@@ -494,7 +500,8 @@ Key settings live in `config/settings.yaml`:
 - `analysis.android_platforms_dir`: Android SDK platforms folder.
 - `analysis.flowdroid_jar_path`: FlowDroid CLI jar path.
 - `analysis.soot_extractor_jar_path`: Soot extractor jar path.
-- `analysis.jadx_path`: JADX binary or jar (used in apk-only mode).
+- `analysis.jadx_path`: JADX binary or jar (used when `analysis.jadx_enabled` is true).
+- `analysis.jadx_enabled`: Enable JADX decompilation for APK analyses (default true).
 - `analysis.jadx_timeout_sec`: JADX decompile timeout.
 - `analysis.callgraph_algo`: `SPARK` (default) or `CHA`.
 - `analysis.allow_third_party_callers`: Allow non-framework third-party callers in dangerous API hits (default `true`).
