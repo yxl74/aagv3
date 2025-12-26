@@ -88,6 +88,7 @@ def _build_gemini_client(llm_conf: Dict[str, Any]) -> Optional[LLMClient]:
 
         gcp_location = llm_conf.get("gcp_location", "global")
         service_account_file = llm_conf.get("gcp_service_account_file")
+        verify_ssl = llm_conf.get("verify_ssl", True)
 
         return GeminiLLMClient(
             project_id=gcp_project_id,
@@ -95,6 +96,7 @@ def _build_gemini_client(llm_conf: Dict[str, Any]) -> Optional[LLMClient]:
             default_model=default_model,
             service_account_file=service_account_file,
             timeout_sec=timeout_sec,
+            verify_ssl=verify_ssl,
         )
     else:
         # Use existing VertexLLMClient with API key (default)
