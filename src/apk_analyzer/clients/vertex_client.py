@@ -14,7 +14,7 @@ class VertexLLMClient:
         base_url: str = "https://aiplatform.googleapis.com/v1",
         default_model: str = "gemini-2.5-flash-lite",
         verify_ssl: bool = False,
-        timeout_sec: float = 60.0,
+        timeout_sec: float = 600.0,  # 10 minutes for large report payloads
     ) -> None:
         if not api_key:
             raise ValueError("Vertex API key is required")
@@ -26,7 +26,7 @@ class VertexLLMClient:
     def complete(self, prompt: str, payload: dict, model: Optional[str] = None) -> str:
         model_name = model or self.default_model
         url = f"{self.base_url}/publishers/google/models/{model_name}:generateContent"
-        text = f"{prompt}\n\nPayload JSON:\n{json.dumps(payload, indent=2, ensure_ascii=True)}"
+        text = f"{prompt}\n\nPayload JSON:\n{json.dumps(payload, separators=(',', ':'), ensure_ascii=True)}"
         body = {
             "contents": [
                 {

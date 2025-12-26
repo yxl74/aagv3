@@ -10,6 +10,25 @@
     "evidence_support_index": {"type": "object"},
     "analysis_artifacts": {"type": "object"},
     "mitre_candidates": {"type": "array"},
-    "driver_guidance": {"type": "array"}
+    "driver_guidance": {"type": "array"},
+    "execution_guidance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "case_id": {"type": "string"},
+          "primary_seed_id": {"type": "string"},
+          "seed_ids": {"type": "array", "items": {"type": "string"}},
+          "category_id": {"type": "string"},
+          "package_name": {"type": "string"},
+          "target_capability": {"type": "string"},
+          "environment_capabilities": {"type": "object"},
+          "prerequisites": {"type": "array"},
+          "steps": {"type": "array"},
+          "success_criteria": {"type": "array"},
+          "cleanup": {"type": "array"}
+        }
+      }
+    }
   }
 }

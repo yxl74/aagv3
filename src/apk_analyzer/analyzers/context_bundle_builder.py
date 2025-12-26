@@ -369,6 +369,7 @@ def build_static_context(manifest: Dict[str, Any], strings: Dict[str, Any]) -> D
     for key in ("urls", "domains", "ips", "suspicious_keywords"):
         strings_nearby.extend(strings.get(key, []))
     return {
+        "package_name": manifest.get("package_name") or manifest.get("package"),
         "permissions": sorted(set(permissions)),
         "component_triggers": sorted(set(triggers)),
         "strings_nearby": strings_nearby[:200],

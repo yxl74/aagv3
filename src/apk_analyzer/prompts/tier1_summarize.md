@@ -9,6 +9,11 @@ Rules:
 - Extract path constraints and required inputs needed to reach the sensitive API call.
 - Use branch_conditions when present to ground constraints.
 - Use control_flow_path metadata to understand the entrypoint-to-sink path, but cite actual slice unit_ids.
+- If `caller_method_source` is present, use it to understand behavior context.
+  However, all evidence MUST cite unit_ids from `sliced_cfg.units`.
+  Source code is for interpretation only, not for direct citation.
+- `permissions_relevant` contains only permissions related to this API category.
+- `strings_filtered` contains suspicious strings (C2 indicators, IPs, file paths, etc).
 
 Output JSON:
 {

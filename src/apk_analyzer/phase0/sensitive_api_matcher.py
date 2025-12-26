@@ -300,6 +300,11 @@ def _entrypoints_from_callgraph(callgraph: Dict[str, Any], component_map: Dict[s
         allowed = ENTRYPOINT_METHODS.get(component["component_type"], set())
         if method_name in allowed:
             entrypoints.append(method_sig)
+    callbacks = callgraph.get("callbacks", []) or []
+    for callback in callbacks:
+        method_sig = normalize_signature(callback.get("method", ""))
+        if method_sig:
+            entrypoints.append(method_sig)
     return sorted(set(entrypoints))
 
 

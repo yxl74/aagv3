@@ -13,6 +13,8 @@ repositories {
 dependencies {
     implementation 'org.soot-oss:soot:4.6.0'
     implementation 'com.google.code.gson:gson:2.10.1'
+    // FlowDroid callback analysis (fat jar with dependencies)
+    implementation files('../../FlowDroid/soot-infoflow-cmd/target/soot-infoflow-cmd-jar-with-dependencies.jar')
 }
 
 application {

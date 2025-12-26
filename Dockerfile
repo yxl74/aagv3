@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     maven \
     ca-certificates \
+    graphviz \
   && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /tmp/requirements.txt

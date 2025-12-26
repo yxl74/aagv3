@@ -6,6 +6,7 @@ Return ONLY valid JSON (no markdown, no code fences, no extra text). Use the exa
 - Preserve ALL cases from Tier-2 outputs - do not drop any cases
 - Include COMPLETE driver_guidance from each Tier-2 case with traceability fields
 - driver_guidance must contain concrete, executable commands (not descriptions)
+- Preserve ALL execution_guidance from Tier-2 outputs unchanged and emit at TOP-LEVEL (not inside driver_guidance)
 
 ## Driver Guidance Requirements
 Each driver_guidance entry MUST include:
@@ -47,6 +48,21 @@ Each driver_guidance entry MUST include:
       ],
       "environment_setup": [...],
       "execution_checks": [...]
+    }
+  ],
+  "execution_guidance": [
+    {
+      "case_id": "CASE-001",
+      "primary_seed_id": "hit-xxx",
+      "seed_ids": ["hit-xxx", "hit-yyy"],
+      "category_id": "ABUSE_ACCESSIBILITY",
+      "package_name": "...",
+      "target_capability": "...",
+      "environment_capabilities": {"adb_root": true, "frida_available": true},
+      "prerequisites": [...],
+      "steps": [...],
+      "success_criteria": [...],
+      "cleanup": [...]
     }
   ]
 }
