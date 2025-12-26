@@ -10,6 +10,7 @@
     "evidence_support_index": {"type": "object"},
     "analysis_artifacts": {"type": "object"},
     "mitre_candidates": {"type": "array"},
+    "insights": {"type": "array", "items": {"type": "string"}},
     "driver_guidance": {"type": "array"},
     "execution_guidance": {
       "type": "array",

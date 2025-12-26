@@ -216,8 +216,8 @@ Stage I: Tier2 intent + driver guidance
 
 Stage J: Reporting + MITRE mapping
 - **MITRE mapping** (`config/mitre/` + `src/apk_analyzer/analyzers/mitre_mapper.py`): maps extracted evidence to ATT&CK techniques.
-- **Report** (`src/apk_analyzer/agents/report.py`): synthesizes final threat report with structured `driver_guidance` for dynamic analysis automation.
-- **Driver guidance fields**: each Tier2 output includes:
+- **Report** (`src/apk_analyzer/agents/report.py`): merges a small LLM delta (verdict/summary/insights) into a locally assembled report. `driver_guidance` and `execution_guidance` are copied from Tier2 outputs without LLM round-tripping.
+- **Driver guidance fields** (assembled from Tier2 outputs):
   - `case_id`, `primary_seed_id`, `seed_ids_analyzed`: traceability to threat categories
   - `driver_plan`: human-readable array of executable steps with `method` (adb/frida/manual/netcat), `details` (concrete command), `targets_seeds`
   - `environment_setup`: required setup (listeners, permissions, Frida hooks)
@@ -509,11 +509,16 @@ Key settings live in `config/settings.yaml`:
 - `analysis.max_seed_count`: maximum seeds to process.
 - `analysis.flowdroid_timeout_sec`: FlowDroid timeout in seconds.
 - `llm.enabled`: Enable or disable LLM calls.
-- `llm.provider`: LLM provider (use `vertex` for API key auth).
-- `llm.api_key`: API key (or use `VERTEX_API_KEY` / `GOOGLE_API_KEY` env).
+- `llm.provider`: LLM provider (legacy; model names are auto-routed).
+- `llm.gemini_auth_method`: Gemini auth mode: `api_key` (default) or `service_account`.
+- `llm.api_key`: API key (or use `VERTEX_API_KEY` / `GOOGLE_API_KEY` env) for Gemini API key auth.
 - `llm.base_url`: Vertex API base URL.
 - `llm.verify_ssl`: Set `false` to disable SSL verification for Vertex calls (PoC only).
 - `llm.timeout_sec`: HTTP timeout for LLM calls.
+- `llm.gcp_project_id`: GCP project ID for Gemini/Claude service account auth (or `GCP_PROJECT_ID` env).
+- `llm.gcp_location`: GCP location for Gemini service account auth (default `global`).
+- `llm.gcp_region`: GCP region for Claude service account auth (default `us-central1`).
+- `llm.gcp_service_account_file`: Path to GCP service account JSON file (sets `GOOGLE_APPLICATION_CREDENTIALS`).
 - `llm.model_orchestrator`: Default model if a stage-specific model is not set.
 - `llm.model_recon`: Recon model.
 - `llm.model_tier1`: Tier-1 summarizer model.
@@ -529,11 +534,11 @@ Env overrides:
 - `KNOX_BASE_URL` overrides `knox.base_url`.
 - `ANDROID_SDK_ROOT` will auto-set `analysis.android_platforms_dir` to `$ANDROID_SDK_ROOT/platforms` if unset.
 
-## Vertex AI (LLM) Setup
+## Gemini + Claude (LLM) Setup
 
-The PoC includes a minimal Vertex client that supports **API key auth** for public Gemini models. Enable `llm.enabled` in `config/settings.yaml` and configure an API key (supported) or add your own OAuth-based client for service accounts (not wired here).
+The pipeline supports Gemini on Vertex with either API key auth or service account auth, and Claude on Vertex with service account auth. Model routing is auto-detected from the model name.
 
-### Option A) API key (supported)
+### Gemini Option A) API key (Vertex REST)
 
 1) Enable Vertex AI API + billing in GCP Console.
 
@@ -552,7 +557,7 @@ You can also use `GOOGLE_API_KEY` if preferred.
 ```yaml
 llm:
   enabled: true
-  provider: "vertex"
+  gemini_auth_method: "api_key"
   api_key: ""  # optional if VERTEX_API_KEY is set
   model_orchestrator: "gemini-3-pro-preview"
   model_recon: "gemini-3-flash-preview"
@@ -562,29 +567,50 @@ llm:
   model_report: "gemini-3-flash-preview"
 ```
 
-### Option B) Service account (not wired in this PoC)
-
-If you need ADC/service-account auth (for private models), you'll need to add an OAuth-based client. The basic credential steps are:
+### Gemini Option B) Service account (google-genai)
 
 1) Create a service account with `Vertex AI User` role.
 2) Download its JSON key.
-3) Set:
+3) Update settings:
+
+```yaml
+llm:
+  enabled: true
+  gemini_auth_method: "service_account"
+  gcp_project_id: "your-gcp-project-id"  # or set GCP_PROJECT_ID env
+  gcp_location: "global"
+  gcp_service_account_file: "config/gcp-sa-key.json"
+```
+
+This path sets `GOOGLE_APPLICATION_CREDENTIALS` automatically. You can also export it manually:
 
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
-export GOOGLE_CLOUD_PROJECT=<your-gcp-project-id>
-export GOOGLE_CLOUD_LOCATION=<your-region>
 ```
 
-### Docker + Vertex credentials
+### Claude on Vertex (service account)
+
+1) Create a service account with `Vertex AI User` role.
+2) Download its JSON key.
+3) Update settings (use Claude model names to route requests):
+
+```yaml
+llm:
+  enabled: true
+  gcp_project_id: "your-gcp-project-id"
+  gcp_region: "us-central1"
+  gcp_service_account_file: "config/gcp-sa-key.json"
+  model_orchestrator: "claude-sonnet-4@20250514"
+```
+
+### Docker credentials
 
 Service account in Docker:
 
 ```bash
 docker compose run --rm \
   -e GOOGLE_APPLICATION_CREDENTIALS=/workspace/keys/sa.json \
-  -e GOOGLE_CLOUD_PROJECT=<project-id> \
-  -e GOOGLE_CLOUD_LOCATION=us-central1 \
+  -e GCP_PROJECT_ID=<project-id> \
   -v /local/keys:/workspace/keys \
   aag
 ```
@@ -608,6 +634,6 @@ pytest
 - FlowDroid and Soot require Android platform jars. If analyses fail with classpath errors, verify `analysis.android_platforms_dir`.
 - APK-only mode runs JADX in a temp directory that is deleted after analysis. JADX exit code 1 is tolerated (common with obfuscated code); the pipeline checks for actual `.java` file output instead. If JADX produces no output, the pipeline falls back to DEX-only seeding with reduced recall and no repair tools.
 - The Tier1 repair agent requires JADX output to function. In combined mode without APK-only decompilation, repair tools are not available.
-- LLM integration uses Vertex API keys for public Gemini models; service-account auth requires a custom client.
+- LLM integration supports Gemini via API key or service account, and Claude via service account (Vertex). Ensure `google-genai` and `anthropic` are installed for those paths.
 - **Token optimization**: Tier1 and Tier2 payloads are shaped to reduce token usage by 25-40% while preserving all driver-relevant information. Full context bundles are preserved in artifacts for debugging.
 - **Execution LLM compatibility**: The Tier2 output's `execution_guidance` is designed for consumption by a smaller execution LLM (e.g., Qwen Code 30B) that can drive dynamic analysis via ADB, Frida, or manual steps. Commands are complete (ADB with `adb shell` prefix, Frida with full `frida -U -n <pkg> -e "<js>"` format), verification is explicit (no placeholder commands), and failure handling follows strict rules (`on_fail`: abort/retry/skip only).
