@@ -43,6 +43,8 @@ llm:
   model_verifier: "gemini-3-pro-preview"
   model_tier2: "gemini-3-pro-preview"
   model_report: "gemini-3-pro-preview"
+  # Tier2 two-phase split (Phase 2A reasoning + Phase 2B commands)
+  tier2_split_enabled: true  # Set to false for legacy single-phase Tier2
 telemetry:
   enabled: false
   service_name: "apk-analysis-agent"

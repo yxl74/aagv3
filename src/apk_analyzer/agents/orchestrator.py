@@ -13,6 +13,8 @@ from apk_analyzer.agents.recon_tools import ReconToolRunner
 from apk_analyzer.agents.report import ReportAgent
 from apk_analyzer.agents.tier1_summarizer import Tier1SummarizerAgent
 from apk_analyzer.agents.tier2_intent import Tier2IntentAgent
+from apk_analyzer.agents.tier2a_reasoning import Tier2AReasoningAgent
+from apk_analyzer.agents.tier2b_commands import Tier2BCommandsAgent
 from apk_analyzer.agents.verifier import VerifierAgent
 from apk_analyzer.analyzers.context_bundle_builder import ContextBundleBuilder, build_static_context
 from apk_analyzer.analyzers.dex_invocation_indexer import ApiCallSite, DexInvocationIndexer, SuspiciousApiIndex
@@ -20,6 +22,10 @@ from apk_analyzer.analyzers.jadx_extractors import extract_method_source, run_ja
 from apk_analyzer.analyzers.intent_contracts import extract_intent_contracts
 from apk_analyzer.analyzers.code_artifacts import extract_file_artifacts, extract_log_hints
 from apk_analyzer.analyzers.execution_guidance_validator import validate_execution_guidance
+from apk_analyzer.analyzers.semantic_annotator import annotate_sliced_cfg
+from apk_analyzer.analyzers.tier2_prevalidator import prevalidate_for_tier2, format_validation_summary
+from apk_analyzer.analyzers.value_hints_builder import build_value_hints_for_seed
+from apk_analyzer.models.tier2_phases import merge_phase_outputs, Phase2AOutput, Phase2BOutput
 from apk_analyzer.analyzers.local_query import search_source_code
 from apk_analyzer.analyzers.mitre_mapper import load_rules, load_technique_index, map_evidence
 from apk_analyzer.analyzers.sources_sinks_subset import generate_subset
@@ -507,6 +513,23 @@ class Orchestrator:
                     model=llm_conf.get("model_tier2"),
                     event_logger=event_logger,
                 )
+                # Two-phase Tier2 agents (used when tier2_split_enabled=true)
+                tier2_split_enabled = llm_conf.get("tier2_split_enabled", False)
+                tier2a_agent = None
+                tier2b_agent = None
+                if tier2_split_enabled:
+                    tier2a_agent = Tier2AReasoningAgent(
+                        self.prompt_dir / "tier2a_reasoning.md",
+                        llm_client,
+                        model=llm_conf.get("model_tier2"),
+                        event_logger=event_logger,
+                    )
+                    tier2b_agent = Tier2BCommandsAgent(
+                        self.prompt_dir / "tier2b_commands.md",
+                        llm_client,
+                        model=llm_conf.get("model_tier2"),
+                        event_logger=event_logger,
+                    )
                 report_agent = ReportAgent(
                     self.prompt_dir / "tier3_final.md",
                     llm_client,
@@ -711,25 +734,43 @@ class Orchestrator:
 
                     # Shape Tier2 payload for token efficiency
                     package_name = (primary_bundle.get("static_context") or {}).get("package_name")
-                    tier2_input = shape_tier2_payload(tier2_input_raw, package_name)
-
-                    with llm_context("tier2", seed_id=case_seed_ids[0]):
-                        tier2 = tier2_agent.run(tier2_input)
-
                     static_ctx = primary_bundle.get("static_context") or {}
-                    intent_contracts_full = static_ctx.get("intent_contracts") or {}
-                    file_artifacts_full = static_ctx.get("file_artifacts") or {}
-                    log_hints_full = static_ctx.get("log_hints") or {}
-                    if isinstance(tier2, dict) and (intent_contracts_full or file_artifacts_full or log_hints_full):
-                        exec_guidance = tier2.get("execution_guidance")
-                        if isinstance(exec_guidance, dict):
-                            tier2["execution_guidance"] = validate_execution_guidance(
-                                exec_guidance,
-                                intent_contracts_full,
-                                file_artifacts=file_artifacts_full,
-                                log_hints=log_hints_full,
-                                package_name=package_name,
-                            )
+
+                    # Check if two-phase Tier2 is enabled
+                    if tier2_split_enabled and tier2a_agent and tier2b_agent:
+                        # Two-phase flow: Phase 2A (reasoning) + Phase 2B (commands)
+                        tier2 = _run_two_phase_tier2(
+                            case_id=case_id,
+                            case_seeds_data=case_seeds_data,
+                            bundle_map=bundle_map,
+                            seed_summaries=seed_summaries,
+                            static_ctx=static_ctx,
+                            manifest=manifest,
+                            tier2a_agent=tier2a_agent,
+                            tier2b_agent=tier2b_agent,
+                            artifact_store=artifact_store,
+                            event_logger=event_logger,
+                        )
+                    else:
+                        # Legacy single-phase Tier2 flow
+                        tier2_input = shape_tier2_payload(tier2_input_raw, package_name)
+
+                        with llm_context("tier2", seed_id=case_seed_ids[0]):
+                            tier2 = tier2_agent.run(tier2_input)
+
+                        intent_contracts_full = static_ctx.get("intent_contracts") or {}
+                        file_artifacts_full = static_ctx.get("file_artifacts") or {}
+                        log_hints_full = static_ctx.get("log_hints") or {}
+                        if isinstance(tier2, dict) and (intent_contracts_full or file_artifacts_full or log_hints_full):
+                            exec_guidance = tier2.get("execution_guidance")
+                            if isinstance(exec_guidance, dict):
+                                tier2["execution_guidance"] = validate_execution_guidance(
+                                    exec_guidance,
+                                    intent_contracts_full,
+                                    file_artifacts=file_artifacts_full,
+                                    log_hints=log_hints_full,
+                                    package_name=package_name,
+                                )
 
                     # Save Tier2 result using case_id (or primary seed_id if same)
                     tier2_filename = case_id if case_id != case_seed_ids[0] else case_seed_ids[0]
@@ -1481,6 +1522,7 @@ def _consolidate_tier1_for_tier2(tier1: Dict[str, Any], bundle: Dict[str, Any]) 
     """
     Extract driver-relevant fields from Tier1 output for Tier2.
     Omits verbose fields (facts, uncertainties, full function_summary).
+    Used by legacy single-phase Tier2.
     """
     return {
         "seed_id": bundle.get("seed_id"),
@@ -1491,6 +1533,27 @@ def _consolidate_tier1_for_tier2(tier1: Dict[str, Any], bundle: Dict[str, Any]) 
         "observable_effects": tier1.get("observable_effects", []),
         "caller_method": bundle.get("caller_method"),
         # Omit: facts, uncertainties, confidence, full function_summary
+    }
+
+
+def _consolidate_tier1_for_tier2_full(tier1: Dict[str, Any], bundle: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Preserve FULL Tier1 output for two-phase Tier2 flow.
+    Phase 2A needs facts, confidence, uncertainties for evidence synthesis.
+    """
+    return {
+        "seed_id": bundle.get("seed_id"),
+        "api_category": bundle.get("api_category"),
+        "trigger_surface": tier1.get("trigger_surface", {}),
+        "required_inputs": tier1.get("required_inputs", []),
+        "path_constraints": tier1.get("path_constraints", []),
+        "observable_effects": tier1.get("observable_effects", []),
+        "caller_method": bundle.get("caller_method"),
+        # NOW PRESERVED for Phase 2A:
+        "facts": tier1.get("facts", []),
+        "uncertainties": tier1.get("uncertainties", []),
+        "confidence": tier1.get("confidence", 0.0),
+        "function_summary": tier1.get("function_summary", ""),
     }
 
 
@@ -1562,6 +1625,123 @@ def shape_tier2_payload(
     }
 
     return payload
+
+
+def _run_two_phase_tier2(
+    case_id: str,
+    case_seeds_data: List[Dict[str, Any]],
+    bundle_map: Dict[str, Any],
+    seed_summaries: Dict[str, Any],
+    static_ctx: Dict[str, Any],
+    manifest: Dict[str, Any],
+    tier2a_agent: Tier2AReasoningAgent,
+    tier2b_agent: Tier2BCommandsAgent,
+    artifact_store: ArtifactStore,
+    event_logger: EventLogger,
+) -> Dict[str, Any]:
+    """
+    Run two-phase Tier2 processing.
+
+    Phase 2A: Attack chain reasoning
+    Phase 2B: Command generation (per driver requirement)
+
+    Returns merged Tier2 output for backward compatibility.
+    """
+    package_name = static_ctx.get("package_name", "")
+    intent_contracts = static_ctx.get("intent_contracts", {})
+    file_artifacts = static_ctx.get("file_artifacts", {})
+    log_hints = static_ctx.get("log_hints", {})
+
+    # Build Phase 2A input with full Tier1 outputs
+    seeds_for_2a = []
+    for seed_data in case_seeds_data:
+        sid = seed_data.get("seed_id")
+        bundle = bundle_map.get(sid, {})
+        tier1 = seed_summaries.get(sid, {}).get("tier1", {})
+        seeds_for_2a.append(_consolidate_tier1_for_tier2_full(tier1, bundle))
+
+    # Pre-validate seeds
+    validation = prevalidate_for_tier2(seeds_for_2a, manifest, intent_contracts)
+    if validation.all_warnings:
+        event_logger.log(
+            "tier2.prevalidation",
+            case_id=case_id,
+            warnings_count=len(validation.all_warnings),
+            summary=format_validation_summary(validation),
+        )
+
+    # Phase 2A: Reasoning
+    tier2a_input = {
+        "case_id": case_id,
+        "package_name": package_name,
+        "seeds": seeds_for_2a,
+        "validation": {
+            "fully_automatable": validation.fully_automatable_seeds,
+            "partially_automatable": validation.partially_automatable_seeds,
+            "manual_investigation": validation.manual_investigation_seeds,
+        },
+    }
+
+    with llm_context("tier2a", seed_id=case_seeds_data[0].get("seed_id") if case_seeds_data else None):
+        tier2a_result = tier2a_agent.run(tier2a_input)
+
+    artifact_store.write_json(f"llm/tier2a/{case_id}.json", tier2a_result.to_dict())
+
+    # Phase 2B: Commands (per driver requirement)
+    tier2b_results: List[Phase2BOutput] = []
+
+    for driver_req in tier2a_result.driver_requirements:
+        # Get the relevant seed's Tier1 for grounded generation
+        seed_id = driver_req.seed_id
+        seed_tier1 = next(
+            (s for s in seeds_for_2a if s.get("seed_id") == seed_id),
+            seeds_for_2a[0] if seeds_for_2a else {}
+        )
+
+        # Build value hints for this seed
+        value_hints = build_value_hints_for_seed(
+            tier1_output=seed_tier1,
+            intent_contracts=intent_contracts,
+            file_artifacts=file_artifacts,
+            log_hints=log_hints,
+            manifest=manifest,
+            package_name=package_name,
+        )
+
+        with llm_context("tier2b", seed_id=seed_id):
+            tier2b_result = tier2b_agent.run(
+                driver_requirement=driver_req,
+                value_hints=value_hints,
+                seed_tier1=seed_tier1,
+                package_name=package_name,
+            )
+
+        # Post-QA validation using existing validator
+        if tier2b_result.steps:
+            exec_guidance = {
+                "package_name": package_name,
+                "steps": [s.to_dict() for s in tier2b_result.steps],
+            }
+            validated_guidance = validate_execution_guidance(
+                exec_guidance,
+                intent_contracts,
+                file_artifacts=file_artifacts,
+                log_hints=log_hints,
+                package_name=package_name,
+            )
+            # Update steps from validated guidance
+            tier2b_result.validated = True
+
+        tier2b_results.append(tier2b_result)
+        artifact_store.write_json(
+            f"llm/tier2b/{case_id}_{driver_req.requirement_id}.json",
+            tier2b_result.to_dict()
+        )
+
+    # Merge for backward compatibility
+    merged = merge_phase_outputs(tier2a_result, tier2b_results, package_name)
+
+    return merged.to_dict()
 
 
 class _noop_context:
