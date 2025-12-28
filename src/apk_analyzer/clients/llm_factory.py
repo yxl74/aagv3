@@ -127,6 +127,7 @@ def _build_claude_client(llm_conf: Dict[str, Any]) -> Optional[LLMClient]:
     gcp_region = llm_conf.get("gcp_region", "us-central1")
     service_account_file = llm_conf.get("gcp_service_account_file")
     timeout_sec = llm_conf.get("timeout_sec", 600)
+    verify_ssl = llm_conf.get("verify_ssl", True)
 
     # Find a Claude model for default, or use standard default
     default_claude_model = "claude-sonnet-4@20250514"
@@ -142,6 +143,7 @@ def _build_claude_client(llm_conf: Dict[str, Any]) -> Optional[LLMClient]:
         default_model=default_claude_model,
         service_account_file=service_account_file,
         timeout_sec=timeout_sec,
+        verify_ssl=verify_ssl,
     )
 
 
