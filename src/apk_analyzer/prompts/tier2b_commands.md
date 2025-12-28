@@ -9,6 +9,7 @@ You receive:
   - `log_hints`: Log tags for verification
   - `urls`, `ip_addresses`, `domains`: Strings of interest
 - `seed_tier1`: Relevant seed's analysis (facts, trigger_surface, constraints)
+  - `observable_effects_detail` (if present): structured effects with unit_ids/claim_id
 - `available_templates`: Command templates you can use as patterns
 - `package_name`: APK package name
 
@@ -24,6 +25,7 @@ Generate executable steps that:
 3. **Only use log tags from value_hints.log_hints**: Do NOT invent tags
 4. **Use templates as patterns**: Adapt them, don't invent new syntax
 5. **Cite evidence**: Each step should reference where the info came from
+6. **Prefer structured effects**: If `seed_tier1.observable_effects_detail` is present, use its unit_ids for evidence citations
 
 ## Template Usage
 Templates are GUARDRAILS, not restrictions. Use them as patterns:

@@ -151,6 +151,7 @@ class Tier2BCommandsAgent:
                 "path_constraints": seed_tier1.get("path_constraints", []),
                 "required_inputs": seed_tier1.get("required_inputs", []),
                 "observable_effects": seed_tier1.get("observable_effects", []),
+                "observable_effects_detail": seed_tier1.get("observable_effects_detail", []),
                 "facts": seed_tier1.get("facts", []),
             },
             "available_templates": template_info,

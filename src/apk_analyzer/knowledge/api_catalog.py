@@ -37,6 +37,10 @@ class ApiCatalog:
                 self._string_index.setdefault(indicator, []).append(category)
 
     @staticmethod
+    def empty(version: str = "fallback") -> "ApiCatalog":
+        return ApiCatalog(version=version, categories={})
+
+    @staticmethod
     def load(path: str | Path) -> "ApiCatalog":
         path = Path(path)
         with path.open("r", encoding="utf-8") as handle:

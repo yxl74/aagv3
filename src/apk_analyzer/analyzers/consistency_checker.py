@@ -129,7 +129,7 @@ def consistency_check(
     strings_nearby = set(context_bundle.get("static_context", {}).get("strings_nearby", []))
 
     for fact in tier1_summary.get("facts", []):
-        fact_text = fact.get("fact", "")
+        fact_text = fact.get("fact") or fact.get("statement") or ""
         support_ids = fact.get("support_unit_ids", [])
 
         # Check for missing unit IDs

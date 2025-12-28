@@ -17,6 +17,7 @@ You receive a CASE containing one or more related seeds (suspicious API callsite
 - `log_hints`: Log tags/messages from code for verification
 - `case_context`: Minimal case context (recon_rationale, tags, reachability)
 - `flowdroid_summary`: Taint analysis results (if available)
+- If present in Tier1, use `observable_effects_detail` (effect/unit_ids/claim_id) to ground expected behaviors.
 
 ## Your Task
 

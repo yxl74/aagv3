@@ -30,7 +30,7 @@ def map_evidence(
 
     for item in evidence_items:
         category = item.get("category")
-        claim = (item.get("claim") or item.get("fact") or "").lower()
+        claim = (item.get("claim") or item.get("fact") or item.get("statement") or "").lower()
         support_unit_ids = item.get("support_unit_ids", [])
 
         if category and category in category_rules:

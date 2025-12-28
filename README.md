@@ -6,15 +6,17 @@ LLM-assisted Android APK malware analysis pipeline aligned to LAMD: deterministi
 
 - Knox Vision API client for static metadata, decompiled source access, bytecode method lookup, and APK download.
 - Local static extractors (manifest, strings, certs, component intent-filters) using Androguard + ZIP parsing.
-- Callgraph-sensitive API matcher (catalog-driven) with reachability from Android entrypoints.
+- Callgraph-sensitive API matcher (catalog-driven) with reachability from Android entrypoints; safe fallback to DEX indexing when catalog load fails.
 - Recon agent with tool runner to build threat categories from dangerous API hits.
 - Suspicious API seeding via recon threat categories or DEX invocation indexing (Androguard 4.x tested), with Knox/JADX fallback.
 - Java-based Soot extractor that exports call graph JSON and per-method CFG JSON, using component lifecycle entrypoints plus FlowDroid callback analysis (fast/default) to include framework-invoked callbacks.
 - Context bundle builder with backward CFG slices, branch conditions, and k-hop callgraph neighborhoods.
 - **Token-optimized LLM payloads**: Tier1 and Tier2 inputs are shaped to maximize value per token (filtered permissions, filtered strings, filtered FCG, optional JADX source).
 - Tiered LLM reasoning (Recon -> Tier1 -> Verifier -> Tier1 Repair -> Tier2 -> Report) with tolerant JSON parsing and structured driver guidance output.
-- Tier1 repair agent with JADX-based tool access (source lookup, method body extraction) for failed or low-confidence verifications.
-- **Execution-ready driver guidance**: Tier2 output includes both human-readable `driver_plan` and machine-executable `execution_guidance` for consumption by a smaller execution LLM (e.g., Qwen 30B) with explicit commands, verification steps, and failure handling.
+- Three-phase Tier1 (1A extraction, 1B interpretation, 1C synthesis) with schema validation and verifier parity against slice evidence.
+- Tier1 repair agent with JADX-based tool access (source lookup, method body extraction) for verifier failures, phase errors, unclaimed APIs, or low confidence.
+- **Two-phase Tier2 reasoning**: Tier2 is split into Phase 2A (attack chain reasoning with evidence grounding) and Phase 2B (command generation with template guardrails). This cognitive separation reduces hallucination and improves accuracy.
+- **Execution-ready driver guidance**: Tier2 output includes both human-readable `driver_plan` and machine-executable `execution_guidance` for consumption by a smaller execution LLM (e.g., Qwen 30B) with explicit commands, verification steps, and failure handling. Execution guidance is post-validated against intent contracts and file/log hints when available.
 - Targeted FlowDroid execution via CLI jar + sources/sinks subset generation.
 - MITRE Mobile ATT&CK mapping via local rules and optional dataset fetch.
 - Artifacts are stored under `artifacts/{analysis_id}/runs/{run_id}/` for traceability, with per-run logs in `artifacts/{analysis_id}/observability/runs/{run_id}.jsonl`.
@@ -43,6 +45,7 @@ Identifiers:
    - Default callgraph algorithm is SPARK; use CHA only if you need extra coverage and can tolerate more noise.
 5) Dangerous API matching:
    - Match callgraph edges against the dangerous API catalog and compute entrypoint reachability.
+   - If the catalog is unavailable, skip callgraph matching and continue with DEX invocation indexing.
 6) Recon + seeding:
    - Recon turns dangerous API hits into threat categories.
    - Seeding produces a `SuspiciousApiIndex` from threat categories; if none, fall back to DEX invocation indexing, then Knox/JADX search.
@@ -50,13 +53,15 @@ Identifiers:
    - Build backward CFG slices and branch conditions per seed.
    - Derive entrypoint -> sink control-flow paths (method chain + callsite statements) and attach branch constraints.
 8) Tier1 + Verifier + Repair:
-   - Tier1 extracts behavior + constraints from slices.
-   - Verifier filters Tier1 facts against evidence.
-   - If verification fails or confidence is low, Tier1 Repair runs with JADX tool access (source lookup, method body extraction) to refine the summary.
+   - Tier1 runs as either legacy single-pass summarization or three-phase (1A/1B/1C) when enabled.
+   - Verifier filters Tier1 facts against slice evidence (unit_ids).
+   - If verification fails, phase status is not OK, unclaimed APIs exist, or confidence is low, Tier1 Repair runs with JADX tool access (source lookup, method body extraction) to refine the summary.
 9) Optional FlowDroid:
    - If enabled and verified seeds exist, run targeted taint analysis and pass the summary to Tier2 (data-flow evidence only).
-10) Tier2:
-   - Generates driver guidance grounded in the control-flow path, constraints, case context, and FlowDroid summary (if present).
+10) Tier2 (two-phase):
+   - **Phase 2A**: Attack chain reasoning - synthesizes Tier1 outputs, determines intent verdict, extracts structured driver requirements with evidence citations.
+   - **Phase 2B**: Command generation - generates concrete execution commands grounded in evidence, using component-type-aware templates as guardrails.
+   - Produces driver guidance grounded in the control-flow path, constraints, case context, and FlowDroid summary (if present), with post-QA execution guidance validation.
 11) Reporting:
    - Produce the final threat report + MITRE mappings + driver guidance.
 
@@ -87,18 +92,27 @@ The pipeline separates **stored bundles** (full data for debugging/downstream) f
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Tier2 Input (Raw)                  Tier2 Payload (Shaped)                   │
-│  ├── seeds[].tier1 (full)      ──►  ├── seeds[].tier1 (consolidated)         │
-│  ├── fcg (150+ methods)             ├── fcg (app methods only, ~20)          │
-│  ├── static_context (full)          ├── static_context (minimal)             │
-│  │   ├── permissions                │   ├── package_name                     │
-│  │   ├── strings_nearby             │   └── component_triggers               │
-│  │   └── ...                        ├── case_context (minimal)               │
-│  └── case_context (full)            │   ├── recon_rationale                  │
-│                                     │   ├── tags                             │
-│                                     │   └── reachability                     │
+│  Tier2 Two-Phase Flow                                                        │
 │                                                                              │
-│  Savings: ~30-40% tokens per Tier2 call                                      │
+│  Phase 2A Input                     Phase 2A Output                          │
+│  ├── seeds[].tier1 (full)      ──►  ├── intent_verdict                       │
+│  │   ├── facts (preserved!)         ├── attack_chain_summary                 │
+│  │   ├── confidence                 ├── evidence[] (with citations)          │
+│  │   └── uncertainties              └── driver_requirements[]                │
+│  └── case_context                        ├── component_name                  │
+│                                          ├── trigger_method                  │
+│                                          └── evidence_citations[]            │
+│                                                                              │
+│  Phase 2B Input                     Phase 2B Output                          │
+│  ├── driver_requirement        ──►  ├── steps[] (ADB/Frida)                  │
+│  ├── value_hints_bundle             │   ├── command (concrete)               │
+│  │   ├── intent_extras              │   ├── verify                           │
+│  │   ├── file_hints                 │   └── evidence_citation                │
+│  │   └── log_hints                  ├── manual_steps[]                       │
+│  ├── relevant_seed_tier1            └── automation_feasibility               │
+│  └── command_templates                                                       │
+│                                                                              │
+│  Benefits: Cognitive separation, reduced hallucination, evidence grounding   │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -110,11 +124,28 @@ The pipeline separates **stored bundles** (full data for debugging/downstream) f
 - **JADX source gating**: Includes decompiled Java source for high-priority seeds (priority ≤ 2) or top 10 by index.
 - **Compact JSON**: All LLM payloads use compact JSON serialization (no indentation).
 
-### Tier2 Payload Shaping
+### Tier2 Two-Phase Architecture
 
-- **FCG filtering**: Removes library methods (androidx, android, java, kotlin), keeps only app-specific callers/callees (max 20 each).
-- **Tier1 consolidation**: Extracts driver-relevant fields only (trigger_surface, required_inputs, path_constraints, observable_effects).
-- **Context minimization**: Removes strings_nearby, permissions (already processed by Tier1), keeps component_triggers and reachability.
+The Tier2 stage is split into two cognitive phases for maximum accuracy:
+
+**Phase 2A: Attack Chain Reasoning** (`tier2a_reasoning.py`)
+- Receives full Tier1 outputs with `facts`, `confidence`, and `uncertainties` preserved
+- Synthesizes evidence across seeds to determine malicious intent
+- Outputs structured `driver_requirements` with evidence citations
+- Does NOT generate commands (that's Phase 2B's job)
+
+**Phase 2B: Command Generation** (`tier2b_commands.py`)
+- Receives single `driver_requirement` + `ValueHintsBundle` + relevant seed's Tier1
+- Uses component-type-aware templates as guardrails (not restrictions)
+- Generates concrete, grounded ADB/Frida commands
+- Marks non-automatable steps in `manual_steps` list
+- Integrates with `execution_guidance_validator.py` for post-QA
+
+**Anti-Hallucination Measures**:
+- **Semantic annotation**: Method-context-aware constant annotation (e.g., `setAudioSource(1)` → `setAudioSource(1 /* MIC */)`)
+- **Pre-validation**: Warns/downgrades seeds with missing component names instead of blocking
+- **ValueHintsBundle**: Consolidates intent extras, file hints, log hints from existing extractors
+- **Template guardrails**: 23 component-type-aware templates prevent fabricated syntax
 
 ## Detailed Workflow and Tool Usage
 
@@ -197,13 +228,26 @@ Stage H: Targeted taint analysis (optional)
 - **Usage**: summary is fed into Tier2 as data-flow evidence (not required for driver paths).
 - **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/taint/flowdroid_summary.json`.
 
-Stage I: Tier2 intent + driver guidance
-- **Payload shaping** (`shape_tier2_payload` in `orchestrator.py`): optimizes Tier2 input:
-  - Filters FCG to app-specific methods only (removes androidx, android, kotlin, java prefixes)
-  - Consolidates Tier1 outputs to driver-relevant fields (trigger_surface, required_inputs, path_constraints, observable_effects)
-  - Minimizes static_context (keeps package_name, component_triggers only)
-  - Minimizes case_context (keeps recon_rationale, tags, reachability only)
-- **Tier2**: produces driver guidance (ADB/UI Automator/Frida-friendly) using shaped Tier1 + control-flow paths + filtered static context + FlowDroid summary (if present).
+Stage I: Tier2 intent + driver guidance (two-phase)
+
+When `llm.tier2_split_enabled: true` (default), Tier2 runs in two phases:
+
+**Phase 2A: Attack Chain Reasoning** (`tier2a_reasoning.py`)
+- **Full Tier1 preservation**: Uses `_consolidate_tier1_for_tier2_full()` to preserve `facts`, `confidence`, and `uncertainties` from all seeds
+- **Evidence synthesis**: Determines `intent_verdict` (confirmed_malicious, likely_malicious, suspicious, benign, insufficient_evidence)
+- **Driver requirements**: Extracts structured requirements with component name, trigger method, expected behavior, and evidence citations
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/tier2a/{case_id}.json`
+
+**Phase 2B: Command Generation** (`tier2b_commands.py`)
+- Runs per `driver_requirement` from Phase 2A
+- **ValueHintsBundle**: Consolidates intent_extras, file_hints, log_hints from existing extractors
+- **Template guardrails**: Uses 23 component-type-aware templates (start_service, send_broadcast, grant_permission, etc.)
+- **Semantic annotations**: Constants are annotated with meanings (e.g., `setAudioSource(1 /* MIC */)`)
+- **Pre-validation**: Warns/downgrades seeds with missing info instead of blocking; sets `automation_feasibility` appropriately
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/tier2b/{case_id}_{seed_id}.json`
+
+**Legacy mode** (`tier2_split_enabled: false`): Uses single-phase Tier2 with the original prompt.
+
 - **Execution-ready format**: `execution_guidance` is a case-level, machine-readable format designed for consumption by a smaller execution LLM (e.g., Qwen 30B):
   - Commands are complete and copy-pasteable (full package names, component names)
   - ADB commands must start with `adb` or `adb shell` prefix
@@ -212,7 +256,7 @@ Stage I: Tier2 intent + driver guidance
   - Failure handling is explicit (`on_fail`: abort/retry/skip only)
   - Assumes full device control (Samsung engineering device with OEM access)
 - **driver_plan vs execution_guidance**: `driver_plan` is for human/UI consumption; `execution_guidance` is the machine-executable format with case_id, seed_ids, prerequisites, steps, success_criteria, and cleanup.
-- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/tier2/*.json`.
+- **Artifacts**: `artifacts/{analysis_id}/runs/{run_id}/llm/tier2/*.json`, `llm/tier2a/*.json`, `llm/tier2b/*.json`.
 
 Stage J: Reporting + MITRE mapping
 - **MITRE mapping** (`config/mitre/` + `src/apk_analyzer/analyzers/mitre_mapper.py`): maps extracted evidence to ATT&CK techniques.
@@ -228,9 +272,11 @@ Stage J: Reporting + MITRE mapping
 ## Repo Layout
 
 - `src/apk_analyzer/`: Python pipeline and agent logic
-  - `agents/`: LLM agents (recon, tier1, tier1_tools, tier2, verifier, report)
-  - `analyzers/`: static analyzers (jadx_extractors, context_bundle_builder, etc.)
-  - `prompts/`: LLM prompt templates (recon.md, tier1_summarize.md, tier1_repair.md, tier2_intent.md, tier3_final.md)
+  - `agents/`: LLM agents (recon, tier1, tier1_tools, tier2, tier2a_reasoning, tier2b_commands, verifier, report)
+  - `analyzers/`: static analyzers (jadx_extractors, context_bundle_builder, semantic_annotator, tier2_prevalidator, value_hints_builder, etc.)
+  - `models/`: data models (tier2_phases.py with Phase2A/2B output classes)
+  - `templates/`: command templates (command_templates.py with 23 component-type-aware templates)
+  - `prompts/`: LLM prompt templates (recon.md, tier1_summarize.md, tier1_repair.md, tier2_intent.md, tier2a_reasoning.md, tier2b_commands.md, tier3_final.md)
 - `java/soot-extractor/`: Java Soot extractor (Gradle)
 - `config/`: settings, schemas, suspicious API catalogs, SourcesAndSinks, MITRE mapping
 - `config/android_sensitive_api_catalog.json`: catalog-driven dangerous API definitions for recon (includes DeviceAdminReceiver, banking app detection, etc.)
@@ -523,8 +569,9 @@ Key settings live in `config/settings.yaml`:
 - `llm.model_recon`: Recon model.
 - `llm.model_tier1`: Tier-1 summarizer model.
 - `llm.model_verifier`: Verifier model.
-- `llm.model_tier2`: Tier-2 intent model.
+- `llm.model_tier2`: Tier-2 intent model (used for both Phase 2A and 2B when split enabled).
 - `llm.model_report`: Report model.
+- `llm.tier2_split_enabled`: Enable two-phase Tier2 (Phase 2A reasoning + Phase 2B commands). Default `true`. Set to `false` for legacy single-phase mode.
 - `telemetry.enabled`: Enable OpenTelemetry export.
 - `telemetry.otlp_endpoint`: OTLP endpoint for traces (default `http://otel-collector:4317` in Docker).
 - `observability.enabled`: Enable the run ledger (`observability/runs/<run_id>.jsonl`) consumed by the UI.
@@ -635,5 +682,5 @@ pytest
 - APK-only mode runs JADX in a temp directory that is deleted after analysis. JADX exit code 1 is tolerated (common with obfuscated code); the pipeline checks for actual `.java` file output instead. If JADX produces no output, the pipeline falls back to DEX-only seeding with reduced recall and no repair tools.
 - The Tier1 repair agent requires JADX output to function. In combined mode without APK-only decompilation, repair tools are not available.
 - LLM integration supports Gemini via API key or service account, and Claude via service account (Vertex). Ensure `google-genai` and `anthropic` are installed for those paths.
-- **Token optimization**: Tier1 and Tier2 payloads are shaped to reduce token usage by 25-40% while preserving all driver-relevant information. Full context bundles are preserved in artifacts for debugging.
+- **Token optimization**: Tier1 and Tier2 payloads are shaped to reduce token usage by 25-40% while preserving all driver-relevant information. Full context bundles are preserved in artifacts for debugging. The two-phase Tier2 design prioritizes accuracy over token savings by preserving full Tier1 data in Phase 2A and using `ValueHintsBundle` for grounded command generation in Phase 2B.
 - **Execution LLM compatibility**: The Tier2 output's `execution_guidance` is designed for consumption by a smaller execution LLM (e.g., Qwen Code 30B) that can drive dynamic analysis via ADB, Frida, or manual steps. Commands are complete (ADB with `adb shell` prefix, Frida with full `frida -U -n <pkg> -e "<js>"` format), verification is explicit (no placeholder commands), and failure handling follows strict rules (`on_fail`: abort/retry/skip only).

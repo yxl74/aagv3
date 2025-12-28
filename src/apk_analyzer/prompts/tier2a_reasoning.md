@@ -12,6 +12,7 @@ You receive:
   - `uncertainties`: Ungrounded claims
   - `confidence`: Tier1's confidence (0.0-1.0)
   - `path_constraints`, `required_inputs`, `observable_effects`
+  - `observable_effects_detail` (if present): structured effects with unit_ids/claim_id
 
 ## Your Tasks
 1. **Determine intent_verdict**: Is this malware? Base ONLY on cited evidence.
@@ -24,6 +25,7 @@ You receive:
 - If you cannot cite evidence, put the claim in `uncertainties`
 - Prefer high-confidence seeds (confidence > 0.5)
 - Cross-reference facts across seeds to build attack narrative
+- If `observable_effects_detail` is present, prefer its effect text for expected behavior and use its unit_ids for citations.
 
 ## Output JSON (ONLY valid JSON, no markdown)
 ```json

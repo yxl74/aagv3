@@ -1014,6 +1014,280 @@
       box-shadow: var(--shadow-sm);
     }
 
+    /* LLM Category Tabs */
+    .llm-category-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 8px;
+      background: var(--gray-50);
+      border-radius: var(--radius-sm);
+      margin-left: auto;
+    }
+
+    .llm-category-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--gray-600);
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-xs);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .llm-category-tab:hover {
+      color: var(--gray-900);
+      border-color: var(--gray-300);
+    }
+
+    .llm-category-tab.active {
+      background: var(--blue);
+      color: var(--white);
+      border-color: var(--blue);
+    }
+
+    .llm-category-tab .tab-count {
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      font-size: 10px;
+      font-weight: 600;
+      background: rgba(255,255,255,0.2);
+      border-radius: 9px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .llm-category-tab:not(.active) .tab-count {
+      background: var(--gray-100);
+      color: var(--gray-600);
+    }
+
+    .llm-category-content {
+      display: none;
+    }
+
+    .llm-category-content.active {
+      display: block;
+    }
+
+    .llm-category-summary {
+      padding: 12px 16px;
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+      font-size: 13px;
+      color: var(--gray-600);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+    }
+
+    .llm-category-summary:hover {
+      background: var(--gray-100);
+    }
+
+    .llm-category-summary .summary-text {
+      flex: 1;
+    }
+
+    .llm-category-summary .details-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--blue);
+      background: var(--blue-light);
+      border-radius: var(--radius-xs);
+      transition: all 0.15s ease;
+    }
+
+    .llm-category-summary .details-toggle:hover {
+      background: var(--blue);
+      color: var(--white);
+    }
+
+    .llm-category-summary .details-toggle svg {
+      width: 12px;
+      height: 12px;
+      transition: transform 0.2s ease;
+    }
+
+    .llm-category-summary.expanded .details-toggle svg {
+      transform: rotate(180deg);
+    }
+
+    /* Category Details Panel */
+    .llm-category-details {
+      display: none;
+      padding: 16px;
+      background: linear-gradient(to bottom, var(--gray-50), var(--white));
+      border-bottom: 1px solid var(--gray-200);
+    }
+
+    .llm-category-details.visible {
+      display: block;
+    }
+
+    .category-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .category-detail-card {
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+    }
+
+    .category-detail-card h4 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--gray-500);
+      margin: 0 0 8px 0;
+    }
+
+    .category-description {
+      font-size: 13px;
+      color: var(--gray-700);
+      line-height: 1.5;
+    }
+
+    .category-meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .category-meta-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      border-radius: var(--radius-xs);
+      background: var(--gray-100);
+      color: var(--gray-600);
+    }
+
+    .category-meta-badge.priority-critical {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+
+    .category-meta-badge.priority-high {
+      background: #ffedd5;
+      color: #c2410c;
+    }
+
+    .category-meta-badge.priority-medium {
+      background: #fef3c7;
+      color: #b45309;
+    }
+
+    .category-meta-badge.priority-low {
+      background: #dcfce7;
+      color: #15803d;
+    }
+
+    .category-meta-badge.mitre {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    /* Seeds List */
+    .seeds-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    .seed-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      background: var(--gray-50);
+      border-radius: var(--radius-xs);
+      font-size: 12px;
+    }
+
+    .seed-item .seed-id {
+      font-family: var(--font-mono);
+      color: var(--gray-600);
+      max-width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .seed-item .seed-verdict {
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .seed-item .seed-verdict.confirmed_malicious,
+    .seed-item .seed-verdict.malicious {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+
+    .seed-item .seed-verdict.likely_malicious,
+    .seed-item .seed-verdict.suspicious {
+      background: #ffedd5;
+      color: #c2410c;
+    }
+
+    .seed-item .seed-verdict.benign {
+      background: #dcfce7;
+      color: #15803d;
+    }
+
+    .seed-item .seed-verdict.unknown,
+    .seed-item .seed-verdict.insufficient_evidence {
+      background: var(--gray-100);
+      color: var(--gray-600);
+    }
+
+    .seed-item .seed-summary {
+      flex: 1;
+      color: var(--gray-500);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 768px) {
+      .llm-category-tabs {
+        max-width: 100%;
+        margin-top: 12px;
+        overflow-x: auto;
+      }
+
+      .category-detail-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
     /* Artifact Renderers */
     .artifact-header {
       display: flex;
@@ -2421,61 +2695,161 @@
       </div>
     </div>
 
-    <!-- LLM I/O -->
+    <!-- LLM I/O with Category Tabs -->
     <div class="card">
       <div class="card-header">
         <div class="card-title">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
           </svg>
           LLM I/O
         </div>
-      </div>
-      <div class="table-wrapper">
-        {% if llm_events %}
-        <table>
-          <thead>
-            <tr>
-              <th>Event</th>
-              <th>Step</th>
-              <th>Seed</th>
-              <th>Artifact</th>
-              <th>Size</th>
-              <th>Prompt</th>
-              <th>Payload</th>
-              <th>Error</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for event in llm_events %}
-            <tr>
-              <td class="mono">{{ event.event_type }}</td>
-              <td>{{ event.llm_step or "—" }}</td>
-              <td class="mono" style="max-width: 120px; overflow: hidden; text-overflow: ellipsis;">{{ event.seed_id or "—" }}</td>
-              <td>
-                {% if event.ref %}
-                <a href="/runs/{{ analysis_id }}/artifact/{{ event.ref }}">{{ event.ref|truncate(25) }}</a>
-                {% else %}—{% endif %}
-              </td>
-              <td class="mono">{{ event.size or "—" }}</td>
-              <td class="mono">{{ event.prompt_chars or "—" }}</td>
-              <td class="mono">{{ event.payload_chars or "—" }}</td>
-              <td>
-                {% if event.error_type %}
-                <span class="pill error">{{ event.error_type }}</span>
-                {% else %}—{% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% else %}
-        <div class="empty-state">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-          <div>No LLM events recorded</div>
+        {% if llm_events_by_category %}
+        <div class="llm-category-tabs" id="llmCategoryTabs">
+          {% for cat_id, cat_data in llm_events_by_category.items() %}
+          <button class="llm-category-tab {% if loop.first %}active{% endif %}"
+                  data-category="{{ cat_id|e }}"
+                  onclick="switchLlmCategory(this.dataset.category)">
+            {{ cat_id|replace('_', ' ')|title }}
+            <span class="tab-count">{{ cat_data.events|length }}</span>
+          </button>
+          {% endfor %}
         </div>
         {% endif %}
       </div>
+
+      {% if llm_events_by_category %}
+      {% for cat_id, cat_data in llm_events_by_category.items() %}
+      <div class="llm-category-content {% if loop.first %}active{% endif %}"
+           data-category="{{ cat_id|e }}">
+        <!-- Clickable Summary with Details Toggle -->
+        <div class="llm-category-summary" onclick="toggleCategoryDetails(this)">
+          <span class="summary-text">{{ cat_data.summary|e }}</span>
+          {% if cat_data.metadata or cat_data.seeds %}
+          <span class="details-toggle">
+            View Details
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </span>
+          {% endif %}
+        </div>
+
+        <!-- Expandable Category Details Panel -->
+        {% if cat_data.metadata or cat_data.seeds %}
+        <div class="llm-category-details">
+          <div class="category-detail-grid">
+            {% if cat_data.metadata and cat_data.metadata.description %}
+            <!-- Category Info Card -->
+            <div class="category-detail-card">
+              <h4>Category Information</h4>
+              <div class="category-description">{{ cat_data.metadata.description|e }}</div>
+              <div class="category-meta-row">
+                {% if cat_data.metadata.priority %}
+                <span class="category-meta-badge priority-{{ cat_data.metadata.priority|lower }}">
+                  {{ cat_data.metadata.priority }} Priority
+                </span>
+                {% endif %}
+                {% if cat_data.metadata.mitre_primary %}
+                <span class="category-meta-badge mitre" title="MITRE ATT&CK">
+                  {{ cat_data.metadata.mitre_primary }}
+                </span>
+                {% endif %}
+                {% for alias in cat_data.metadata.mitre_aliases or [] %}
+                <span class="category-meta-badge mitre">{{ alias }}</span>
+                {% endfor %}
+              </div>
+              {% if cat_data.metadata.permission_hints %}
+              <div class="category-meta-row" style="margin-top: 6px;">
+                {% for perm in cat_data.metadata.permission_hints %}
+                <span class="category-meta-badge">{{ perm }}</span>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            {% if cat_data.seeds %}
+            <!-- Seeds Card -->
+            <div class="category-detail-card">
+              <h4>Investigated Seeds ({{ cat_data.seeds|length }})</h4>
+              <div class="seeds-list">
+                {% for seed in cat_data.seeds %}
+                <div class="seed-item">
+                  <span class="seed-id" title="{{ seed.seed_id }}">{{ seed.seed_id|truncate(10) }}</span>
+                  <span class="seed-verdict {{ seed.verdict|lower|replace(' ', '_') }}">{{ seed.verdict|replace('_', ' ') }}</span>
+                  {% if seed.summary %}
+                  <span class="seed-summary" title="{{ seed.summary }}">{{ seed.summary }}</span>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="table-wrapper">
+          {% if cat_data.events %}
+          <table>
+            <thead>
+              <tr>
+                <th>Event</th><th>Step</th><th>Seed</th><th>Artifact</th>
+                <th>Size</th><th>Prompt</th><th>Payload</th><th>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for event in cat_data.events %}
+              <tr>
+                <td class="mono">{{ event.event_type|e }}</td>
+                <td>{{ event.llm_step or "—" }}</td>
+                <td class="mono" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;"
+                    title="{{ event.seed_id or '' }}">
+                  {{ (event.seed_id or "—")|truncate(12) }}
+                </td>
+                <td>
+                  {% if event.ref %}
+                  <a href="/runs/{{ analysis_id }}/artifact/{{ event.ref|e }}">
+                    {{ event.ref|truncate(25) }}
+                  </a>
+                  {% else %}—{% endif %}
+                </td>
+                <td class="mono">{{ event.size or "—" }}</td>
+                <td class="mono">{{ event.prompt_chars or "—" }}</td>
+                <td class="mono">{{ event.payload_chars or "—" }}</td>
+                <td>
+                  {% if event.error_type %}
+                  <span class="pill error">{{ event.error_type|e }}</span>
+                  {% else %}—{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div class="empty-state">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                    d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+            <div>No LLM events for this category</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <!-- Fallback when no LLM events exist -->
+      <div class="empty-state">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        <div>No LLM events recorded</div>
+      </div>
+      {% endif %}
     </div>
 
     <!-- API + Tool Events -->
@@ -4776,6 +5150,56 @@
       }).catch(err => {
         console.error('Copy failed:', err);
       });
+    });
+
+    // ============================================================
+    // LLM Category Tab Switching
+    // ============================================================
+
+    function toggleCategoryDetails(summaryEl) {
+      // Toggle expanded state on summary
+      summaryEl.classList.toggle('expanded');
+
+      // Find and toggle the details panel
+      const detailsPanel = summaryEl.nextElementSibling;
+      if (detailsPanel && detailsPanel.classList.contains('llm-category-details')) {
+        detailsPanel.classList.toggle('visible');
+
+        // Update toggle button text
+        const toggleBtn = summaryEl.querySelector('.details-toggle');
+        if (toggleBtn) {
+          const isVisible = detailsPanel.classList.contains('visible');
+          toggleBtn.childNodes[0].textContent = isVisible ? 'Hide Details ' : 'View Details ';
+        }
+      }
+    }
+
+    function switchLlmCategory(categoryId) {
+      // Update tab active states
+      document.querySelectorAll('.llm-category-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.category === categoryId);
+      });
+
+      // Update content panel visibility
+      document.querySelectorAll('.llm-category-content').forEach(panel => {
+        panel.classList.toggle('active', panel.dataset.category === categoryId);
+      });
+
+      // Persist preference
+      try {
+        sessionStorage.setItem('llmCategoryTab', categoryId);
+      } catch (e) {}
+    }
+
+    // Restore saved tab on page load
+    document.addEventListener('DOMContentLoaded', function() {
+      try {
+        const saved = sessionStorage.getItem('llmCategoryTab');
+        if (saved) {
+          const tab = document.querySelector(`.llm-category-tab[data-category="${saved}"]`);
+          if (tab) switchLlmCategory(saved);
+        }
+      } catch (e) {}
     });
   </script>
 </body>
