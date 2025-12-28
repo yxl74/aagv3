@@ -48,11 +48,6 @@ class ClaudeLLMClient:
         self.max_tokens = max_tokens
         self.verify_ssl = verify_ssl
 
-        # Disable SSL verification if requested (for corporate proxies)
-        if not verify_ssl:
-            from apk_analyzer.clients.gemini_client import _disable_ssl_verification
-            _disable_ssl_verification()
-
         # Set up service account credentials if provided
         if service_account_file:
             if not os.path.isabs(service_account_file):
@@ -66,15 +61,20 @@ class ClaudeLLMClient:
         # Lazy import to avoid import errors if anthropic not installed
         try:
             from anthropic import AnthropicVertex
+            import httpx
         except ImportError as e:
             raise ImportError(
                 "anthropic package required for Claude support. "
                 "Install with: pip install anthropic"
             ) from e
 
+        # Create custom httpx client with SSL verification disabled if requested
+        http_client = httpx.Client(verify=False) if not verify_ssl else None
+
         self.client = AnthropicVertex(
             region=region,
             project_id=project_id,
+            http_client=http_client,
         )
 
     def complete(self, prompt: str, payload: dict, model: Optional[str] = None) -> str:

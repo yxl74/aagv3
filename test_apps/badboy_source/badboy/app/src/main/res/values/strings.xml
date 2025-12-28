@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">badboy</string>
+    <string name="c2_server">http://192.168.1.100:8080/gate.php</string>
+    <string name="update_url">http://evil.com/update.apk</string>
+    <string name="payload_key">aGVsbG93b3JsZA==</string>
+    <string name="admin_phone">+1234567890</string>
+    <string name="exfil_endpoint">/api/upload</string>
+</resources>
