@@ -48,6 +48,11 @@ class ClaudeLLMClient:
         self.max_tokens = max_tokens
         self.verify_ssl = verify_ssl
 
+        # Disable SSL verification for Google Auth (token exchange)
+        if not verify_ssl:
+            from apk_analyzer.clients.gemini_client import _disable_ssl_verification
+            _disable_ssl_verification()
+
         # Set up service account credentials if provided
         if service_account_file:
             if not os.path.isabs(service_account_file):
