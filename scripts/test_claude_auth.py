@@ -23,6 +23,11 @@ MODEL = "claude-opus-4-5@20251101"  # Claude model to test
 VERIFY_SSL = False  # Set False for corporate proxies with SSL inspection
 # =============================================================================
 
+# Disable SSL BEFORE any other imports (must happen before httpx/requests are loaded)
+if not VERIFY_SSL:
+    from apk_analyzer.clients.gemini_client import _disable_ssl_verification
+    _disable_ssl_verification()
+
 
 def test_claude_client():
     """Test ClaudeLLMClient directly."""
