@@ -50,7 +50,7 @@ class ExtractionCoverage(str, Enum):
     MINIMAL = "minimal"  # Critical structure missing or extractor drift
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PhaseOutput:
     """Base class for all phase outputs.
 

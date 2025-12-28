@@ -19,6 +19,15 @@ src/apk_analysis_agent.egg-info/SOURCES.txt
 src/apk_analysis_agent.egg-info/top_level.txt
 test.apk
 
+# Local analysis artifacts and scratch data
+call_graph_example.json
+hit_new.json
+hit_old.json
+recon.json
+impl_instruction/
+test_malware/
+java/soot-extractor/bin/
+
 # GCP service account credentials
 config/*.json
 config/gcp-sa-key.json
