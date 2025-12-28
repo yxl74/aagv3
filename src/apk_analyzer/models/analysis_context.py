@@ -53,7 +53,7 @@ class AnalysisContext:
     # NO slice_path() - use ArtifactStore.read_json()
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SourcedField:
     """Base class for fields that track their origin.
 
