@@ -23,6 +23,7 @@ class ClaudeLLMClient:
         service_account_file: Optional[str] = None,
         timeout_sec: float = 600.0,
         max_tokens: int = 8192,
+        verify_ssl: bool = True,
     ) -> None:
         """
         Initialize Claude Vertex client.
@@ -35,6 +36,7 @@ class ClaudeLLMClient:
                                   If provided, sets GOOGLE_APPLICATION_CREDENTIALS.
             timeout_sec: Request timeout in seconds
             max_tokens: Maximum tokens in response
+            verify_ssl: Whether to verify SSL certificates (set False for corporate proxies)
         """
         if not project_id:
             raise ValueError("GCP project_id is required for AnthropicVertex")
@@ -44,6 +46,12 @@ class ClaudeLLMClient:
         self.default_model = default_model
         self.timeout_sec = timeout_sec
         self.max_tokens = max_tokens
+        self.verify_ssl = verify_ssl
+
+        # Disable SSL verification if requested (for corporate proxies)
+        if not verify_ssl:
+            from apk_analyzer.clients.gemini_client import _disable_ssl_verification
+            _disable_ssl_verification()
 
         # Set up service account credentials if provided
         if service_account_file:

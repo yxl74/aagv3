@@ -19,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 PROJECT_ID = "knox-dev-2"  # Replace with your actual GCP project ID
 REGION = "global"  # GCP region (us-central1, europe-west4, etc.)
 SERVICE_ACCOUNT_FILE = "config/gcp-sa-key.json"  # Path to your credentials
-MODEL = "claude-sonnet-4-5@20250929"  # Claude model to test
+MODEL = "claude-opus-4-5@20251101"  # Claude model to test
+VERIFY_SSL = False  # Set False for corporate proxies with SSL inspection
 # =============================================================================
 
 
@@ -34,6 +35,7 @@ def test_claude_client():
     print(f"  Region:           {REGION}")
     print(f"  Service Account:  {SERVICE_ACCOUNT_FILE}")
     print(f"  Model:            {MODEL}")
+    print(f"  Verify SSL:       {VERIFY_SSL}")
     print("=" * 60)
 
     if PROJECT_ID == "your-project-id":
@@ -57,6 +59,7 @@ def test_claude_client():
             region=REGION,
             service_account_file=str(sa_path),
             default_model=MODEL,
+            verify_ssl=VERIFY_SSL,
         )
         print("      OK - Client initialized")
     except Exception as e:
