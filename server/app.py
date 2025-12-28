@@ -332,34 +332,20 @@ def _safe_artifact_path(analysis_id: str, rel_path: str) -> Path:
     return candidate
 
 
-def _build_category_seed_map(threat_report: Dict[str, Any] | None) -> Dict[str, List[str]]:
-    """Build mapping from category_id to list of seed_ids."""
-    if not threat_report:
-        return {}
-    category_map: Dict[str, List[str]] = {}
-    for seed in threat_report.get("seed_summaries", []):
-        cat_id = seed.get("category_id") or "General"
-        seed_id = seed.get("seed_id")
-        # Handle valid seed_ids only (not None, not empty, not "na")
-        if seed_id and seed_id != "na":
-            category_map.setdefault(cat_id, []).append(seed_id)
-    return category_map
-
-
-def _group_llm_events_by_category(
+def _group_llm_events_by_seed(
     llm_events: List[Dict[str, Any]],
-    category_seed_map: Dict[str, List[str]],
     threat_report: Dict[str, Any] | None = None,
 ) -> "OrderedDict[str, Dict[str, Any]]":
-    """Group LLM events by category with summary info and metadata.
+    """Group LLM events by seed_id (code block).
 
-    Returns OrderedDict with "All" first, then categories alphabetically, then "General" last.
-    Each category includes: summary, events, metadata (description, priority, mitre), and seeds.
+    Returns OrderedDict with tabs:
+    - "All": All LLM events
+    - "Recon": Events with llm_step="recon" or no seed_id
+    - "Code Block N": Events for each unique seed_id
     """
-    # Load API catalog for category metadata
     catalog = _get_api_catalog()
 
-    # Build seed info lookup from threat_report
+    # Build seed info from threat_report (seed_id -> {category_id, verdict, summary, ...})
     seed_info_map: Dict[str, Dict[str, Any]] = {}
     if threat_report:
         for seed in threat_report.get("seed_summaries", []):
@@ -367,84 +353,82 @@ def _group_llm_events_by_category(
             if sid:
                 tier1 = seed.get("tier1") or {}
                 tier2 = seed.get("tier2") or {}
+                category_id = seed.get("category_id") or ""
+
+                # Get category metadata from catalog
+                cat_meta: Dict[str, Any] = {}
+                if catalog and category_id:
+                    cat = catalog.categories.get(category_id)
+                    if cat:
+                        cat_meta = {
+                            "category_id": category_id,
+                            "description": cat.description,
+                            "priority": cat.priority,
+                            "mitre_primary": cat.mitre_primary,
+                            "mitre_aliases": cat.mitre_aliases[:3] if cat.mitre_aliases else [],
+                        }
+
                 seed_info_map[sid] = {
                     "seed_id": sid,
                     "case_id": seed.get("case_id"),
+                    "category_id": category_id,
+                    "category_meta": cat_meta,
                     "verdict": tier2.get("intent_verdict") or tier1.get("verdict") or "unknown",
-                    "summary": tier1.get("function_summary", "")[:100] if tier1.get("function_summary") else "",
+                    "function_summary": tier1.get("function_summary", "")[:200] if tier1.get("function_summary") else "",
+                    "attack_chain_summary": tier2.get("attack_chain_summary", "")[:200] if tier2.get("attack_chain_summary") else "",
                 }
 
-    # Reverse map: seed_id -> category_id
-    seed_to_cat: Dict[str, str] = {}
-    for cat_id, seeds in category_seed_map.items():
-        for sid in seeds:
-            seed_to_cat[sid] = cat_id
-
-    # Temporary dict to collect events
-    temp_grouped: Dict[str, List[Dict[str, Any]]] = {"General": []}
-    category_set: set = set()
+    # Group events by seed_id
+    recon_events: List[Dict[str, Any]] = []
+    seed_events: Dict[str, List[Dict[str, Any]]] = {}
+    seed_order: List[str] = []  # Track order seeds appear
 
     for event in llm_events:
         seed_id = event.get("seed_id")
-        # Treat None, empty, and "na" as uncategorized -> General
-        if not seed_id or seed_id == "na":
-            temp_grouped["General"].append(event)
+        llm_step = event.get("llm_step", "")
+
+        # Recon events or events without seed_id
+        if not seed_id or seed_id == "na" or llm_step == "recon":
+            recon_events.append(event)
         else:
-            cat_id = seed_to_cat.get(seed_id, "General")
-            if cat_id not in temp_grouped:
-                temp_grouped[cat_id] = []
-            temp_grouped[cat_id].append(event)
-            if cat_id != "General":
-                category_set.add(cat_id)
+            if seed_id not in seed_events:
+                seed_events[seed_id] = []
+                seed_order.append(seed_id)
+            seed_events[seed_id].append(event)
 
-    def _get_category_metadata(cat_id: str) -> Dict[str, Any]:
-        """Get metadata for a category from the API catalog."""
-        if not catalog or cat_id in ("All", "General"):
-            return {}
-        cat = catalog.categories.get(cat_id)
-        if not cat:
-            return {}
-        return {
-            "description": cat.description,
-            "priority": cat.priority,
-            "mitre_primary": cat.mitre_primary,
-            "mitre_aliases": cat.mitre_aliases[:3] if cat.mitre_aliases else [],
-            "pha_tags": cat.pha_tags[:3] if cat.pha_tags else [],
-            "permission_hints": cat.permission_hints[:3] if cat.permission_hints else [],
-        }
-
-    def _get_seeds_for_category(cat_id: str) -> List[Dict[str, Any]]:
-        """Get seed info for seeds in a category."""
-        if cat_id == "All":
-            return list(seed_info_map.values())[:10]  # Limit for "All" tab
-        seed_ids = category_seed_map.get(cat_id, [])
-        return [seed_info_map[sid] for sid in seed_ids if sid in seed_info_map]
-
-    # Build OrderedDict: "All" first, then sorted categories, then "General" last
+    # Build OrderedDict
     grouped: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+
+    # "All" tab first
     grouped["All"] = {
+        "tab_label": "All",
         "summary": "All LLM events from the analysis",
         "events": llm_events.copy(),
-        "metadata": {},
-        "seeds": _get_seeds_for_category("All"),
+        "seed_info": None,
+        "has_details": False,
     }
 
-    # Add sorted categories
-    for cat_id in sorted(category_set):
-        grouped[cat_id] = {
-            "summary": f"LLM events investigating {cat_id.replace('_', ' ').title()}",
-            "events": temp_grouped[cat_id],
-            "metadata": _get_category_metadata(cat_id),
-            "seeds": _get_seeds_for_category(cat_id),
+    # "Recon" tab for recon events
+    if recon_events:
+        grouped["Recon"] = {
+            "tab_label": "Recon",
+            "summary": "Initial reconnaissance and API categorization",
+            "events": recon_events,
+            "seed_info": None,
+            "has_details": False,
         }
 
-    # Add "General" last if it has events
-    if temp_grouped["General"]:
-        grouped["General"] = {
-            "summary": "LLM events without specific threat category",
-            "events": temp_grouped["General"],
-            "metadata": {},
-            "seeds": [],
+    # Seed/Code Block tabs
+    for idx, seed_id in enumerate(seed_order, start=1):
+        seed_info = seed_info_map.get(seed_id, {})
+        category_id = seed_info.get("category_id", "")
+
+        grouped[seed_id] = {
+            "tab_label": f"Code Block {idx}",
+            "summary": f"Investigation of {category_id.replace('_', ' ').title()}" if category_id else "Code block investigation",
+            "events": seed_events[seed_id],
+            "seed_info": seed_info if seed_info else None,
+            "has_details": bool(seed_info),
         }
 
     return grouped
@@ -522,11 +506,8 @@ def _render_run_detail(
             except Exception:
                 pass
 
-    # Group LLM events by threat category for tabbed UI
-    category_seed_map = _build_category_seed_map(threat_report)
-    llm_events_by_category = _group_llm_events_by_category(
-        llm_events, category_seed_map, threat_report
-    )
+    # Group LLM events by seed/code block for tabbed UI
+    llm_events_by_category = _group_llm_events_by_seed(llm_events, threat_report)
 
     return templates.TemplateResponse(
         "run_detail.html",

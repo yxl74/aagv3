@@ -1276,6 +1276,63 @@
       white-space: nowrap;
     }
 
+    .seed-analysis-info {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .analysis-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    .analysis-row .label {
+      font-weight: 600;
+      color: var(--gray-600);
+      min-width: 85px;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+
+    .analysis-row .value {
+      color: var(--gray-700);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .seed-verdict {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      text-transform: capitalize;
+    }
+
+    .seed-verdict.confirmed_malicious,
+    .seed-verdict.malicious {
+      background: var(--red-100);
+      color: var(--red-700);
+    }
+
+    .seed-verdict.likely_malicious,
+    .seed-verdict.suspicious {
+      background: var(--yellow-100);
+      color: var(--yellow-700);
+    }
+
+    .seed-verdict.benign {
+      background: var(--green-100);
+      color: var(--green-700);
+    }
+
+    .seed-verdict.unknown,
+    .seed-verdict.insufficient_evidence {
+      background: var(--gray-100);
+      color: var(--gray-600);
+    }
+
     @media (max-width: 768px) {
       .llm-category-tabs {
         max-width: 100%;
@@ -2711,7 +2768,7 @@
           <button class="llm-category-tab {% if loop.first %}active{% endif %}"
                   data-category="{{ cat_id|e }}"
                   onclick="switchLlmCategory(this.dataset.category)">
-            {{ cat_id|replace('_', ' ')|title }}
+            {{ cat_data.tab_label }}
             <span class="tab-count">{{ cat_data.events|length }}</span>
           </button>
           {% endfor %}
@@ -2726,7 +2783,7 @@
         <!-- Clickable Summary with Details Toggle -->
         <div class="llm-category-summary" onclick="toggleCategoryDetails(this)">
           <span class="summary-text">{{ cat_data.summary|e }}</span>
-          {% if cat_data.metadata or cat_data.seeds %}
+          {% if cat_data.has_details and cat_data.seed_info %}
           <span class="details-toggle">
             View Details
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2736,57 +2793,62 @@
           {% endif %}
         </div>
 
-        <!-- Expandable Category Details Panel -->
-        {% if cat_data.metadata or cat_data.seeds %}
+        <!-- Expandable Seed Details Panel -->
+        {% if cat_data.has_details and cat_data.seed_info %}
         <div class="llm-category-details">
           <div class="category-detail-grid">
-            {% if cat_data.metadata and cat_data.metadata.description %}
-            <!-- Category Info Card -->
+            <!-- Threat Category Card -->
+            {% if cat_data.seed_info.category_meta %}
             <div class="category-detail-card">
-              <h4>Category Information</h4>
-              <div class="category-description">{{ cat_data.metadata.description|e }}</div>
+              <h4>Threat Category</h4>
+              <div class="category-description">
+                <strong>{{ cat_data.seed_info.category_id|replace('_', ' ')|title }}</strong>
+                {% if cat_data.seed_info.category_meta.description %}
+                <p style="margin: 6px 0 0 0;">{{ cat_data.seed_info.category_meta.description }}</p>
+                {% endif %}
+              </div>
               <div class="category-meta-row">
-                {% if cat_data.metadata.priority %}
-                <span class="category-meta-badge priority-{{ cat_data.metadata.priority|lower }}">
-                  {{ cat_data.metadata.priority }} Priority
+                {% if cat_data.seed_info.category_meta.priority %}
+                <span class="category-meta-badge priority-{{ cat_data.seed_info.category_meta.priority|lower }}">
+                  {{ cat_data.seed_info.category_meta.priority }} Priority
                 </span>
                 {% endif %}
-                {% if cat_data.metadata.mitre_primary %}
+                {% if cat_data.seed_info.category_meta.mitre_primary %}
                 <span class="category-meta-badge mitre" title="MITRE ATT&CK">
-                  {{ cat_data.metadata.mitre_primary }}
+                  {{ cat_data.seed_info.category_meta.mitre_primary }}
                 </span>
                 {% endif %}
-                {% for alias in cat_data.metadata.mitre_aliases or [] %}
+                {% for alias in cat_data.seed_info.category_meta.mitre_aliases or [] %}
                 <span class="category-meta-badge mitre">{{ alias }}</span>
                 {% endfor %}
               </div>
-              {% if cat_data.metadata.permission_hints %}
-              <div class="category-meta-row" style="margin-top: 6px;">
-                {% for perm in cat_data.metadata.permission_hints %}
-                <span class="category-meta-badge">{{ perm }}</span>
-                {% endfor %}
-              </div>
-              {% endif %}
             </div>
             {% endif %}
 
-            {% if cat_data.seeds %}
-            <!-- Seeds Card -->
+            <!-- Seed Analysis Card -->
             <div class="category-detail-card">
-              <h4>Investigated Seeds ({{ cat_data.seeds|length }})</h4>
-              <div class="seeds-list">
-                {% for seed in cat_data.seeds %}
-                <div class="seed-item">
-                  <span class="seed-id" title="{{ seed.seed_id }}">{{ seed.seed_id|truncate(10) }}</span>
-                  <span class="seed-verdict {{ seed.verdict|lower|replace(' ', '_') }}">{{ seed.verdict|replace('_', ' ') }}</span>
-                  {% if seed.summary %}
-                  <span class="seed-summary" title="{{ seed.summary }}">{{ seed.summary }}</span>
-                  {% endif %}
+              <h4>Analysis Results</h4>
+              <div class="seed-analysis-info">
+                <div class="analysis-row">
+                  <span class="label">Verdict:</span>
+                  <span class="seed-verdict {{ cat_data.seed_info.verdict|lower|replace(' ', '_') }}">
+                    {{ cat_data.seed_info.verdict|replace('_', ' ') }}
+                  </span>
                 </div>
-                {% endfor %}
+                {% if cat_data.seed_info.function_summary %}
+                <div class="analysis-row">
+                  <span class="label">Function:</span>
+                  <span class="value">{{ cat_data.seed_info.function_summary }}</span>
+                </div>
+                {% endif %}
+                {% if cat_data.seed_info.attack_chain_summary %}
+                <div class="analysis-row">
+                  <span class="label">Attack Chain:</span>
+                  <span class="value">{{ cat_data.seed_info.attack_chain_summary }}</span>
+                </div>
+                {% endif %}
               </div>
             </div>
-            {% endif %}
           </div>
         </div>
         {% endif %}
