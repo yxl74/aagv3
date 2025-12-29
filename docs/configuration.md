@@ -33,6 +33,7 @@ Settings are defined in `config/settings.yaml`. CLI arguments can override most 
 | `analysis.callgraph_algo` | `SPARK` | Call graph algorithm: `SPARK` or `CHA` |
 | `analysis.allow_third_party_callers` | `true` | Include third-party SDK callers in API hits |
 | `analysis.filter_common_libraries` | `true` | Filter library callers (androidx, kotlin, etc.) |
+| `analysis.reflection_high_signal_only` | `true` | Keep only high-signal reflection hits |
 | `analysis.k_hop` | `2` | Call graph neighborhood distance |
 | `analysis.max_seed_count` | `20` | Maximum suspicious APIs to analyze |
 | `analysis.flowdroid_timeout_sec` | `900` | FlowDroid taint analysis timeout (15 min) |

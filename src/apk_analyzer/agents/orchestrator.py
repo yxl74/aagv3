@@ -290,6 +290,38 @@ class Orchestrator:
                                 allow_third_party_callers=allow_third_party,
                                 filter_common_libraries=filter_common_libs,
                             )
+                            reflection_high_signal_only = bool(
+                                self.settings["analysis"].get("reflection_high_signal_only", True)
+                            )
+                            if reflection_high_signal_only and sensitive_hits.get("hits"):
+                                from apk_analyzer.phase0.reflection_analyzer import (
+                                    analyze_reflection_hits,
+                                    filter_reflection_hits,
+                                )
+
+                                event_logger.stage_start("reflection_analysis")
+                                with span("stage.reflection_analysis", stage="reflection_analysis"):
+                                    reflection_analysis = analyze_reflection_hits(
+                                        sensitive_hits=sensitive_hits,
+                                        catalog=sensitive_catalog,
+                                        jadx_root=jadx_root if use_jadx else None,
+                                    )
+                                    sensitive_hits, suppressed = filter_reflection_hits(
+                                        sensitive_hits=sensitive_hits,
+                                        analysis=reflection_analysis,
+                                        catalog=sensitive_catalog,
+                                        filter_low_signal=True,
+                                    )
+                                    if suppressed:
+                                        artifact_store.write_json("seeds/reflection_suppressed.json", {
+                                            "count": len(suppressed),
+                                            "hits": suppressed[:50],
+                                        })
+                                event_logger.stage_end(
+                                    "reflection_analysis",
+                                    kept=sensitive_hits.get("summary", {}).get("reflection_kept", 0),
+                                    suppressed=len(suppressed) if reflection_high_signal_only else 0,
+                                )
                             artifact_store.write_json("seeds/sensitive_api_hits.json", sensitive_hits)
                             artifact_store.write_json(
                                 "graphs/callgraph_summary.json",

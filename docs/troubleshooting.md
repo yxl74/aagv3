@@ -201,6 +201,14 @@ analysis:
   allow_third_party_callers: false  # Restrict to app package only
 ```
 
+### Reflection hits missing or very low
+
+**Cause**: High-signal reflection filtering is enabled and JADX is unavailable or failing.
+
+**Solution**:
+1. Ensure `analysis.jadx_enabled: true` and JADX is working.
+2. Temporarily disable filtering: `analysis.reflection_high_signal_only: false`
+
 ### Seeds marked as unreachable
 
 **Cause**: No path from entrypoints to the suspicious API call.

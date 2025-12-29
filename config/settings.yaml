@@ -13,6 +13,7 @@ analysis:
   callgraph_algo: "SPARK"
   allow_third_party_callers: true
   filter_common_libraries: true  # Filter androidx, google, kotlin library noise
+  reflection_high_signal_only: true  # Keep only high-signal reflection hits
   k_hop: 2
   max_seed_count: 20
   flowdroid_callbacks_enabled: true

@@ -149,6 +149,14 @@ open htmlcov/index.html
 
 ---
 
+## Known Limitations
+
+- Reflection filtering: when `analysis.reflection_high_signal_only` is enabled, `obfuscated_chain` and `crypto_chain` signals are only kept for app callers (`caller_is_app`); malicious code living in third-party SDK namespaces may be filtered unless it resolves to a sensitive target.
+- Reflection + JADX: if JADX is unavailable or fails, reflection hits that require target resolution may be dropped; disable `analysis.reflection_high_signal_only` to inspect raw reflection hits.
+- Reachability: `reachable_from_entrypoint` is callgraph-derived and can be false for async/callback/UI-thread flows or inner classes of components (e.g., runnables posted from an Activity); treat “unreachable” as “no static path found,” not proof of dead code.
+
+---
+
 ## Rebuilding Components
 
 ### After FlowDroid Changes
