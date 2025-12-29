@@ -25,7 +25,7 @@ llm:
   # Gemini auth method: "api_key" (default) or "service_account"
   gemini_auth_method: "service_account"
   # API key auth settings (used when gemini_auth_method: "api_key")
-  api_key: "AQ.Ab8RN6KGJLaUG4w59C8brejLIj2SwhpuJmCc-520PBcIQBtP8w"
+  #api_key: "YOUR_API_KEY"
   base_url: "https://aiplatform.googleapis.com/v1"
   verify_ssl: false
   timeout_sec: 1500
@@ -34,10 +34,10 @@ llm:
   gcp_location: "global"
   gcp_service_account_file: "config/gcp-sa-key.json"
   # Claude settings (always uses service account, requires gcp_project_id)
-  # gcp_region: "global"  # For Claude (different from gcp_location)
+  gcp_region: "global"  # For Claude (different from gcp_location)
   # Per-agent models (provider auto-detected from model name)
   model_orchestrator: "gemini-3-pro-preview"
-  model_recon: "gemini-3-pro-preview"
+  model_recon: "claude-opus-4-5@20251101"
   recon_max_tool_rounds: 3
   model_tier1: "gemini-3-flash-preview"
   model_verifier: "gemini-3-pro-preview"
@@ -48,7 +48,7 @@ llm:
 telemetry:
   enabled: false
   service_name: "apk-analysis-agent"
-  otlp_endpoint: "http://otel-collector:4317"
+  otlp_endpoint: "http://localhost:4317"
   otlp_insecure: true
 observability:
   enabled: true
