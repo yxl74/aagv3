@@ -1,14 +1,15 @@
 {
-  "version": "2.3.0",
+  "version": "2.4.0",
   "meta": {
     "description": "Android Sensitive API Catalog for static & neuro-symbolic malware analysis (Recon/Code-Analysis agents).",
     "usage": "Phase 0 (DEX/Callgraph indexing) -> Phase 1 (Soot/FlowDroid slicing targets) -> LLM Recon summarization",
-    "generated_at": "2025-12-22",
+    "generated_at": "2025-12-29",
     "notes": [
       "Method signatures use Soot format: <class: ret method(params)>",
       "Fields/constants are optional indicators (not always present in call graphs).",
       "This catalog intentionally includes both 'sources' (collection) and 'enablers' (execution/evasion/persistence).",
-      "Maintain locally; optionally regenerate/expand from FlowDroid/SuSi SourcesAndSinks and PScout permission mapping."
+      "Maintain locally; optionally regenerate/expand from FlowDroid/SuSi SourcesAndSinks and PScout permission mapping.",
+      "Enhanced 2020-2025: added loader/persistence/permission-lure/push-C2 & notification-suppression indicators; refined accessibility & notification rules."
     ]
   },
   "categories": {
@@ -326,8 +327,7 @@
           "<android.service.notification.NotificationListenerService: void onNotificationRemoved(android.service.notification.StatusBarNotification)>",
           "<android.service.notification.StatusBarNotification: android.app.Notification getNotification()>",
           "<android.app.Notification: android.os.Bundle getExtras()>",
-          "<android.os.Bundle: java.lang.CharSequence getCharSequence(java.lang.String)>",
-          "<android.service.notification.NotificationListenerService: void cancelNotification(java.lang.String,java.lang.String,int)>"
+          "<android.os.Bundle: java.lang.CharSequence getCharSequence(java.lang.String)>"
         ],
         "fields": [],
         "strings": []
@@ -532,7 +532,10 @@
           "<android.view.accessibility.AccessibilityNodeInfo: java.util.List findAccessibilityNodeInfosByText(java.lang.String)>",
           "<android.view.accessibility.AccessibilityNodeInfo: java.util.List findAccessibilityNodeInfosByViewId(java.lang.String)>",
           "<android.view.accessibility.AccessibilityEvent: java.util.List getText()>",
-          "<android.view.accessibility.AccessibilityEvent: java.lang.CharSequence getContentDescription()>"
+          "<android.view.accessibility.AccessibilityEvent: java.lang.CharSequence getContentDescription()>",
+          "<android.view.accessibility.AccessibilityEvent: java.lang.CharSequence getPackageName()>",
+          "<android.view.accessibility.AccessibilityEvent: int getEventType()>",
+          "<android.view.accessibility.AccessibilityNodeInfo: java.lang.String getViewIdResourceName()>"
         ],
         "fields": [],
         "strings": []
@@ -1176,6 +1179,187 @@
           "/system/bin/su",
           "magisk",
           "busybox"
+        ]
+      }
+    },
+    "DEFENSE_EVASION_NOTIFICATION_SUPPRESSION": {
+      "priority": "MEDIUM",
+      "description": "Suppressing/clearing notifications (to hide OTP alerts, banking warnings, security prompts).",
+      "weight": 0.55,
+      "mitre": {
+        "primary": "T1622",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BANKING_TROJAN",
+        "SPYWARE",
+        "ADWARE",
+        "TROJAN"
+      ],
+      "permission_hints": [
+        "BIND_NOTIFICATION_LISTENER_SERVICE"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.service.notification.NotificationListenerService: void cancelNotification(java.lang.String,java.lang.String,int)>",
+          "<android.service.notification.NotificationListenerService: void cancelAllNotifications()>",
+          "<android.app.NotificationManager: void cancelAll()>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "PERSISTENCE_BATTERY_OPTIMIZATION_ALLOWLIST": {
+      "priority": "MEDIUM",
+      "description": "Requesting/checking 'Ignore battery optimizations' to keep running in background (persistence).",
+      "weight": 0.55,
+      "mitre": {
+        "primary": "T1541",
+        "aliases": []
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "SPYWARE",
+        "BACKDOOR",
+        "BANKING_TROJAN",
+        "TROJAN"
+      ],
+      "permission_hints": [
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.os.PowerManager: boolean isIgnoringBatteryOptimizations(java.lang.String)>"
+        ],
+        "fields": [],
+        "strings": [
+          "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+          "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+        ]
+      }
+    },
+    "DELIVERY_PAYLOAD_DOWNLOAD_DOWNLOADMANAGER": {
+      "priority": "MEDIUM",
+      "description": "Downloading secondary payloads via DownloadManager (common in droppers/loaders).",
+      "weight": 0.45,
+      "mitre": {
+        "primary": "T1407",
+        "aliases": [
+          "T1575"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "HOSTILE_DOWNLOADER",
+        "BANKING_TROJAN",
+        "BACKDOOR",
+        "TROJAN"
+      ],
+      "permission_hints": [
+        "INTERNET"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.app.DownloadManager: long enqueue(android.app.DownloadManager$Request)>",
+          "<android.app.DownloadManager$Request: void <init>(android.net.Uri)>",
+          "<android.app.DownloadManager$Request: android.app.DownloadManager$Request setDestinationUri(android.net.Uri)>",
+          "<android.app.DownloadManager$Request: android.app.DownloadManager$Request setNotificationVisibility(int)>"
+        ],
+        "fields": [],
+        "strings": [
+          "android.intent.action.DOWNLOAD_COMPLETE"
+        ]
+      }
+    },
+    "SOCIAL_ENGINEERING_PERMISSION_LURE_SETTINGS": {
+      "priority": "MEDIUM",
+      "description": "Navigating the user to high-risk Settings screens (Accessibility/Overlay/Unknown sources/Notification access/Battery-optimization) used in social engineering permission lures.",
+      "weight": 0.5,
+      "mitre": {
+        "primary": "T1648",
+        "aliases": []
+      },
+      "requires_slice": false,
+      "pha_tags": [
+        "BANKING_TROJAN",
+        "SPYWARE",
+        "HOSTILE_DOWNLOADER",
+        "TROJAN"
+      ],
+      "permission_hints": [],
+      "signatures": {
+        "methods": [],
+        "fields": [],
+        "strings": [
+          "android.settings.ACCESSIBILITY_SETTINGS",
+          "android.settings.action.MANAGE_OVERLAY_PERMISSION",
+          "android.settings.MANAGE_UNKNOWN_APP_SOURCES",
+          "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+          "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"
+        ]
+      }
+    },
+    "C2_PUSH_FCM": {
+      "priority": "LOW",
+      "description": "Receiving commands via push messaging (Firebase Cloud Messaging), sometimes used as a covert C2 trigger channel.",
+      "weight": 0.3,
+      "mitre": {
+        "primary": "T1437",
+        "aliases": [
+          "T1646"
+        ]
+      },
+      "requires_slice": true,
+      "pha_tags": [
+        "BACKDOOR",
+        "SPYWARE",
+        "BANKING_TROJAN",
+        "TROJAN"
+      ],
+      "permission_hints": [],
+      "signatures": {
+        "methods": [
+          "<com.google.firebase.messaging.FirebaseMessagingService: void onMessageReceived(com.google.firebase.messaging.RemoteMessage)>"
+        ],
+        "fields": [],
+        "strings": [
+          "com.google.firebase.MESSAGING_EVENT",
+          "fcm.googleapis.com",
+          "firebaseinstallations.googleapis.com"
+        ]
+      }
+    },
+    "C2_MESSAGING_PLATFORM_ENDPOINTS": {
+      "priority": "MEDIUM",
+      "description": "Hard-coded endpoints for common messaging platforms used as C2/exfil (e.g., Telegram Bot API).",
+      "weight": 0.55,
+      "mitre": {
+        "primary": "T1437",
+        "aliases": [
+          "T1639"
+        ]
+      },
+      "requires_slice": false,
+      "pha_tags": [
+        "BACKDOOR",
+        "SPYWARE",
+        "BANKING_TROJAN",
+        "TROJAN"
+      ],
+      "permission_hints": [
+        "INTERNET"
+      ],
+      "signatures": {
+        "methods": [],
+        "fields": [],
+        "strings": [
+          "api.telegram.org",
+          "telegram.me",
+          "t.me",
+          "discord.com/api/webhooks",
+          "hooks.slack.com/services",
+          "pastebin.com/raw"
         ]
       }
     }
