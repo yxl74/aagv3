@@ -642,6 +642,9 @@
       font-size: 13px;
       font-weight: 500;
       margin-top: 12px;
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
       transition: all 0.15s ease;
     }
 
@@ -654,6 +657,23 @@
     .artifact-link svg {
       width: 14px;
       height: 14px;
+    }
+
+    .category-list {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .category-pill {
+      background: var(--gray-100);
+      color: var(--gray-700);
+      border: 1px solid var(--gray-200);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-family: 'SF Mono', monospace;
     }
 
     /* Threat Level Badge */
@@ -1922,6 +1942,25 @@
       border-bottom: 1px solid var(--gray-100);
     }
 
+    .case-execution-group {
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      margin-bottom: 16px;
+      background: var(--gray-50);
+    }
+
+    .case-execution-group summary {
+      color: var(--gray-700);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 2px 0;
+    }
+
+    .case-execution-body {
+      margin-top: 12px;
+    }
+
     .plan-case {
       font-weight: 600;
       font-family: 'SF Mono', monospace;
@@ -1932,6 +1971,12 @@
     .plan-target {
       color: var(--gray-600);
       font-size: 13px;
+    }
+
+    .plan-seed {
+      color: var(--gray-500);
+      font-size: 12px;
+      font-family: 'SF Mono', monospace;
     }
 
     .plan-section {
@@ -2564,22 +2609,25 @@
         <div class="stat-label"><span class="step-num">1</span> Dangerous API Hits</div>
         <div class="stat-value orange">{{ sensitive_api.total_hits if sensitive_api else "—" }}</div>
         {% if sensitive_api and sensitive_api.ref %}
-        <a href="/runs/{{ analysis_id }}/artifact/{{ sensitive_api.ref }}" class="artifact-link">
+        <button type="button" class="artifact-link" data-artifact-url="/runs/{{ analysis_id }}/artifact/{{ sensitive_api.ref }}">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
           View Hits
-        </a>
+        </button>
         {% endif %}
         <div style="position: absolute; right: -14px; top: 50%; transform: translateY(-50%); color: var(--gray-400); font-size: 20px; font-weight: bold;">→</div>
       </div>
       <div class="stat-card step-2" style="flex: 1; position: relative;">
         <div class="stat-label"><span class="step-num">2</span> Threat Categories</div>
-        <div class="stat-value" style="color: var(--purple, #8b5cf6);">{{ recon.case_count if recon else "—" }}</div>
+        <div class="stat-value" style="color: var(--purple, #8b5cf6);">{{ recon_category_count if recon_category_count is not none else (recon.case_count if recon else "—") }}</div>
         {% if recon %}
         <div class="stat-sub">Threat:
           <span class="threat-badge {{ recon.threat_level|lower if recon.threat_level else 'unknown' }}">
             {{ recon.threat_level or "Unknown" }}
           </span>
         </div>
+        {% endif %}
+        {% if recon_categories %}
+        <button type="button" class="artifact-link" data-inline-artifact="recon_categories">View Categories</button>
         {% endif %}
         <div style="position: absolute; right: -14px; top: 50%; transform: translateY(-50%); color: var(--gray-400); font-size: 20px; font-weight: bold;">→</div>
       </div>
@@ -3009,6 +3057,11 @@
     // Configuration
     const analysisId = "{{ analysis_id }}";
     const runId = "{{ run_id or '' }}";
+    const reconCategoryPayload = {
+      type: 'recon_categories',
+      categories: {{ recon_categories | tojson }},
+    };
+    reconCategoryPayload.count = reconCategoryPayload.categories.length;
     const MAX_RECONNECT_DELAY = 30000;
     const MAX_RECONNECT_ATTEMPTS = 5;
     const POLL_INTERVAL = 5000;
@@ -3559,11 +3612,34 @@
     function renderExecutionGuidance(guidance) {
       if (!guidance?.length) return '<p style="color: var(--gray-500);">No execution guidance available.</p>';
 
-      return guidance.map(plan => `
+      const grouped = guidance.reduce((acc, plan) => {
+        const caseId = plan.case_id || 'Unknown';
+        if (!acc[caseId]) acc[caseId] = [];
+        acc[caseId].push(plan);
+        return acc;
+      }, {});
+
+      return Object.entries(grouped).map(([caseId, plans]) => {
+        const count = plans.length;
+        const label = `Case ${caseId} (${count} plan${count !== 1 ? 's' : ''})`;
+        const plansHtml = plans.map(plan => `
         <div class="execution-plan">
           <div class="plan-header">
             <span class="plan-case">${escapeHtml(plan.case_id || 'Unknown')}</span>
             <span class="plan-target">${escapeHtml(plan.target_capability || '')}</span>
+            ${(() => {
+              const seedIds = Array.isArray(plan.seed_ids) ? plan.seed_ids.filter(Boolean) : [];
+              const primarySeed = plan.primary_seed_id || seedIds[0];
+              if (!primarySeed && seedIds.length === 0) return '';
+              let label = '';
+              if (primarySeed) {
+                label = `Seed: ${primarySeed}`;
+                if (seedIds.length > 1) label += ` (+${seedIds.length - 1})`;
+              } else {
+                label = `Seeds: ${seedIds.join(', ')}`;
+              }
+              return `<span class="plan-seed">${escapeHtml(label)}</span>`;
+            })()}
           </div>
 
           ${plan.prerequisites?.length ? `
@@ -3614,6 +3690,16 @@
           ` : ''}
         </div>
       `).join('');
+
+        return `
+          <details class="case-execution-group">
+            <summary>${escapeHtml(label)}</summary>
+            <div class="case-execution-body">
+              ${plansHtml}
+            </div>
+          </details>
+        `;
+      }).join('');
     }
 
     // Render evidence support index
@@ -3656,6 +3742,10 @@
 
     function detectArtifactType(data, filename) {
       if (!data || typeof data !== 'object') return 'unknown';
+
+      if (data.type === 'recon_categories' && Array.isArray(data.categories)) {
+        return 'recon_categories';
+      }
 
       // Threat Report
       if (data.verdict && data.seed_summaries) {
@@ -3790,6 +3880,31 @@
 
       container.innerHTML = html;
       setupViewToggle(container, data);
+    }
+
+    function renderReconCategories(data, container) {
+      const categories = data.categories || [];
+      const count = data.count ?? categories.length;
+      let html = `
+        <div class="artifact-header">
+          <div>
+            <div class="artifact-title">Recon Categories</div>
+            <div class="artifact-subtitle">${count} unique categories</div>
+          </div>
+        </div>
+      `;
+
+      if (!categories.length) {
+        html += '<div class="empty-state"><div>No categories available.</div></div>';
+      } else {
+        html += `
+          <div class="category-list">
+            ${categories.map(cat => `<span class="category-pill">${escapeHtml(cat)}</span>`).join('')}
+          </div>
+        `;
+      }
+
+      container.innerHTML = html;
     }
 
     // Render slice with interactive Cytoscape graph
@@ -5121,6 +5236,9 @@
         case 'sensitive_api_hits':
           renderSensitiveApiHits(data, modalBody);
           break;
+        case 'recon_categories':
+          renderReconCategories(data, modalBody);
+          break;
         case 'manifest':
           renderManifest(data, modalBody);
           break;
@@ -5144,14 +5262,9 @@
       }
     }
 
-    // Intercept artifact links
-    document.addEventListener('click', async (e) => {
-      const link = e.target.closest('a[href*="/artifact/"]');
-      if (!link) return;
-
-      e.preventDefault();
-      const url = link.href;
-      const filename = url.split('/').pop();
+    async function openArtifactUrl(url, titleOverride = null) {
+      if (!url) return;
+      const filename = titleOverride || url.split('/').pop();
 
       openModal(filename);
       showLoading();
@@ -5178,6 +5291,41 @@
       } catch (err) {
         showError(err.message);
       }
+    }
+
+    // Intercept artifact links
+    document.addEventListener('click', async (e) => {
+      const inlineTrigger = e.target.closest('[data-inline-artifact]');
+      if (inlineTrigger) {
+        e.preventDefault();
+        const key = inlineTrigger.dataset.inlineArtifact;
+        const inlineArtifacts = {
+          recon_categories: reconCategoryPayload,
+        };
+        const data = inlineArtifacts[key];
+        if (!data) return;
+        openModal('Recon Categories');
+        currentJsonData = data;
+        currentArtifactUrl = null;
+        renderArtifact(data, 'recon_categories', null);
+        return;
+      }
+
+      const artifactTrigger = e.target.closest('[data-artifact-url]');
+      if (artifactTrigger) {
+        e.preventDefault();
+        await openArtifactUrl(
+          artifactTrigger.dataset.artifactUrl,
+          artifactTrigger.dataset.artifactTitle || null
+        );
+        return;
+      }
+
+      const link = e.target.closest('a[href*="/artifact/"]');
+      if (!link) return;
+
+      e.preventDefault();
+      await openArtifactUrl(link.href);
     });
 
     // Close modal on escape key

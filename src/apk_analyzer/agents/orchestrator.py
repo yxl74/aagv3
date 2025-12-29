@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict
 from pathlib import Path
@@ -195,6 +196,8 @@ class Orchestrator:
                     static_context["file_artifacts"] = file_artifacts
                 if log_hints:
                     static_context["log_hints"] = log_hints
+                if component_intents:
+                    static_context["component_intents"] = component_intents
 
                 callgraph_path = None
                 callgraph_data = None
@@ -303,6 +306,40 @@ class Orchestrator:
                         ref=artifact_store.relpath("seeds/sensitive_api_hits.json") if sensitive_hits else None,
                     )
 
+                hit_groups_payload = None
+                hit_groups_by_id: Dict[str, Dict[str, Any]] = {}
+                hits_by_id: Dict[str, Dict[str, Any]] = {}
+                if sensitive_hits and sensitive_hits.get("hits"):
+                    hits_by_id = {
+                        hit.get("hit_id"): hit
+                        for hit in sensitive_hits.get("hits", [])
+                        if hit.get("hit_id")
+                    }
+                    hit_groups_payload = _group_sensitive_hits(sensitive_hits.get("hits", []))
+                    artifact_store.write_json("seeds/sensitive_api_groups.json", hit_groups_payload)
+                    hit_groups_by_id = {
+                        group.get("group_id"): group
+                        for group in hit_groups_payload.get("groups", [])
+                        if group.get("group_id")
+                    }
+
+                    # Build code blocks (class-level aggregation)
+                    code_blocks, library_groups = build_code_blocks(
+                        hit_groups_payload.get("groups", []),
+                        manifest,
+                    )
+                    artifact_store.write_json("seeds/code_blocks.json", {
+                        "block_count": len(code_blocks),
+                        "blocks": code_blocks,
+                    })
+                    artifact_store.write_json("seeds/library_groups.json", {
+                        "group_count": len(library_groups),
+                        "groups": library_groups,
+                    })
+                else:
+                    code_blocks = []
+                    library_groups = []
+
                 llm_conf = self.settings.get("llm", {}) or {}
                 llm_client = self.llm_client
                 if llm_client:
@@ -321,9 +358,15 @@ class Orchestrator:
                     recon_payload = _build_recon_payload(
                         manifest=manifest,
                         sensitive_hits=sensitive_hits,
+                        hit_groups=hit_groups_payload,
+                        code_blocks=code_blocks,
                         threat_indicators=(full_knox or {}).get("threat_indicators", {}),
                     )
-                    tool_runner = ReconToolRunner(sensitive_hits)
+                    tool_runner = ReconToolRunner(
+                        sensitive_hits,
+                        hit_groups=hit_groups_payload,
+                        code_blocks=code_blocks,
+                    )
                     max_rounds = llm_conf.get("recon_max_tool_rounds", 2)
                     recon_agent = ReconAgent(
                         self.prompt_dir / "recon.md",
@@ -345,6 +388,8 @@ class Orchestrator:
                         if event_logger:
                             list_hits_called = False
                             get_hit_called = False
+                            list_groups_called = False
+                            get_group_called = False
                             total_calls = 0
                             for round_data in tool_history:
                                 requests = round_data.get("requests", [])
@@ -355,12 +400,18 @@ class Orchestrator:
                                         list_hits_called = True
                                     elif tool_name == "get_hit":
                                         get_hit_called = True
+                                    elif tool_name == "list_groups":
+                                        list_groups_called = True
+                                    elif tool_name == "get_group":
+                                        get_group_called = True
                             event_logger.log(
                                 "recon.tool_usage",
                                 llm_step="recon",
                                 total_tool_rounds=len(tool_history),
                                 list_hits_called=list_hits_called,
                                 get_hit_called=get_hit_called,
+                                list_groups_called=list_groups_called,
+                                get_group_called=get_group_called,
                                 tool_call_count=total_calls,
                             )
                         all_cases = recon_result.get("cases", []) or []
@@ -400,6 +451,25 @@ class Orchestrator:
                             cases = cases_for_tier1
                         else:
                             cases = []
+                        if hit_groups_by_id:
+                            covered_groups = _collect_case_group_ids(cases, hit_groups_by_id)
+                            missing_groups = set(hit_groups_by_id.keys()) - covered_groups
+                            if missing_groups:
+                                fallback_cases = _fallback_cases_from_groups(
+                                    missing_groups,
+                                    hit_groups_by_id,
+                                    hits_by_id,
+                                )
+                                cases.extend(fallback_cases)
+                                recon_result["cases"] = cases
+                            if event_logger:
+                                event_logger.log(
+                                    "recon.group_coverage",
+                                    total_groups=len(hit_groups_by_id),
+                                    covered_groups=len(covered_groups),
+                                    missing_groups=len(missing_groups),
+                                    sample_missing_groups=list(missing_groups)[:5],
+                                )
                         artifact_store.write_json("llm/recon.json", recon_result)
                     recon_meta = recon_result.get("_meta") if isinstance(recon_result, dict) else {}
                     case_count = len(cases)
@@ -412,10 +482,17 @@ class Orchestrator:
                         ref=artifact_store.relpath("llm/recon.json"),
                     )
                     if not cases and not had_llm_cases:
-                        cases = _fallback_cases_from_hits(
-                            sensitive_hits,
-                            max_cases=self.settings["analysis"].get("max_seed_count", 20),
-                        )
+                        if hit_groups_by_id:
+                            cases = _fallback_cases_from_groups(
+                                set(hit_groups_by_id.keys()),
+                                hit_groups_by_id,
+                                hits_by_id,
+                            )
+                        else:
+                            cases = _fallback_cases_from_hits(
+                                sensitive_hits,
+                                max_cases=self.settings["analysis"].get("max_seed_count", 20),
+                            )
                         recon_result["cases"] = cases
                         artifact_store.write_json("llm/recon.json", recon_result)
                 else:
@@ -424,12 +501,7 @@ class Orchestrator:
                 event_logger.stage_start("seeding")
                 with span("stage.seeding", stage="seeding"):
                     if sensitive_hits and (cases or had_llm_cases):
-                        hits_by_id = {
-                            hit.get("hit_id"): hit
-                            for hit in sensitive_hits.get("hits", [])
-                            if hit.get("hit_id")
-                        }
-                        callsites = _callsites_from_cases(cases, hits_by_id)
+                        callsites = _callsites_from_cases(cases, hits_by_id, hit_groups_by_id)
                         # Deduplicate callsites by caller method within same case
                         # This prevents redundant Tier1 analysis of multiple APIs in same method
                         original_count = len(callsites)
@@ -485,7 +557,7 @@ class Orchestrator:
                         callgraph_path=callgraph_path,
                         k_hop=self.settings["analysis"].get("k_hop", 2),
                     )
-                bundles = _order_bundles_by_cases(bundles, cases)
+                bundles = _order_bundles_by_cases(bundles, cases, hit_groups_by_id)
                 slice_sizes = [
                     len(bundle.get("sliced_cfg", {}).get("units", [])) for bundle in bundles
                 ]
@@ -596,7 +668,7 @@ class Orchestrator:
                     event_logger=event_logger,
                 )
 
-                case_lookup = _case_lookup(cases)
+                case_lookup = _case_lookup(cases, hit_groups_by_id)
                 seed_summaries: Dict[str, Dict[str, Any]] = {}
                 bundle_map: Dict[str, Dict[str, Any]] = {}
                 verified_ids: List[str] = []
@@ -910,27 +982,360 @@ class Orchestrator:
                 event_logger.log("run.end", status="ok")
 
 
+def _class_from_method(method_sig: str) -> str:
+    if not method_sig:
+        return ""
+    if method_sig.startswith("<") and ":" in method_sig:
+        return method_sig[1:].split(":", 1)[0]
+    return ""
+
+
+def _group_key_for_hit(hit: Dict[str, Any]) -> str:
+    caller = hit.get("caller", {}) or {}
+    caller_method = caller.get("method")
+    if caller_method:
+        return str(caller_method)
+    signature = hit.get("signature")
+    if signature:
+        return str(signature)
+    return str(hit.get("hit_id") or "UNKNOWN")
+
+
+def _summarize_hit_group(group_key: str, hits: List[Dict[str, Any]]) -> Dict[str, Any]:
+    representative = hits[0] if hits else {}
+    caller = representative.get("caller", {}) or {}
+    caller_method = caller.get("method") or "UNKNOWN"
+    caller_class = caller.get("class") or _class_from_method(caller_method)
+    component_context = representative.get("component_context") or {}
+    reachability = representative.get("reachability") or {}
+
+    hit_ids: List[str] = []
+    signatures: List[str] = []
+    categories: set[str] = set()
+    priority_counts: Dict[str, int] = {}
+    permission_hints: set[str] = set()
+    mitre_primary: set[str] = set()
+    mitre_aliases: set[str] = set()
+    pha_tags: set[str] = set()
+    slice_requests: List[Dict[str, Any]] = []
+    requires_slice = False
+
+    for hit in hits:
+        hit_id = hit.get("hit_id")
+        if hit_id:
+            hit_ids.append(hit_id)
+        signature = hit.get("signature")
+        if signature:
+            signatures.append(signature)
+        category = hit.get("category_id")
+        if category:
+            categories.add(category)
+        priority = hit.get("priority")
+        if priority:
+            priority_counts[priority] = priority_counts.get(priority, 0) + 1
+        requires_slice = requires_slice or bool(hit.get("requires_slice"))
+        if hit.get("requires_slice") and hit.get("slice_hints"):
+            hint = hit.get("slice_hints") or {}
+            if hint and hint not in slice_requests:
+                slice_requests.append(hint)
+        for perm in hit.get("permission_hints", []) or []:
+            permission_hints.add(perm)
+        if hit.get("mitre_primary"):
+            mitre_primary.add(hit.get("mitre_primary"))
+        for alias in hit.get("mitre_aliases", []) or []:
+            mitre_aliases.add(alias)
+        for tag in hit.get("pha_tags", []) or []:
+            pha_tags.add(tag)
+
+    if priority_counts:
+        priority_max = min(priority_counts.keys(), key=_priority_rank)
+    else:
+        priority_max = "LOW"
+
+    group_id = f"grp-{hashlib.sha1(group_key.encode('utf-8')).hexdigest()}"
+    return {
+        "group_id": group_id,
+        "group_key": group_key,
+        "caller_method": caller_method,
+        "caller_class": caller_class,
+        "component_context": component_context,
+        "reachability": {
+            "reachable_from_entrypoint": reachability.get("reachable_from_entrypoint", False),
+            "shortest_path_len": reachability.get("shortest_path_len", 0),
+            "example_path": reachability.get("example_path", []),
+        },
+        "hit_ids": hit_ids,
+        "hit_count": len(hit_ids),
+        "categories": sorted(categories),
+        "signatures": signatures,
+        "priority_counts": priority_counts,
+        "priority_max": priority_max,
+        "requires_slice": requires_slice,
+        "slice_requests": slice_requests,
+        "tags": {
+            "mitre_primary": sorted(mitre_primary),
+            "mitre_aliases": sorted(mitre_aliases),
+            "pha_tags": sorted(pha_tags),
+            "permission_hints": sorted(permission_hints),
+        },
+        "representative_hit_id": hit_ids[0] if hit_ids else None,
+    }
+
+
+def _group_sensitive_hits(hits: List[Dict[str, Any]]) -> Dict[str, Any]:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for hit in hits:
+        key = _group_key_for_hit(hit)
+        grouped.setdefault(key, []).append(hit)
+
+    groups = [_summarize_hit_group(key, items) for key, items in grouped.items()]
+    return {
+        "group_count": len(groups),
+        "grouping_key": "caller_method",
+        "groups": groups,
+    }
+
+
+def _get_outer_class(class_name: str) -> str:
+    """Extract outer class from potentially inner class name.
+
+    Examples:
+        com.example.Foo$Bar$Baz → com.example.Foo
+        com.example.Foo → com.example.Foo
+    """
+    if "$" in class_name:
+        return class_name.split("$")[0]
+    return class_name
+
+
+def _is_app_code_class(
+    caller_class: str,
+    app_package: str,
+    component_classes: set[str],
+) -> bool:
+    """Check if a class is app code (not library)."""
+    # Check if it's a known component
+    outer_class = _get_outer_class(caller_class)
+    if outer_class in component_classes or caller_class in component_classes:
+        return True
+    # Check if it matches app package
+    if app_package and caller_class.startswith(app_package):
+        return True
+    return False
+
+
+def build_code_blocks(
+    groups: List[Dict[str, Any]],
+    manifest: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Aggregate method-level groups into class-level Code Blocks.
+
+    Groups are aggregated by outer class (inner classes grouped with parent).
+    Library groups are separated from app code groups.
+
+    Args:
+        groups: List of method-level groups from _group_sensitive_hits()
+        manifest: Parsed manifest for determining app code vs library
+
+    Returns:
+        Tuple of (app_code_blocks, library_groups)
+    """
+    from collections import defaultdict
+
+    # Extract app package and component classes from manifest
+    app_package = manifest.get("package_name") or manifest.get("package") or ""
+    component_classes: set[str] = set()
+    for key in ("activities", "services", "receivers", "providers"):
+        for comp in manifest.get(key, []) or []:
+            if isinstance(comp, dict):
+                name = comp.get("name", "")
+            else:
+                name = comp
+            if name:
+                if name.startswith(".") and app_package:
+                    name = app_package + name
+                component_classes.add(name)
+
+    # Group by outer class
+    class_buckets: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    library_groups: List[Dict[str, Any]] = []
+
+    for group in groups:
+        caller_class = group.get("caller_class", "")
+        outer_class = _get_outer_class(caller_class)
+
+        if _is_app_code_class(caller_class, app_package, component_classes):
+            class_buckets[outer_class].append(group)
+        else:
+            library_groups.append(group)
+
+    # Build code blocks from app class buckets
+    code_blocks: List[Dict[str, Any]] = []
+    priority_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+
+    for outer_class, class_groups in class_buckets.items():
+        # Aggregate from all groups in this class
+        all_hit_ids: List[str] = []
+        all_group_ids: List[str] = []
+        all_categories: set[str] = set()
+        all_methods: set[str] = set()
+        priorities: List[str] = []
+        inv_scores: List[float] = []
+        has_reflection = False
+        reachable = False
+        shortest_path = 999
+
+        # Get component context from first group that has it
+        component_context: Dict[str, Any] = {}
+        permissions_used: set[str] = set()
+
+        for g in class_groups:
+            all_hit_ids.extend(g.get("hit_ids", []))
+            all_group_ids.append(g.get("group_id", ""))
+            all_categories.update(g.get("categories", []))
+            priorities.append(g.get("priority_max", "LOW"))
+
+            # Extract method name from caller_method
+            caller_method = g.get("caller_method", "")
+            method_name = _method_name_from_sig(caller_method)
+            if method_name:
+                all_methods.add(method_name)
+
+            # Investigability
+            inv_score = g.get("investigability_score")
+            if inv_score is not None:
+                inv_scores.append(float(inv_score))
+
+            # Reachability
+            reach = g.get("reachability", {})
+            if reach.get("reachable_from_entrypoint"):
+                reachable = True
+                path_len = reach.get("shortest_path_len", 999)
+                if path_len < shortest_path:
+                    shortest_path = path_len
+
+            # Component context (take first non-empty)
+            if not component_context:
+                ctx = g.get("component_context", {})
+                if ctx.get("component_type") and ctx.get("component_type") != "Unknown":
+                    component_context = ctx
+
+            # Check for reflection in any group's path
+            path = reach.get("example_path", [])
+            for sig in path:
+                if any(pattern in sig for pattern in (
+                    "java.lang.reflect.",
+                    "java.lang.Class.forName",
+                    "dalvik.system.DexClassLoader",
+                )):
+                    has_reflection = True
+                    break
+
+            # Collect permission hints
+            tags = g.get("tags", {})
+            for perm in tags.get("permission_hints", []):
+                permissions_used.add(perm)
+
+        # Determine highest priority
+        if priorities:
+            priority_max = min(priorities, key=lambda p: priority_order.get(p, 99))
+        else:
+            priority_max = "LOW"
+
+        # Average investigability score
+        avg_inv_score = sum(inv_scores) / len(inv_scores) if inv_scores else 0.5
+
+        # Build block ID
+        block_id = f"block-{hashlib.sha1(outer_class.encode('utf-8')).hexdigest()[:12]}"
+
+        # Determine component type if not found
+        comp_type = component_context.get("component_type", "Unknown")
+        comp_name = component_context.get("component_name", outer_class)
+
+        # Check if exported (from manifest)
+        is_exported = False
+        for comp in manifest.get("services", []) + manifest.get("receivers", []):
+            if isinstance(comp, dict):
+                if comp.get("name") == comp_name or comp.get("name", "").endswith(outer_class.split(".")[-1]):
+                    is_exported = comp.get("exported", False)
+                    break
+
+        code_blocks.append({
+            "block_id": block_id,
+            "caller_class": outer_class,
+            # Pre-computed context
+            "component_type": comp_type,
+            "component_name": comp_name,
+            "is_exported": is_exported,
+            "permissions_used": sorted(permissions_used),
+            # Aggregated threat info
+            "categories": sorted(all_categories),
+            "priority_max": priority_max,
+            "hit_count": len(all_hit_ids),
+            "group_count": len(class_groups),
+            "methods": sorted(all_methods),
+            # Investigability signals
+            "investigability_score": round(avg_inv_score, 2),
+            "has_reflection": has_reflection,
+            "reachable_from_entrypoint": reachable,
+            "shortest_path_len": shortest_path if shortest_path < 999 else None,
+            # Group IDs for drill-down
+            "group_ids": all_group_ids,
+            "hit_ids": all_hit_ids,
+        })
+
+    # Sort by priority, then investigability
+    code_blocks.sort(key=lambda b: (
+        priority_order.get(b["priority_max"], 99),
+        -b["investigability_score"],
+    ))
+
+    return code_blocks, library_groups
+
+
+def _method_name_from_sig(sig: str) -> str:
+    """Extract method name from Soot signature."""
+    # <com.example.Foo: void bar(int)> → bar
+    if ":" in sig and "(" in sig:
+        # Find the part after the return type and before the (
+        parts = sig.split()
+        for part in parts:
+            if "(" in part:
+                return part.split("(")[0]
+    return ""
+
+
 def _build_recon_payload(
     manifest: Dict[str, Any],
     sensitive_hits: Dict[str, Any],
     threat_indicators: Dict[str, Any],
+    hit_groups: Optional[Dict[str, Any]] = None,
+    code_blocks: Optional[List[Dict[str, Any]]] = None,
     preview_limit: int = 150,
 ) -> Dict[str, Any]:
     hits = sensitive_hits.get("hits", []) or []
     preview_limit = min(preview_limit, len(hits))
     preview_hits = _stratified_hits_preview(hits, limit=preview_limit)
     lite_preview = [_make_lite_hit(hit) for hit in preview_hits]
+    group_preview = hit_groups.get("groups", []) if isinstance(hit_groups, dict) else []
+    blocks_preview = code_blocks or []
     return {
         "manifest_summary": _manifest_summary(manifest),
         "callgraph_summary": sensitive_hits.get("callgraph_summary", {}),
         "sensitive_api_summary": sensitive_hits.get("summary", {}),
+        "code_blocks_preview": blocks_preview,
         "sensitive_api_hits_preview": lite_preview,
+        "sensitive_api_groups_preview": group_preview,
         "preview_metadata": {
             "preview_count": len(lite_preview),
             "total_count": len(hits),
             "sampling_strategy": "stratified_by_priority_with_redistribution",
             "categories_in_preview": len({hit.get("category_id") for hit in lite_preview}),
-            "note": "Preview shows lite versions. Use get_hit(hit_id) for full details.",
+            "block_count": len(blocks_preview),
+            "group_count": len(group_preview),
+            "grouping_key": "caller_method",
+            "note": "Code blocks are class-level aggregations. Use get_block/get_group for details.",
         },
         "threat_indicators": threat_indicators,
         "tool_results": [],
@@ -1038,6 +1443,66 @@ def _stratified_hits_preview(hits: List[Dict[str, Any]], limit: int = 150) -> Li
     return preview
 
 
+def _priority_rank(priority: str) -> int:
+    mapping = {"CRITICAL": 1, "HIGH": 2, "MEDIUM": 3, "LOW": 4}
+    return mapping.get(priority or "", 5)
+
+
+def _case_id_for_group(group_id: str) -> str:
+    suffix = group_id.split("-", 1)[-1] if group_id else "unknown"
+    return f"CASE-GRP-{suffix[:8]}"
+
+
+def _fallback_cases_from_groups(
+    group_ids: set[str],
+    hit_groups_by_id: Dict[str, Dict[str, Any]],
+    hits_by_id: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    cases: List[Dict[str, Any]] = []
+    for group_id in sorted(group_ids):
+        group = hit_groups_by_id.get(group_id) or {}
+        hit_ids = group.get("hit_ids") or []
+        categories = group.get("categories") or []
+        category_id = categories[0] if len(categories) == 1 else f"MERGED({len(categories)})"
+        if not categories:
+            category_id = "UNKNOWN"
+        priority_max = group.get("priority_max") or "LOW"
+        priority = _priority_rank(priority_max)
+        representative_hit_id = group.get("representative_hit_id") or (hit_ids[0] if hit_ids else None)
+        representative_hit = hits_by_id.get(representative_hit_id or "", {}) if representative_hit_id else {}
+        caller = representative_hit.get("caller", {}) or {}
+        case_id = _case_id_for_group(group_id)
+        cases.append({
+            "case_id": case_id,
+            "priority": priority,
+            "category_id": category_id,
+            "evidence_group_ids": [group_id],
+            "evidence_hit_ids": hit_ids,
+            "primary_hit": {
+                "signature": representative_hit.get("signature"),
+                "caller_method": caller.get("method"),
+                "callee_signature": representative_hit.get("signature"),
+            },
+            "component_context": group.get("component_context") or representative_hit.get("component_context", {}),
+            "reachability": group.get("reachability") or representative_hit.get("reachability", {}),
+            "requires_slice": bool(group.get("requires_slice")),
+            "slice_requests": group.get("slice_requests") or [],
+            "tool_requests": [],
+            "rationale": "Auto-added group not covered by recon triage.",
+            "confidence": 0.2,
+            "tags": group.get("tags") or {},
+            "next_stage": "TIER1_SUMMARY",
+            "llm_severity": priority_max,
+            "severity_reasoning": "Group was not assigned by recon; included for coverage.",
+            "severity_confidence": 0.2,
+            "severity_factors": ["auto_added_group"],
+            "should_prune": False,
+            "pruning_reasoning": "",
+            "pruning_confidence": 0.0,
+        })
+    return cases
+
+
 def _fallback_cases_from_hits(sensitive_hits: Dict[str, Any], max_cases: int) -> List[Dict[str, Any]]:
     cases = []
     hits = sensitive_hits.get("hits", []) or []
@@ -1073,16 +1538,61 @@ def _fallback_cases_from_hits(sensitive_hits: Dict[str, Any], max_cases: int) ->
     return cases
 
 
-def _case_lookup(cases: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+def _build_hit_group_index(hit_groups_by_id: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
+    hit_to_group: Dict[str, str] = {}
+    for group_id, group in hit_groups_by_id.items():
+        for hit_id in group.get("hit_ids", []) or []:
+            if hit_id:
+                hit_to_group[hit_id] = group_id
+    return hit_to_group
+
+
+def _collect_case_group_ids(
+    cases: List[Dict[str, Any]],
+    hit_groups_by_id: Dict[str, Dict[str, Any]],
+) -> set[str]:
+    hit_to_group = _build_hit_group_index(hit_groups_by_id)
+    group_ids: set[str] = set()
+    for case in cases:
+        for group_id in case.get("evidence_group_ids", []) or []:
+            if group_id:
+                group_ids.add(group_id)
+        for hit_id in case.get("evidence_hit_ids", []) or []:
+            group_id = hit_to_group.get(hit_id)
+            if group_id:
+                group_ids.add(group_id)
+    return group_ids
+
+
+def _expand_case_hit_ids(
+    case: Dict[str, Any],
+    hit_groups_by_id: Dict[str, Dict[str, Any]],
+) -> List[str]:
+    hit_ids = list(case.get("evidence_hit_ids", []) or [])
+    for group_id in case.get("evidence_group_ids", []) or []:
+        group = hit_groups_by_id.get(group_id)
+        if not group:
+            continue
+        hit_ids.extend(group.get("hit_ids", []) or [])
+    seen = set()
+    return [hid for hid in hit_ids if hid and not (hid in seen or seen.add(hid))]
+
+
+def _case_lookup(
+    cases: List[Dict[str, Any]],
+    hit_groups_by_id: Dict[str, Dict[str, Any]] | None = None,
+) -> Dict[str, Dict[str, Any]]:
     """
     Build a lookup from hit_id to case context.
 
     Preserves full Recon context for use in Tier1/Tier2 processing.
+    Expands evidence_group_ids into hit_ids when group metadata is available.
     """
+    hit_groups_by_id = hit_groups_by_id or {}
     lookup: Dict[str, Dict[str, Any]] = {}
     for case in cases:
         priority = case.get("priority", 9999)
-        evidence_hit_ids = case.get("evidence_hit_ids", []) or []
+        evidence_hit_ids = _expand_case_hit_ids(case, hit_groups_by_id)
         for hit_id in evidence_hit_ids:
             existing = lookup.get(hit_id)
             if existing and existing.get("priority", 9999) <= priority:
@@ -1107,8 +1617,9 @@ def _case_lookup(cases: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
 def _order_bundles_by_cases(
     bundles: List[Dict[str, Any]],
     cases: List[Dict[str, Any]],
+    hit_groups_by_id: Dict[str, Dict[str, Any]] | None = None,
 ) -> List[Dict[str, Any]]:
-    case_map = _case_lookup(cases)
+    case_map = _case_lookup(cases, hit_groups_by_id)
     
     def _get_priority(b: Dict[str, Any]) -> int:
         p1 = case_map.get(b.get("seed_id"), {}).get("priority", 9999)
@@ -1121,6 +1632,7 @@ def _order_bundles_by_cases(
 def _callsites_from_cases(
     cases: List[Dict[str, Any]],
     hits_by_id: Dict[str, Dict[str, Any]],
+    hit_groups_by_id: Dict[str, Dict[str, Any]] | None = None,
 ) -> List[ApiCallSite]:
     """
     Convert Recon cases to ApiCallSite objects for seeding.
@@ -1132,13 +1644,16 @@ def _callsites_from_cases(
     - tags: MITRE, PHA, permission hints
     - sibling_hit_ids: Other hits in the same case (for case-level analysis)
     - slice_requests: Specific questions to investigate
+    - evidence_group_ids: Group-level case references expanded into hit_ids
     """
+    hit_groups_by_id = hit_groups_by_id or {}
+    hit_to_group = _build_hit_group_index(hit_groups_by_id)
     callsites: List[ApiCallSite] = []
     seen = set()
     for case in cases:
         case_id = case.get("case_id")
         priority = case.get("priority")
-        evidence_hit_ids = case.get("evidence_hit_ids", []) or []
+        evidence_hit_ids = _expand_case_hit_ids(case, hit_groups_by_id)
 
         for hit_id in evidence_hit_ids:
             if hit_id in seen:
@@ -1153,6 +1668,10 @@ def _callsites_from_cases(
 
             # Compute sibling hit IDs (other hits in the same case)
             sibling_hit_ids = [h for h in evidence_hit_ids if h != hit_id]
+            group_id = hit_to_group.get(hit_id)
+            group_hit_ids = []
+            if group_id and group_id in hit_groups_by_id:
+                group_hit_ids = hit_groups_by_id[group_id].get("hit_ids", []) or []
 
             callsites.append(
                 ApiCallSite(
@@ -1167,6 +1686,8 @@ def _callsites_from_cases(
                         "case_id": case_id,
                         "priority": priority,
                         "source": "sensitive_api_hits",
+                        "group_id": group_id,
+                        "group_hit_ids": group_hit_ids,
                         # Component and reachability context
                         "component_context": component_context,
                         "reachability": reachability,
@@ -1297,15 +1818,51 @@ def _build_driver_guidance(seed_summaries: List[Dict[str, Any]]) -> List[Dict[st
 def _build_execution_guidance(seed_summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Build top-level execution_guidance array from Tier2 outputs.
-    One entry per case (not per seed). Deduplicates by case_id.
+    Prefer per-seed guidance when available; fall back to case-level guidance.
     """
     seen_cases: set = set()
+    seen_entries: set = set()
     guidance = []
     for summary in seed_summaries:
         tier2 = summary.get("tier2") or {}
+        exec_by_seed = tier2.get("execution_guidance_by_seed") or []
+        if isinstance(exec_by_seed, list) and exec_by_seed:
+            for entry in exec_by_seed:
+                if not isinstance(entry, dict):
+                    continue
+                exec_entry = dict(entry)
+                case_id = exec_entry.get("case_id") or summary.get("case_id")
+                requirement_id = exec_entry.get("requirement_id") or ""
+                primary_seed_id = exec_entry.get("primary_seed_id") or summary.get("seed_id") or ""
+                key = (case_id, requirement_id, primary_seed_id)
+                if key in seen_entries:
+                    continue
+                seen_entries.add(key)
+
+                # Fallback: fill in missing fields from seed summary if Tier2 omitted them
+                if not exec_entry.get("case_id"):
+                    exec_entry["case_id"] = case_id
+                if not exec_entry.get("category_id"):
+                    exec_entry["category_id"] = summary.get("category_id")
+                if not exec_entry.get("package_name"):
+                    exec_entry["package_name"] = summary.get("package_name")
+                if not exec_entry.get("primary_seed_id"):
+                    exec_entry["primary_seed_id"] = primary_seed_id
+                if not exec_entry.get("seed_ids"):
+                    seed_id = summary.get("seed_id")
+                    exec_entry["seed_ids"] = [seed_id] if seed_id else []
+                if not exec_entry.get("target_capability"):
+                    exec_entry["target_capability"] = exec_entry.get("category_id") or summary.get("category_id")
+
+                guidance.append(exec_entry)
+            continue
+
         exec_guide = tier2.get("execution_guidance")
         if not exec_guide:
             continue
+        if not isinstance(exec_guide, dict):
+            continue
+        exec_guide = dict(exec_guide)
         case_id = exec_guide.get("case_id") or summary.get("case_id")
         if case_id in seen_cases:
             continue  # Already added this case
@@ -1318,6 +1875,13 @@ def _build_execution_guidance(seed_summaries: List[Dict[str, Any]]) -> List[Dict
             exec_guide["category_id"] = summary.get("category_id")
         if not exec_guide.get("package_name"):
             exec_guide["package_name"] = summary.get("package_name")
+        if not exec_guide.get("primary_seed_id"):
+            exec_guide["primary_seed_id"] = summary.get("seed_id")
+        if not exec_guide.get("seed_ids"):
+            seed_id = summary.get("seed_id")
+            exec_guide["seed_ids"] = [seed_id] if seed_id else []
+        if not exec_guide.get("target_capability"):
+            exec_guide["target_capability"] = exec_guide.get("category_id") or summary.get("category_id")
 
         guidance.append(exec_guide)
     return guidance
@@ -1808,6 +2372,7 @@ def _run_two_phase_tier2(
             log_hints=log_hints,
             manifest=manifest,
             package_name=package_name,
+            component_intents=static_ctx.get("component_intents"),
         )
 
         with llm_context("tier2b", seed_id=seed_id):

@@ -171,6 +171,7 @@ def build_value_hints(
     manifest: Optional[Dict[str, Any]] = None,
     strings_nearby: Optional[List[str]] = None,
     package_name: Optional[str] = None,
+    component_intents: Optional[Dict[str, Any]] = None,
 ) -> ValueHintsBundle:
     """
     Build a ValueHintsBundle from all available sources.
@@ -207,9 +208,9 @@ def build_value_hints(
     if log_hints:
         _extract_log_hints(bundle, log_hints, component_name)
 
-    # 4. Extract intent filters from manifest
-    if manifest:
-        _extract_intent_filters(bundle, manifest, component_name)
+    # 4. Extract intent filters from component_intents
+    if component_intents:
+        _extract_intent_filters(bundle, component_name, component_intents)
 
     # 5. Extract strings of interest
     if strings_nearby:
@@ -288,31 +289,62 @@ def _extract_log_hints(
 
 def _extract_intent_filters(
     bundle: ValueHintsBundle,
-    manifest: Dict[str, Any],
     component_name: str,
+    component_intents: Dict[str, Any],
 ) -> None:
-    """Extract intent filters from manifest."""
-    # Look up component in manifest
+    """Extract intent filters from component_intents data.
+
+    Args:
+        bundle: The ValueHintsBundle to populate
+        component_name: Full class name of the component
+        component_intents: Dict mapping component names to their intent filter info
+    """
+    if not component_intents:
+        return
+
+    # Look up component in component_intents (keyed by full component name)
     component_short = component_name.split(".")[-1]
 
-    for comp_type in ["services", "activities", "receivers"]:
-        components = manifest.get(comp_type, [])
-        for comp in components:
-            comp_name = comp.get("name", "")
-            if comp_name == component_name or comp_name.endswith(component_short):
-                # Found the component, extract intent filters
-                for intent_filter in comp.get("intent_filters", []):
-                    filter_hint = IntentFilterHint(
-                        action=intent_filter.get("action"),
-                        categories=intent_filter.get("categories", []),
-                        data_scheme=intent_filter.get("data_scheme"),
-                        data_host=intent_filter.get("data_host"),
-                    )
-                    bundle.intent_filters.append(filter_hint)
+    # Try exact match first, then suffix match
+    comp_data = component_intents.get(component_name)
+    if not comp_data:
+        # Try suffix match
+        for name, data in component_intents.items():
+            if name.endswith(component_short) or component_short in name:
+                comp_data = data
+                break
 
-                    # Add action to actions list
-                    if filter_hint.action and filter_hint.action not in bundle.actions:
-                        bundle.actions.append(filter_hint.action)
+    if not comp_data:
+        return
+
+    # Extract intent actions, categories, and data from component_intents format
+    intent_actions = comp_data.get("intent_actions", [])
+    intent_categories = comp_data.get("intent_categories", [])
+    intent_data = comp_data.get("intent_data", [])
+
+    # Add actions to bundle
+    for action in intent_actions:
+        if action and action not in bundle.actions:
+            bundle.actions.append(action)
+
+    # Create IntentFilterHint for each action (or one with no action if only categories)
+    if intent_actions:
+        for action in intent_actions:
+            filter_hint = IntentFilterHint(
+                action=action,
+                categories=intent_categories,
+                data_scheme=intent_data[0].get("scheme") if intent_data else None,
+                data_host=intent_data[0].get("host") if intent_data else None,
+            )
+            bundle.intent_filters.append(filter_hint)
+    elif intent_categories or intent_data:
+        filter_hint = IntentFilterHint(
+            action=None,
+            categories=intent_categories,
+            data_scheme=intent_data[0].get("scheme") if intent_data else None,
+            data_host=intent_data[0].get("host") if intent_data else None,
+        )
+        bundle.intent_filters.append(filter_hint)
 
 
 def _extract_strings_of_interest(
@@ -403,6 +435,7 @@ def build_value_hints_for_seed(
     log_hints: Optional[Dict[str, Any]] = None,
     manifest: Optional[Dict[str, Any]] = None,
     package_name: Optional[str] = None,
+    component_intents: Optional[Dict[str, Any]] = None,
 ) -> ValueHintsBundle:
     """
     Convenience function to build hints directly from Tier1 output.
@@ -435,4 +468,5 @@ def build_value_hints_for_seed(
         manifest=manifest,
         strings_nearby=strings_nearby,
         package_name=package_name,
+        component_intents=component_intents,
     )

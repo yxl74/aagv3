@@ -22,7 +22,7 @@ class ClaudeLLMClient:
         default_model: str = "claude-sonnet-4@20250514",
         service_account_file: Optional[str] = None,
         timeout_sec: float = 600.0,
-        max_tokens: int = 8192,
+        max_tokens: int = 16384,
         verify_ssl: bool = True,
     ) -> None:
         """

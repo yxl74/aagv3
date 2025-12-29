@@ -125,7 +125,10 @@ def extract_trigger_surface(
         ]:
             components = manifest.get(list_key, [])
             for comp in components:
-                comp_name = comp.get("name", "")
+                if isinstance(comp, dict):
+                    comp_name = comp.get("name", "")
+                else:
+                    comp_name = comp  # Already a string
                 if comp_name.endswith(class_name) or class_name in comp_name:
                     return ComponentHints(
                         component_name=comp_name,

@@ -489,6 +489,11 @@ def _render_run_detail(
     run_id = run_id_override or next((e.get("run_id") for e in events if e.get("run_id")), None)
     if not run_id and events_path:
         run_id = _run_id_from_path(events_path)
+    run_dir = None
+    if run_id:
+        run_dir = ARTIFACTS_DIR / analysis_id / "runs" / run_id
+    elif events_path:
+        run_dir = events_path.parent
 
     # Load threat report if available
     threat_report = None
@@ -503,6 +508,32 @@ def _render_run_detail(
             try:
                 threat_report = json.loads(report_path.read_text())
                 break
+            except Exception:
+                pass
+
+    # Load recon categories for UI display
+    recon_categories: List[str] = []
+    recon_category_count: int | None = None
+    if recon and recon.get("ref") and run_dir:
+        recon_ref = recon["ref"]
+        recon_path = run_dir / recon_ref
+        if not recon_path.exists():
+            recon_path = ARTIFACTS_DIR / analysis_id / recon_ref
+        if recon_path.exists():
+            try:
+                recon_payload = json.loads(recon_path.read_text())
+                cases = recon_payload.get("cases", []) if isinstance(recon_payload, dict) else []
+                categories = []
+                for case in cases:
+                    if not isinstance(case, dict):
+                        continue
+                    for key in ("category_id", "category", "threat_category"):
+                        value = case.get(key)
+                        if value:
+                            categories.append(value)
+                            break
+                recon_categories = sorted(set(categories))
+                recon_category_count = len(recon_categories)
             except Exception:
                 pass
 
@@ -529,6 +560,8 @@ def _render_run_detail(
             "execution_flow": execution_flow,
             "artifacts_dir": str(ARTIFACTS_DIR),
             "threat_report": threat_report,
+            "recon_category_count": recon_category_count,
+            "recon_categories": recon_categories,
         },
     )
 

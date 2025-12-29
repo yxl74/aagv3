@@ -280,6 +280,8 @@ class MergedTier2Output:
 
     # Merged execution guidance from Phase 2B
     execution_guidance: Dict[str, Any]
+    # Per-seed execution guidance (one per driver requirement)
+    execution_guidance_by_seed: List[Dict[str, Any]] = field(default_factory=list)
 
     # Debug info
     _phases: Dict[str, Any] = field(default_factory=dict)
@@ -293,6 +295,7 @@ class MergedTier2Output:
             "evidence": self.evidence,
             "threat_categories": self.threat_categories,
             "execution_guidance": self.execution_guidance,
+            "execution_guidance_by_seed": self.execution_guidance_by_seed,
             "_phases": self._phases,
             "schema_version": "2.0",
         }
@@ -330,6 +333,33 @@ def merge_phase_outputs(
         "overall_feasibility": _compute_overall_feasibility(phase2b_outputs),
     }
 
+    req_by_id = {req.requirement_id: req for req in phase2a.driver_requirements}
+    execution_guidance_by_seed: List[Dict[str, Any]] = []
+    for p2b in phase2b_outputs:
+        req = req_by_id.get(p2b.requirement_id)
+        seed_id = p2b.seed_id or (req.seed_id if req else "")
+        category_id = (req.threat_category if req else "unknown") or "unknown"
+        execution_guidance_by_seed.append({
+            "case_id": phase2a.case_id,
+            "primary_seed_id": seed_id,
+            "seed_ids": [seed_id] if seed_id else [],
+            "category_id": category_id,
+            "package_name": package_name,
+            "target_capability": category_id,
+            "environment_capabilities": {"adb_root": True, "frida_available": True},
+            "prerequisites": [],
+            "steps": [s.to_dict() for s in p2b.steps],
+            "manual_steps": [s.to_dict() for s in p2b.manual_steps],
+            "success_criteria": [],
+            "cleanup": [],
+            "automation_feasibility": p2b.automation_feasibility,
+            "requirement_id": p2b.requirement_id,
+            "component_name": req.component_name if req else "",
+            "component_type": req.component_type if req else "",
+            "intent_action": req.intent_action if req else None,
+            "expected_behavior": req.expected_behavior if req else "",
+        })
+
     return MergedTier2Output(
         case_id=phase2a.case_id,
         intent_verdict=phase2a.intent_verdict.value,
@@ -337,6 +367,7 @@ def merge_phase_outputs(
         evidence=phase2a.evidence,
         threat_categories=phase2a.threat_categories,
         execution_guidance=execution_guidance,
+        execution_guidance_by_seed=execution_guidance_by_seed,
         _phases={
             "2a": phase2a.to_dict(),
             "2b": [p.to_dict() for p in phase2b_outputs],

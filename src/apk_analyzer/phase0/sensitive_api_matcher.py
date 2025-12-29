@@ -23,7 +23,7 @@ _LIBRARY_PREFIXES = (
 )
 
 # Common library prefixes (filtered when filter_common_libraries=True)
-# These are AndroidX, Google Android libraries, and Kotlin ecosystem
+# These are AndroidX, Google Android libraries, Kotlin ecosystem, and popular third-party libs
 _COMMON_LIBRARY_PREFIXES = (
     # AndroidX & Legacy Support
     "androidx.",
@@ -41,6 +41,45 @@ _COMMON_LIBRARY_PREFIXES = (
     "kotlinx.",
     "org.jetbrains.kotlin.",
     "org.jetbrains.annotations.",
+    # Networking Libraries
+    "okhttp3.",
+    "okio.",
+    "retrofit2.",
+    "com.squareup.okhttp.",
+    "com.squareup.okhttp3.",
+    "com.squareup.retrofit.",
+    "com.squareup.retrofit2.",
+    "com.squareup.picasso.",
+    "com.squareup.moshi.",
+    # JSON/Serialization
+    "com.fasterxml.jackson.",
+    "com.google.gson.",
+    "org.json.",
+    # Logging
+    "org.slf4j.",
+    "org.apache.logging.",
+    "ch.qos.logback.",
+    "timber.log.",
+    # Apache Commons
+    "org.apache.commons.",
+    "org.apache.http.",
+    # Reactive/Async
+    "io.reactivex.",
+    "rx.",
+    "io.reactivex.rxjava3.",
+    # Dependency Injection
+    "dagger.",
+    "javax.inject.",
+    "com.google.dagger.",
+    # UI Libraries
+    "butterknife.",
+    "com.jakewharton.",
+    "com.bumptech.glide.",
+    "com.github.bumptech.glide.",
+    # Testing (should never be in prod, but filter anyway)
+    "org.junit.",
+    "org.mockito.",
+    "org.robolectric.",
 )
 
 
@@ -61,6 +100,155 @@ ENTRYPOINT_METHODS: Dict[str, set[str]] = {
 }
 
 PRIORITY_RANK = {"CRITICAL": 1, "HIGH": 2, "MEDIUM": 3, "LOW": 4}
+
+# =============================================================================
+# Investigability Scoring (for prioritizing analyzable seeds)
+# =============================================================================
+
+# Reflection patterns that indicate static analysis limitations
+REFLECTION_PATTERNS = (
+    "java.lang.reflect.Method",
+    "java.lang.reflect.Constructor",
+    "java.lang.reflect.Field",
+    "java.lang.Class.forName",
+    "java.lang.Class.getDeclaredMethod",
+    "java.lang.Class.getMethod",
+    "java.lang.Class.getDeclaredConstructor",
+    "java.lang.Class.newInstance",
+    "dalvik.system.DexClassLoader",
+    "dalvik.system.PathClassLoader",
+    "dalvik.system.InMemoryDexClassLoader",
+    "java.lang.ClassLoader.loadClass",
+)
+
+
+def _path_contains_reflection(example_path: List[str]) -> Tuple[bool, List[str]]:
+    """
+    Check if a call path contains reflection or dynamic class loading.
+
+    Args:
+        example_path: List of method signatures in the call path.
+
+    Returns:
+        Tuple of (has_reflection, matched_patterns).
+    """
+    matched: List[str] = []
+    for method_sig in example_path:
+        for pattern in REFLECTION_PATTERNS:
+            if pattern in method_sig and pattern not in matched:
+                matched.append(pattern)
+    return bool(matched), matched
+
+
+def _compute_investigability(
+    reachable: bool,
+    path_len: Optional[int],
+    example_path: List[str],
+    component_type: str,
+    caller_is_app: bool,
+) -> Tuple[float, Dict[str, Any]]:
+    """
+    Compute an investigability score (0.0-1.0) for a hit.
+
+    Higher scores indicate the hit is easier to analyze via static analysis.
+    This helps prioritize seeds that will produce useful Tier1 results.
+
+    Scoring factors:
+    - Reachability from entrypoint: +0.25
+    - Short path length (<=3 hops): +0.15, (<=6): +0.10, (<=10): +0.05
+    - Known component type: +0.20
+    - Caller is app code: +0.10
+    - No reflection in path: +0.20
+
+    Args:
+        reachable: Whether the hit is reachable from an entrypoint.
+        path_len: Length of the call path from entrypoint.
+        example_path: The call path (for reflection detection).
+        component_type: The resolved component type.
+        caller_is_app: Whether the caller is app code (not library).
+
+    Returns:
+        Tuple of (score, factors_dict).
+    """
+    score = 0.0
+    factors: Dict[str, Any] = {}
+
+    # Reachability: Can we trace from entrypoint? (+0.25)
+    factors["reachable"] = reachable
+    if reachable:
+        score += 0.25
+
+    # Path length: shorter = more reliable (+0.15 max)
+    factors["path_len"] = path_len
+    if path_len is not None:
+        if path_len <= 3:
+            score += 0.15
+        elif path_len <= 6:
+            score += 0.10
+        elif path_len <= 10:
+            score += 0.05
+
+    # Component known: can we trigger this? (+0.20)
+    factors["component_known"] = component_type != "Unknown"
+    if component_type != "Unknown":
+        score += 0.20
+
+    # App code caller: more relevant than library (+0.10)
+    factors["caller_is_app"] = caller_is_app
+    if caller_is_app:
+        score += 0.10
+
+    # No reflection in path: static analysis will work (+0.20)
+    has_reflection, reflection_sites = _path_contains_reflection(example_path)
+    factors["reflection_free"] = not has_reflection
+    factors["reflection_sites"] = reflection_sites
+    if not has_reflection:
+        score += 0.20
+
+    return min(score, 1.0), factors
+
+
+def _infer_component_from_class_name(class_name: str) -> Dict[str, Any]:
+    """
+    Heuristic fallback for inferring component type from class name.
+
+    Used when we can't find a component in the manifest ancestry.
+
+    Args:
+        class_name: The class name to analyze.
+
+    Returns:
+        Component context dict with inferred type.
+    """
+    if not class_name:
+        return {
+            "component_type": "Unknown",
+            "component_name": class_name,
+            "entrypoint_method": None,
+            "resolution_method": "failed",
+        }
+
+    name_lower = class_name.lower()
+    simple_name = class_name.split(".")[-1].lower() if "." in class_name else name_lower
+
+    # Check simple class name for component type hints
+    if "activity" in simple_name:
+        comp_type = "Activity"
+    elif "service" in simple_name:
+        comp_type = "Service"
+    elif "receiver" in simple_name or "broadcast" in simple_name:
+        comp_type = "Receiver"
+    elif "provider" in simple_name:
+        comp_type = "Provider"
+    else:
+        comp_type = "Unknown"
+
+    return {
+        "component_type": comp_type,
+        "component_name": class_name,
+        "entrypoint_method": None,
+        "resolution_method": "heuristic" if comp_type != "Unknown" else "failed",
+    }
 
 
 def build_sensitive_api_hits(
@@ -129,13 +317,31 @@ def build_sensitive_api_hits(
             continue
         for category in categories:
             hit_id = _hit_id(category.category_id, caller_sig, callee_sig)
-            component_context = _component_context(caller_class, component_map, entrypoints)
+            # Compute reachability first (needed for investigability)
             example_path, reachable, path_len = _reachability_path(
                 caller_sig,
                 callee_sig,
                 distances,
                 predecessors,
                 max_example_path,
+            )
+            # Enhanced component resolution with ancestor walking
+            component_context = _component_context(
+                caller_class,
+                caller_sig,
+                component_map,
+                entrypoints,
+                predecessors,
+            )
+            # Compute caller_is_app once (used in hit and investigability)
+            caller_is_app = _is_app_caller(caller_class, component_map, app_prefixes)
+            # Compute investigability score for prioritization
+            investigability_score, investigability_factors = _compute_investigability(
+                reachable=reachable,
+                path_len=path_len,
+                example_path=example_path,
+                component_type=component_context.get("component_type", "Unknown"),
+                caller_is_app=caller_is_app,
             )
             hits.append({
                 "hit_id": hit_id,
@@ -152,7 +358,7 @@ def build_sensitive_api_hits(
                     "class": caller_class,
                     "method": caller_sig,
                 },
-                "caller_is_app": _is_app_caller(caller_class, component_map, app_prefixes),
+                "caller_is_app": caller_is_app,
                 "component_context": component_context,
                 "reachability": {
                     "reachable_from_entrypoint": reachable,
@@ -161,6 +367,10 @@ def build_sensitive_api_hits(
                 },
                 "requires_slice": category.requires_slice,
                 "slice_hints": _slice_hints(category),
+                # Investigability scoring for triaging
+                "investigability_score": investigability_score,
+                "investigability_factors": investigability_factors,
+                "path_contains_reflection": len(investigability_factors.get("reflection_sites", [])) > 0,
             })
 
     # Deduplicate hits: merge hits with same (caller, callee, category_id)
@@ -365,26 +575,61 @@ def _reachability_path(
 
 def _component_context(
     caller_class: str,
+    caller_sig: str,
     component_map: Dict[str, Dict[str, str]],
     entrypoints: List[str],
+    predecessors: Dict[str, Optional[str]],
 ) -> Dict[str, Any]:
+    """
+    Resolve component context for a caller method.
+
+    Enhanced to walk backwards through the call path to find component ancestor
+    when the direct caller class is not a manifest component.
+
+    Args:
+        caller_class: The class name of the caller.
+        caller_sig: The full method signature of the caller.
+        component_map: Map of class names to component info from manifest.
+        entrypoints: List of entrypoint method signatures.
+        predecessors: BFS predecessor map for walking call paths.
+
+    Returns:
+        Component context dict with type, name, entrypoint, and resolution method.
+    """
+    # First, try direct match (caller class is a component)
     component = component_map.get(caller_class)
-    if not component:
+    if component:
+        entrypoint_method = None
+        for entry in entrypoints:
+            if _class_name_from_signature(entry) == caller_class:
+                entrypoint_method = entry
+                break
         return {
-            "component_type": "Unknown",
-            "component_name": caller_class,
-            "entrypoint_method": None,
+            "component_type": component.get("component_type", "Unknown"),
+            "component_name": component.get("component_name", caller_class),
+            "entrypoint_method": entrypoint_method,
+            "resolution_method": "direct",
         }
-    entrypoint_method = None
-    for entry in entrypoints:
-        if _class_name_from_signature(entry) == caller_class:
-            entrypoint_method = entry
-            break
-    return {
-        "component_type": component.get("component_type", "Unknown"),
-        "component_name": component.get("component_name", caller_class),
-        "entrypoint_method": entrypoint_method,
-    }
+
+    # Walk backwards through call path to find component ancestor
+    cursor = predecessors.get(caller_sig)
+    depth = 0
+    while cursor and depth < 15:
+        cursor_class = _class_name_from_signature(cursor)
+        if cursor_class in component_map:
+            comp = component_map[cursor_class]
+            return {
+                "component_type": comp.get("component_type", "Unknown"),
+                "component_name": comp.get("component_name", cursor_class),
+                "entrypoint_method": cursor,
+                "resolution_method": "ancestor",
+                "resolution_depth": depth + 1,
+            }
+        cursor = predecessors.get(cursor)
+        depth += 1
+
+    # Fallback: try heuristic inference from class name
+    return _infer_component_from_class_name(caller_class)
 
 
 def _slice_hints(category: ApiCategory) -> Dict[str, Any]:
@@ -517,8 +762,21 @@ def _deduplicate_hits(hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return deduped
 
 
-def _hit_sort_key(hit: Dict[str, Any]) -> Tuple[int, float]:
+def _hit_sort_key(hit: Dict[str, Any]) -> Tuple[int, float, float]:
+    """
+    Generate sort key for hit prioritization.
+
+    Sorting order (primary to tertiary):
+    1. Priority rank: CRITICAL(1) > HIGH(2) > MEDIUM(3) > LOW(4)
+    2. Investigability score: Higher scores first (easier to analyze)
+    3. Catalog weight: Higher weights first
+
+    This ensures that within the same priority level, easier-to-analyze
+    hits are processed before harder ones.
+    """
     priority = hit.get("priority", "LOW")
     rank = PRIORITY_RANK.get(priority, 99)
+    investigability = float(hit.get("investigability_score") or 0.0)
     weight = float(hit.get("weight") or 0.0)
-    return (rank, -weight)
+    # Negate investigability and weight so higher values sort first
+    return (rank, -investigability, -weight)
