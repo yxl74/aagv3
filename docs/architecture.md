@@ -145,6 +145,18 @@ The Tier2 stage is split into two cognitive phases for maximum accuracy:
 - Caller filtering: by default, all non-framework callers are allowed (including third-party SDKs). Set `analysis.allow_third_party_callers: false` to restrict hits to the app package.
 - **Artifacts**: `seeds/sensitive_api_hits.json`.
 
+### Stage C2: Hit Grouping & Threat Scoring
+
+- **Hit grouping** (`_group_sensitive_hits` in `orchestrator.py`): groups sensitive API hits by caller method signature, creating method-level "groups" for analysis.
+- **String extraction** (`_extract_strings_from_cfg`): extracts string literals and known field references (e.g., `Settings.ACTION_ACCESSIBILITY_SETTINGS`) from method CFGs to enhance threat detection with whitelisted string indicators.
+- **Co-occurrence scoring** (`src/apk_analyzer/phase0/cooccurrence_scorer.py`): computes threat scores based on:
+  - Base score: maximum weight of detected categories
+  - Synergy boost: pattern-based boost when multiple categories co-occur (e.g., package install + accessibility = dropper pattern)
+  - Per-level differentiation: method-level groups receive full boost (`boost_group`); class-level blocks receive 40% (`boost_block`) since distributed co-occurrence is a weaker signal
+- **Code block aggregation** (`build_code_blocks`): aggregates method groups into class-level blocks for report synthesis, separating app code from library code.
+- **18 research-backed patterns** detect attack chains: droppers, ODF/ATS banking trojans, OTP theft, stalkerware bundles, smishing, toll fraud, etc.
+- **Artifacts**: `seeds/sensitive_api_groups.json`, `seeds/code_blocks.json`.
+
 ### Stage D: Recon + Threat Category Creation (LLM)
 
 - **Recon agent** (`src/apk_analyzer/agents/recon.py`): consumes manifest summary + callgraph summary + dangerous API hits and returns `threat categories` for investigation.
@@ -263,6 +275,8 @@ artifacts/{analysis_id}/runs/{run_id}/
 │       └── <seed_id>.json
 ├── seeds/
 │   ├── sensitive_api_hits.json
+│   ├── sensitive_api_groups.json
+│   ├── code_blocks.json
 │   └── suspicious_api_index.json
 ├── llm/
 │   ├── recon.json
@@ -300,6 +314,7 @@ artifacts/{analysis_id}/runs/{run_id}/
 | Verifier | `src/apk_analyzer/agents/verifier.py` |
 | Report generator | `src/apk_analyzer/agents/report.py` |
 | Sensitive API matcher | `src/apk_analyzer/phase0/sensitive_api_matcher.py` |
+| Co-occurrence scorer | `src/apk_analyzer/phase0/cooccurrence_scorer.py` |
 | Context bundle builder | `src/apk_analyzer/analyzers/context_bundle_builder.py` |
 | LLM factory | `src/apk_analyzer/clients/llm_factory.py` |
 | Soot extractor | `java/soot-extractor/` |

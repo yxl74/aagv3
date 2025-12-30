@@ -1362,6 +1362,59 @@
           "pastebin.com/raw"
         ]
       }
+    },
+    "TOLL_FRAUD_OPERATOR_GATING": {
+      "priority": "HIGH",
+      "description": "Checking carrier/operator for geo-targeting (toll fraud pattern).",
+      "weight": 0.60,
+      "mitre": {
+        "primary": "T1430",
+        "aliases": []
+      },
+      "requires_slice": false,
+      "pha_tags": [
+        "TOLL_FRAUD"
+      ],
+      "permission_hints": [
+        "READ_PHONE_STATE"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.telephony.TelephonyManager: java.lang.String getSimOperator()>",
+          "<android.telephony.TelephonyManager: java.lang.String getNetworkOperator()>"
+        ],
+        "fields": [],
+        "strings": []
+      }
+    },
+    "TOLL_FRAUD_FORCE_CELLULAR": {
+      "priority": "HIGH",
+      "description": "Forcing cellular connection / disabling WiFi (toll fraud pattern).",
+      "weight": 0.65,
+      "mitre": {
+        "primary": "T1464",
+        "aliases": []
+      },
+      "requires_slice": false,
+      "pha_tags": [
+        "TOLL_FRAUD"
+      ],
+      "permission_hints": [
+        "CHANGE_WIFI_STATE",
+        "CHANGE_NETWORK_STATE"
+      ],
+      "signatures": {
+        "methods": [
+          "<android.net.ConnectivityManager: void requestNetwork(android.net.NetworkRequest,android.net.ConnectivityManager$NetworkCallback)>",
+          "<android.net.ConnectivityManager: void requestNetwork(android.net.NetworkRequest,android.net.ConnectivityManager$NetworkCallback,android.os.Handler)>",
+          "<android.net.ConnectivityManager: void requestNetwork(android.net.NetworkRequest,android.net.ConnectivityManager$NetworkCallback,int)>",
+          "<android.net.ConnectivityManager: int requestNetwork(android.net.NetworkRequest,android.app.PendingIntent)>",
+          "<android.net.ConnectivityManager: void requestNetwork(android.net.NetworkRequest,android.app.PendingIntent)>",
+          "<android.net.wifi.WifiManager: boolean setWifiEnabled(boolean)>"
+        ],
+        "fields": [],
+        "strings": []
+      }
     }
   }
 }

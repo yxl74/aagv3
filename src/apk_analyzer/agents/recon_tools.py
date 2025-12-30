@@ -85,12 +85,18 @@ class ReconToolRunner:
             limit = 50
         results = []
         for block in self.blocks[:limit]:
+            threat_meta = block.get("threat_meta") or {}
             results.append({
                 "block_id": block.get("block_id"),
                 "caller_class": block.get("caller_class"),
                 "component_type": block.get("component_type"),
                 "categories": block.get("categories", []),
+                "string_categories": block.get("string_categories", []),
                 "priority_max": block.get("priority_max"),
+                "effective_priority": block.get("effective_priority"),
+                "threat_score": block.get("threat_score"),
+                "threat_score_raw": block.get("threat_score_raw"),
+                "pattern_count": threat_meta.get("pattern_count", 0),
                 "hit_count": block.get("hit_count"),
                 "group_count": block.get("group_count"),
                 "methods": block.get("methods", []),
@@ -149,13 +155,20 @@ class ReconToolRunner:
         results = []
         for group in self.groups:
             categories = group.get("categories") or []
-            if category_id and category_id not in categories:
+            string_categories = group.get("string_categories") or []
+            if category_id and category_id not in set(categories) | set(string_categories):
                 continue
+            threat_meta = group.get("threat_meta") or {}
             results.append({
                 "group_id": group.get("group_id"),
                 "caller_method": group.get("caller_method"),
                 "categories": categories,
+                "string_categories": string_categories,
                 "priority_max": group.get("priority_max"),
+                "effective_priority": group.get("effective_priority"),
+                "threat_score": group.get("threat_score"),
+                "threat_score_raw": group.get("threat_score_raw"),
+                "pattern_count": threat_meta.get("pattern_count", 0),
                 "hit_count": group.get("hit_count"),
             })
             if len(results) >= limit:

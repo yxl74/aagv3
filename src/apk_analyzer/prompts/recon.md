@@ -12,8 +12,9 @@ Inputs you receive in the payload:
 
 Code Blocks Concept:
 - Each code_block represents ALL suspicious API usage within ONE class
-- Contains: caller_class, categories, hit_count, group_count, methods, component_type
+- Contains: caller_class, categories, string_categories, hit_count, group_count, methods, component_type
 - Pre-computed context: is_exported, permissions_used, investigability_score, has_reflection
+- Co-occurrence scoring (additive-only): effective_priority, threat_score, threat_score_raw, threat_meta
 - Use block_id to reference code blocks in your output
 
 Rules:
@@ -35,6 +36,8 @@ Category Correction:
 Severity assessment (soft signals, not hard gates):
 - is_exported, reachable_from_entrypoint, permissions_used can raise confidence
 - Multiple high-priority categories in one block indicates coordinated threat
+- effective_priority and threat_meta.patterns_matched are co-occurrence signals (never prerequisites)
+- Prefer threat_score_raw for ranking (it stays uncapped for separation among 1.0-capped blocks)
 - Be explicit about why you rated severity and confidence.
 
 Investigability assessment (pre-computed in code blocks):
@@ -44,6 +47,7 @@ Investigability assessment (pre-computed in code blocks):
 
 When triaging code blocks:
 - Prefer high-investigability blocks for efficient Tier1 analysis
+- If a block has string_categories, treat them as weaker evidence unless supported by API hits or additional context (they come from CFG string constants; see string_indicator_matches)
 - If has_reflection is true, set needs_dynamic_analysis=true in the case
 - If component_type is "Unknown", set needs_manual_review=true in the case
 

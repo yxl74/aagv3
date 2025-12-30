@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict
+from functools import lru_cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Dict, List, Optional
@@ -38,6 +39,7 @@ from apk_analyzer.clients.knox_client import KnoxClient
 from apk_analyzer.knowledge.api_catalog import ApiCatalog
 from apk_analyzer.observability.logger import EventLogger
 from apk_analyzer.phase0.sensitive_api_matcher import build_sensitive_api_hits, load_callgraph
+from apk_analyzer.phase0.cooccurrence_scorer import compute_threat_score, COOCCURRENCE_PATTERNS
 from apk_analyzer.telemetry import llm_context, set_run_context, span
 from apk_analyzer.telemetry.llm_instrumentation import InstrumentedLLMClient
 from apk_analyzer.tools.flowdroid_tools import run_targeted_taint_analysis
@@ -347,7 +349,11 @@ class Orchestrator:
                         for hit in sensitive_hits.get("hits", [])
                         if hit.get("hit_id")
                     }
-                    hit_groups_payload = _group_sensitive_hits(sensitive_hits.get("hits", []))
+                    hit_groups_payload = _group_sensitive_hits(
+                        sensitive_hits.get("hits", []),
+                        artifact_store=artifact_store,
+                        catalog=sensitive_catalog,
+                    )
                     artifact_store.write_json("seeds/sensitive_api_groups.json", hit_groups_payload)
                     hit_groups_by_id = {
                         group.get("group_id"): group
@@ -355,10 +361,11 @@ class Orchestrator:
                         if group.get("group_id")
                     }
 
-                    # Build code blocks (class-level aggregation)
+                    # Build code blocks (class-level aggregation with scoring)
                     code_blocks, library_groups = build_code_blocks(
                         hit_groups_payload.get("groups", []),
                         manifest,
+                        catalog=sensitive_catalog,
                     )
                     artifact_store.write_json("seeds/code_blocks.json", {
                         "block_count": len(code_blocks),
@@ -481,11 +488,19 @@ class Orchestrator:
                                 )
                             recon_result["cases"] = cases_for_tier1
                             cases = cases_for_tier1
+
+                            # Track groups from high-confidence pruned cases
+                            # to prevent them from being re-added by fallback
+                            pruned_group_ids = _collect_case_group_ids(
+                                high_confidence_pruned, hit_groups_by_id
+                            )
                         else:
                             cases = []
+                            pruned_group_ids: set[str] = set()
                         if hit_groups_by_id:
                             covered_groups = _collect_case_group_ids(cases, hit_groups_by_id)
-                            missing_groups = set(hit_groups_by_id.keys()) - covered_groups
+                            # Exclude both covered groups AND groups from pruned cases
+                            missing_groups = set(hit_groups_by_id.keys()) - covered_groups - pruned_group_ids
                             if missing_groups:
                                 fallback_cases = _fallback_cases_from_groups(
                                     missing_groups,
@@ -499,6 +514,7 @@ class Orchestrator:
                                     "recon.group_coverage",
                                     total_groups=len(hit_groups_by_id),
                                     covered_groups=len(covered_groups),
+                                    pruned_groups=len(pruned_group_ids),
                                     missing_groups=len(missing_groups),
                                     sample_missing_groups=list(missing_groups)[:5],
                                 )
@@ -1033,7 +1049,191 @@ def _group_key_for_hit(hit: Dict[str, Any]) -> str:
     return str(hit.get("hit_id") or "UNKNOWN")
 
 
-def _summarize_hit_group(group_key: str, hits: List[Dict[str, Any]]) -> Dict[str, Any]:
+# =============================================================================
+# CFG String Extraction Helpers
+# =============================================================================
+
+# Pattern 1: Quoted string literals in Jimple
+_STRING_PATTERN = re.compile(r'"([^"]*)"')
+
+# Pattern 2: Static field references in Jimple
+# Matches: staticget <android.provider.Settings: java.lang.String ACTION_ACCESSIBILITY_SETTINGS>
+# More permissive regex to handle various field name formats
+_FIELD_PATTERN = re.compile(
+    r"<([a-zA-Z0-9_.$]+):\s*java\.lang\.String\s+([A-Za-z_][A-Za-z0-9_]*)>"
+)
+
+# Known field → string value mappings
+# Prevents false negatives on permission-lure flows where apps use field constants
+# instead of literal strings (e.g., Settings.ACTION_ACCESSIBILITY_SETTINGS)
+KNOWN_FIELD_VALUES: dict[str, str] = {
+    "android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS": "android.settings.ACCESSIBILITY_SETTINGS",
+    "android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS": "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS",
+    "android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS": "android.settings.USAGE_ACCESS_SETTINGS",
+    "android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION": "android.settings.action.MANAGE_OVERLAY_PERMISSION",
+    "android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS": "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+    "android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES": "android.settings.MANAGE_UNKNOWN_APP_SOURCES",
+    "android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS": "android.settings.APPLICATION_DETAILS_SETTINGS",
+}
+
+
+def _hash_method_sig(signature: str) -> str:
+    """Hash method signature for CFG file lookup."""
+    return hashlib.sha1(signature.encode("utf-8")).hexdigest()
+
+
+def _extract_strings_from_cfg(
+    caller_method: str,
+    artifact_store: ArtifactStore,
+) -> set[str]:
+    """Extract string literals AND field references from a method's CFG.
+
+    Looks up the CFG from graphs/cfg/{hash}.json or via method_index.json.
+    Extracts:
+    1. Quoted strings from unit statements
+    2. Known field references (Settings actions) mapped to their string values
+    """
+    if not caller_method or caller_method == "UNKNOWN":
+        return set()
+
+    try:
+        # Try direct hash lookup first
+        method_hash = _hash_method_sig(caller_method)
+        cfg_path = artifact_store.path(f"graphs/cfg/{method_hash}.json")
+        cfg = None
+
+        if cfg_path.exists():
+            cfg = artifact_store.read_json(f"graphs/cfg/{method_hash}.json")
+        else:
+            # Fall back to method index
+            method_index_path = artifact_store.path("graphs/method_index.json")
+            if method_index_path.exists():
+                method_index = artifact_store.read_json("graphs/method_index.json")
+                cfg_key = method_index.get(caller_method)
+                if cfg_key:
+                    cfg = artifact_store.read_json(f"graphs/cfg/{cfg_key}.json")
+
+        if not cfg:
+            return set()
+
+        strings: set[str] = set()
+        for unit in cfg.get("units", []):
+            stmt = unit.get("stmt", "")
+
+            # Extract quoted string literals
+            strings.update(_STRING_PATTERN.findall(stmt))
+
+            # Extract field references and map to known values
+            for match in _FIELD_PATTERN.finditer(stmt):
+                class_name, field_name = match.groups()
+                field_key = f"{class_name}.{field_name}"
+                resolved = KNOWN_FIELD_VALUES.get(field_key)
+                if resolved:
+                    strings.add(resolved)
+
+        return strings
+
+    except Exception:
+        return set()
+
+
+# Whitelist of categories where CFG string matching is appropriate.
+# These categories have specific, high-signal string indicators that won't
+# cause false positives (unlike C2_NETWORKING which has generic http:// etc.)
+STRING_MATCH_CATEGORIES = frozenset({
+    "SOCIAL_ENGINEERING_PERMISSION_LURE_SETTINGS",  # Settings intent strings
+    "C2_MESSAGING_PLATFORM_ENDPOINTS",              # Telegram/Discord/Pastebin URLs
+})
+
+
+def _match_string_categories(
+    strings: set[str],
+    catalog: ApiCatalog,
+) -> tuple[set[str], Dict[str, List[str]]]:
+    """Match extracted strings against whitelisted catalog string indicators.
+
+    Only matches against high-signal categories to avoid false positives from
+    generic URL prefixes like http://, https://.
+
+    Uses case-insensitive matching with basic boundary guards for URL/domain
+    indicators (indicator in string only).
+
+    Returns:
+        (matched_categories, matched_indicators_by_category)
+    """
+    matched_categories: set[str] = set()
+    matched_indicators_by_category: Dict[str, set[str]] = {}
+
+    for string_value in strings:
+        if not string_value:
+            continue
+
+        string_lower = string_value.lower()
+
+        for category_id in STRING_MATCH_CATEGORIES:
+            cat = catalog.categories.get(category_id)
+            if not cat:
+                continue
+
+            for indicator in cat.string_indicators:
+                indicator_lower = indicator.lower()
+
+                # Skip short strings unless they are an exact indicator match.
+                if len(string_lower) < 5 and string_lower != indicator_lower:
+                    continue
+
+                if indicator_lower not in string_lower:
+                    continue
+
+                if category_id == "SOCIAL_ENGINEERING_PERMISSION_LURE_SETTINGS":
+                    matched = True  # long/high-signal; substring is safe enough
+                else:
+                    matched = _indicator_matches_with_boundaries(indicator_lower, string_lower)
+
+                if matched:
+                    matched_categories.add(category_id)
+                    matched_indicators_by_category.setdefault(category_id, set()).add(indicator)
+
+    return matched_categories, {
+        category_id: sorted(indicators)
+        for category_id, indicators in matched_indicators_by_category.items()
+    }
+
+
+def _indicator_matches_with_boundaries(indicator_lower: str, haystack_lower: str) -> bool:
+    """
+    Check indicator presence with simple boundary guards.
+
+    Goal: avoid obvious false positives like matching "t.me" inside "not.me",
+    or matching "api.telegram.org" inside "api.telegram.org.evil.com".
+    """
+    if not indicator_lower or indicator_lower not in haystack_lower:
+        return False
+
+    pattern = _compile_string_indicator_regex(indicator_lower)
+    return bool(pattern.search(haystack_lower))
+
+
+@lru_cache(maxsize=256)
+def _compile_string_indicator_regex(indicator_lower: str) -> re.Pattern[str]:
+    escaped = re.escape(indicator_lower)
+
+    # Indicators with "/" are treated as path-like and can appear after subdomains
+    # (e.g., ptb.discord.com/api/webhooks).
+    if "/" in indicator_lower:
+        return re.compile(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])")
+
+    # Domain-like indicators: disallow extra hostname characters on either side,
+    # especially "." (prevents api.telegram.org.evil.com).
+    return re.compile(rf"(?<![a-z0-9\.\-]){escaped}(?=$|[^a-z0-9\.\-])")
+
+
+def _summarize_hit_group(
+    group_key: str,
+    hits: List[Dict[str, Any]],
+    artifact_store: Optional[ArtifactStore] = None,
+    catalog: Optional[ApiCatalog] = None,
+) -> Dict[str, Any]:
     representative = hits[0] if hits else {}
     caller = representative.get("caller", {}) or {}
     caller_method = caller.get("method") or "UNKNOWN"
@@ -1043,7 +1243,7 @@ def _summarize_hit_group(group_key: str, hits: List[Dict[str, Any]]) -> Dict[str
 
     hit_ids: List[str] = []
     signatures: List[str] = []
-    categories: set[str] = set()
+    categories: set[str] = set()  # API-hit categories only
     priority_counts: Dict[str, int] = {}
     permission_hints: set[str] = set()
     mitre_primary: set[str] = set()
@@ -1051,6 +1251,7 @@ def _summarize_hit_group(group_key: str, hits: List[Dict[str, Any]]) -> Dict[str
     pha_tags: set[str] = set()
     slice_requests: List[Dict[str, Any]] = []
     requires_slice = False
+    inv_scores: List[float] = []
 
     for hit in hits:
         hit_id = hit.get("hit_id")
@@ -1078,11 +1279,39 @@ def _summarize_hit_group(group_key: str, hits: List[Dict[str, Any]]) -> Dict[str
             mitre_aliases.add(alias)
         for tag in hit.get("pha_tags", []) or []:
             pha_tags.add(tag)
+        # Collect investigability scores from hits
+        inv = hit.get("investigability_score")
+        if inv is not None:
+            inv_scores.append(float(inv))
+
+    # Compute group investigability score (average of hit scores, default 0.5)
+    investigability_score = sum(inv_scores) / len(inv_scores) if inv_scores else 0.5
+
+    # Extract strings from CFG and match against whitelisted catalog string indicators
+    # Keep string-derived categories separate for traceability
+    string_categories: set[str] = set()
+    string_indicator_matches: Dict[str, List[str]] = {}
+    if artifact_store and catalog:
+        cfg_strings = _extract_strings_from_cfg(caller_method, artifact_store)
+        string_categories, string_indicator_matches = _match_string_categories(cfg_strings, catalog)
+
+    # Combine for scoring (but keep separate in output for traceability)
+    all_categories_for_scoring = categories | string_categories
 
     if priority_counts:
         priority_max = min(priority_counts.keys(), key=_priority_rank)
     else:
         priority_max = "LOW"
+
+    # Compute co-occurrence threat score using combined categories
+    threat_score = 0.0
+    threat_score_raw = 0.0
+    effective_priority = priority_max
+    threat_meta: Dict[str, Any] = {}
+    if catalog:
+        threat_score, threat_score_raw, effective_priority, threat_meta = compute_threat_score(
+            all_categories_for_scoring, catalog, COOCCURRENCE_PATTERNS
+        )
 
     group_id = f"grp-{hashlib.sha1(group_key.encode('utf-8')).hexdigest()}"
     return {
@@ -1098,10 +1327,17 @@ def _summarize_hit_group(group_key: str, hits: List[Dict[str, Any]]) -> Dict[str
         },
         "hit_ids": hit_ids,
         "hit_count": len(hit_ids),
-        "categories": sorted(categories),
+        "categories": sorted(categories),  # API-hit categories only
+        "string_categories": sorted(string_categories),  # String-derived (separate for traceability)
+        "string_indicator_matches": string_indicator_matches,
         "signatures": signatures,
         "priority_counts": priority_counts,
         "priority_max": priority_max,
+        "effective_priority": effective_priority,
+        "threat_score": threat_score,
+        "threat_score_raw": threat_score_raw,
+        "threat_meta": threat_meta,
+        "investigability_score": round(investigability_score, 2),
         "requires_slice": requires_slice,
         "slice_requests": slice_requests,
         "tags": {
@@ -1114,13 +1350,20 @@ def _summarize_hit_group(group_key: str, hits: List[Dict[str, Any]]) -> Dict[str
     }
 
 
-def _group_sensitive_hits(hits: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _group_sensitive_hits(
+    hits: List[Dict[str, Any]],
+    artifact_store: Optional[ArtifactStore] = None,
+    catalog: Optional[ApiCatalog] = None,
+) -> Dict[str, Any]:
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     for hit in hits:
         key = _group_key_for_hit(hit)
         grouped.setdefault(key, []).append(hit)
 
-    groups = [_summarize_hit_group(key, items) for key, items in grouped.items()]
+    groups = [
+        _summarize_hit_group(key, items, artifact_store, catalog)
+        for key, items in grouped.items()
+    ]
     return {
         "group_count": len(groups),
         "grouping_key": "caller_method",
@@ -1159,16 +1402,19 @@ def _is_app_code_class(
 def build_code_blocks(
     groups: List[Dict[str, Any]],
     manifest: Dict[str, Any],
+    catalog: Optional[ApiCatalog] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Aggregate method-level groups into class-level Code Blocks.
 
     Groups are aggregated by outer class (inner classes grouped with parent).
     Library groups are separated from app code groups.
+    Computes co-occurrence threat scores at block level.
 
     Args:
         groups: List of method-level groups from _group_sensitive_hits()
         manifest: Parsed manifest for determining app code vs library
+        catalog: Optional API catalog for co-occurrence scoring
 
     Returns:
         Tuple of (app_code_blocks, library_groups)
@@ -1210,7 +1456,9 @@ def build_code_blocks(
         # Aggregate from all groups in this class
         all_hit_ids: List[str] = []
         all_group_ids: List[str] = []
-        all_categories: set[str] = set()
+        all_categories: set[str] = set()  # API-hit categories
+        all_string_categories: set[str] = set()  # String-derived categories
+        all_string_indicator_matches: Dict[str, set[str]] = defaultdict(set)
         all_methods: set[str] = set()
         priorities: List[str] = []
         inv_scores: List[float] = []
@@ -1226,6 +1474,11 @@ def build_code_blocks(
             all_hit_ids.extend(g.get("hit_ids", []))
             all_group_ids.append(g.get("group_id", ""))
             all_categories.update(g.get("categories", []))
+            all_string_categories.update(g.get("string_categories", []))
+            for category_id, indicators in (g.get("string_indicator_matches") or {}).items():
+                if not category_id:
+                    continue
+                all_string_indicator_matches[category_id].update(indicators or [])
             priorities.append(g.get("priority_max", "LOW"))
 
             # Extract method name from caller_method
@@ -1293,6 +1546,19 @@ def build_code_blocks(
                     is_exported = comp.get("exported", False)
                     break
 
+        # Compute co-occurrence threat score at block level using combined categories
+        # Use level="block" for reduced boost (40% of group) since distributed
+        # co-occurrence across a class is a weaker signal than tight method-level coupling
+        all_categories_for_scoring = all_categories | all_string_categories
+        threat_score = 0.0
+        threat_score_raw = 0.0
+        effective_priority = priority_max
+        threat_meta: Dict[str, Any] = {}
+        if catalog:
+            threat_score, threat_score_raw, effective_priority, threat_meta = compute_threat_score(
+                all_categories_for_scoring, catalog, COOCCURRENCE_PATTERNS, level="block"
+            )
+
         code_blocks.append({
             "block_id": block_id,
             "caller_class": outer_class,
@@ -1302,8 +1568,17 @@ def build_code_blocks(
             "is_exported": is_exported,
             "permissions_used": sorted(permissions_used),
             # Aggregated threat info
-            "categories": sorted(all_categories),
+            "categories": sorted(all_categories),  # API-hit categories only
+            "string_categories": sorted(all_string_categories),  # String-derived (separate for traceability)
+            "string_indicator_matches": {
+                category_id: sorted(indicators)
+                for category_id, indicators in all_string_indicator_matches.items()
+            },
             "priority_max": priority_max,
+            "effective_priority": effective_priority,
+            "threat_score": threat_score,
+            "threat_score_raw": threat_score_raw,
+            "threat_meta": threat_meta,
             "hit_count": len(all_hit_ids),
             "group_count": len(class_groups),
             "methods": sorted(all_methods),
@@ -1317,9 +1592,10 @@ def build_code_blocks(
             "hit_ids": all_hit_ids,
         })
 
-    # Sort by priority, then investigability
+    # Sort by effective priority, then threat_score_raw (uncapped for separation), then investigability
     code_blocks.sort(key=lambda b: (
-        priority_order.get(b["priority_max"], 99),
+        priority_order.get(b.get("effective_priority", b["priority_max"]), 99),
+        -b.get("threat_score_raw", 0.0),
         -b["investigability_score"],
     ))
 
