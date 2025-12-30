@@ -2768,6 +2768,142 @@
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
+
+    /* ============================================================
+       Attack Chain Patterns Section
+       ============================================================ */
+    .patterns-section {
+      margin-top: 20px;
+    }
+
+    .patterns-section .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .pattern-summary {
+      font-size: 13px;
+      color: var(--gray-600);
+    }
+
+    .pattern-summary span {
+      font-weight: 600;
+      color: var(--green);
+    }
+
+    .patterns-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    .pattern-group {
+      background: var(--gray-50);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .pattern-group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--white);
+      border-bottom: 1px solid var(--gray-200);
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .group-icon {
+      font-size: 16px;
+    }
+
+    .group-name {
+      flex: 1;
+      color: var(--gray-800);
+    }
+
+    .group-match-count {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--gray-500);
+      background: var(--gray-100);
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+
+    .group-match-count.has-matches {
+      background: var(--green-light);
+      color: var(--green);
+    }
+
+    .pattern-list {
+      padding: 8px 0;
+    }
+
+    .pattern-item {
+      padding: 10px 16px;
+      border-left: 3px solid transparent;
+      transition: all 0.15s ease;
+    }
+
+    .pattern-item:not(:last-child) {
+      border-bottom: 1px solid var(--gray-100);
+    }
+
+    .pattern-item.matched {
+      background: var(--green-light);
+      border-left-color: var(--green);
+    }
+
+    .pattern-item.not-matched {
+      opacity: 0.5;
+    }
+
+    .pattern-item:hover {
+      opacity: 1;
+    }
+
+    .pattern-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .pattern-id {
+      font-family: 'SF Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--gray-700);
+    }
+
+    .match-indicator {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--green);
+      margin-left: auto;
+    }
+
+    .pattern-desc {
+      font-size: 12px;
+      color: var(--gray-600);
+      margin-bottom: 4px;
+    }
+
+    .pattern-formula {
+      font-family: 'SF Mono', monospace;
+      font-size: 10px;
+      color: var(--gray-400);
+      word-break: break-all;
+    }
+
+    .pattern-boost {
+      font-size: 10px;
+      color: var(--gray-500);
+      margin-top: 4px;
+    }
   </style>
   <!-- Cytoscape.js for interactive graph visualization -->
   <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
@@ -3007,6 +3143,26 @@
         </div>
         <div class="tree-content" id="treeContent">
           <div class="tree-empty">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Attack Chain Patterns Section -->
+    <div class="card patterns-section" id="patternsSection">
+      <div class="card-header">
+        <div class="card-title">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+          </svg>
+          Attack Chain Patterns
+        </div>
+        <div class="pattern-summary">
+          <span id="matchedPatternCount">0</span> of 18 patterns detected
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="patterns-grid" id="patternsGrid">
+          <div class="tree-empty">Loading pattern catalog...</div>
         </div>
       </div>
     </div>
@@ -6270,12 +6426,262 @@
           renderTreeLevel(level, content);
         }
       }
+
+      // Re-render patterns catalog with updated matches
+      renderPatternsCatalog();
     }
 
     // Initialize hierarchy viewer on page load
     function initHierarchyViewer() {
-      // Fetch data in background
-      fetchHierarchyData();
+      // Fetch data in background, then render patterns
+      fetchHierarchyData().then(() => {
+        renderPatternsCatalog();
+      });
+    }
+
+    // ============================================================
+    // Attack Chain Patterns Catalog
+    // ============================================================
+
+    // Full pattern catalog (from cooccurrence_scorer.py)
+    const PATTERN_CATALOG = [
+      {
+        group: "Dropper",
+        groupIcon: "📦",
+        patterns: [
+          {
+            id: "P_DROP_INSTALL_VIA_DM",
+            description: "Package install + DownloadManager payload fetch",
+            formula: "SYSTEM_MANIPULATION_PACKAGE + DELIVERY_PAYLOAD_DOWNLOAD_DOWNLOADMANAGER",
+            severity: "HIGH",
+            boost: 0.20
+          },
+          {
+            id: "P_DROP_INSTALL_VIA_NET",
+            description: "Package install + network C2 for payload",
+            formula: "SYSTEM_MANIPULATION_PACKAGE + C2_NETWORKING",
+            severity: "HIGH",
+            boost: 0.15
+          },
+          {
+            id: "P_DROP_INSTALL_SETTINGS_LURE",
+            description: "Package install + settings lure (social engineering)",
+            formula: "SYSTEM_MANIPULATION_PACKAGE + SOCIAL_ENGINEERING_PERMISSION_LURE_SETTINGS",
+            severity: "HIGH",
+            boost: 0.20
+          },
+          {
+            id: "P_DROP_TO_ACCESSIBILITY",
+            description: "Dropper chain: package install → Accessibility request",
+            formula: "SYSTEM_MANIPULATION_PACKAGE + ABUSE_ACCESSIBILITY",
+            severity: "CRITICAL",
+            boost: 0.25
+          }
+        ]
+      },
+      {
+        group: "Dynamic Load",
+        groupIcon: "⚙️",
+        patterns: [
+          {
+            id: "P_DYNLOAD_EVASION",
+            description: "Dynamic code loading + obfuscation/reflection/anti-debug",
+            formula: "DYNAMIC_CODE_LOADING + (EVASION_* or ANTI_ANALYSIS_*)",
+            severity: null,
+            boost: 0.15
+          },
+          {
+            id: "P_NATIVELOAD_EVASION",
+            description: "Native code loading + obfuscation/anti-debug",
+            formula: "NATIVE_CODE_LOADING + (EVASION_* or ANTI_ANALYSIS_*)",
+            severity: null,
+            boost: 0.12
+          }
+        ]
+      },
+      {
+        group: "ODF/ATS",
+        groupIcon: "🎭",
+        patterns: [
+          {
+            id: "P_ODF_REMOTE_STREAM",
+            description: "Accessibility + screen capture + C2 (remote streaming)",
+            formula: "ABUSE_ACCESSIBILITY + SURVEILLANCE_SCREEN_CAPTURE + C2_*",
+            severity: "CRITICAL",
+            boost: 0.25
+          },
+          {
+            id: "P_ODF_INPUT_AUTOMATION",
+            description: "Accessibility + input injection + C2 (ATS)",
+            formula: "ABUSE_ACCESSIBILITY + INPUT_INJECTION + C2_*",
+            severity: "CRITICAL",
+            boost: 0.20
+          },
+          {
+            id: "P_ODF_OVERLAY_OR_WEBINJECT",
+            description: "Banking trojan: Accessibility + overlay/WebView phishing",
+            formula: "ABUSE_ACCESSIBILITY + (INPUT_PROMPT_OVERLAY or WEBVIEW_PHISHING)",
+            severity: "CRITICAL",
+            boost: 0.20
+          }
+        ]
+      },
+      {
+        group: "OTP Theft",
+        groupIcon: "🔐",
+        patterns: [
+          {
+            id: "P_OTP_SMS_INTERCEPT_EXFIL",
+            description: "SMS interception + exfiltration",
+            formula: "INTERCEPT_SMS_MESSAGES + (C2_NETWORKING or EXFIL_*)",
+            severity: null,
+            boost: 0.15
+          },
+          {
+            id: "P_OTP_NOTIFICATION_CAPTURE_AND_HIDE",
+            description: "Notification capture + suppression (NLS abuse)",
+            formula: "COLLECTION_NOTIFICATIONS + DEFENSE_EVASION_NOTIFICATION_SUPPRESSION",
+            severity: null,
+            boost: 0.20
+          },
+          {
+            id: "P_OTP_SMS_AND_NOTIFICATION_HIDE",
+            description: "SMS interception + notification suppression",
+            formula: "INTERCEPT_SMS_MESSAGES + DEFENSE_EVASION_NOTIFICATION_SUPPRESSION",
+            severity: "CRITICAL",
+            boost: 0.25
+          }
+        ]
+      },
+      {
+        group: "Smishing",
+        groupIcon: "📱",
+        patterns: [
+          {
+            id: "P_SMISHING_SPREAD",
+            description: "Smishing: send SMS + contacts/SMS collection + C2",
+            formula: "SMS_CONTROL_SEND + C2_NETWORKING + (COLLECTION_CONTACTS or COLLECTION_SMS)",
+            severity: "HIGH",
+            boost: 0.20
+          }
+        ]
+      },
+      {
+        group: "Stalkerware",
+        groupIcon: "📍",
+        patterns: [
+          {
+            id: "P_STALKERWARE_PERSIST_LOCATION",
+            description: "Location tracking + battery optimization + persistence",
+            formula: "SURVEILLANCE_LOCATION + PERSISTENCE_BATTERY_* + PERSISTENCE_*",
+            severity: null,
+            boost: 0.20
+          },
+          {
+            id: "P_STALKERWARE_COLLECTION_BUNDLE",
+            description: "3+ surveillance/collection capabilities bundled",
+            formula: "3+ of: SURVEILLANCE_* or COLLECTION_*",
+            severity: "HIGH",
+            boost: 0.25
+          },
+          {
+            id: "P_STALKERWARE_SMS_COMMAND_CONTROL",
+            description: "SMS-based C2 + persistence",
+            formula: "C2_NETWORKING + (COLLECTION_SMS or INTERCEPT_SMS) + PERSISTENCE_*",
+            severity: null,
+            boost: 0.15
+          }
+        ]
+      },
+      {
+        group: "Push C2",
+        groupIcon: "📡",
+        patterns: [
+          {
+            id: "P_PUSH_WAKEUP_THEN_FETCH",
+            description: "FCM push wake-up followed by fetch/loader",
+            formula: "C2_PUSH_FCM + (C2_NETWORKING or DYNAMIC_CODE_LOADING)",
+            severity: null,
+            boost: 0.10
+          }
+        ]
+      },
+      {
+        group: "Toll Fraud",
+        groupIcon: "💸",
+        patterns: [
+          {
+            id: "P_TOLL_FRAUD_CHAIN",
+            description: "Dynamic loading + notification suppression + cellular forcing",
+            formula: "DYNAMIC_CODE_LOADING + DEFENSE_EVASION_NOTIFICATION_SUPPRESSION + TOLL_FRAUD_*",
+            severity: "CRITICAL",
+            boost: 0.20
+          }
+        ]
+      }
+    ];
+
+    // Collect all matched patterns from blocks and groups
+    function getMatchedPatterns() {
+      const matched = new Set();
+      // From blocks
+      (hierarchyData.blocks?.blocks ?? []).forEach(block => {
+        (block.threat_meta?.patterns_matched ?? []).forEach(p => matched.add(p));
+      });
+      // From groups (method-level patterns)
+      (hierarchyData.groups?.groups ?? []).forEach(group => {
+        (group.threat_meta?.patterns_matched ?? []).forEach(p => matched.add(p));
+      });
+      return matched;
+    }
+
+    // Count matched patterns in a group
+    function countGroupMatches(group, matchedSet) {
+      return group.patterns.filter(p => matchedSet.has(p.id)).length;
+    }
+
+    // Render pattern catalog with matches highlighted
+    function renderPatternsCatalog() {
+      const matched = getMatchedPatterns();
+      const grid = document.getElementById('patternsGrid');
+      if (!grid) return;
+
+      let html = '';
+      PATTERN_CATALOG.forEach(group => {
+        const matchCount = countGroupMatches(group, matched);
+        const hasMatches = matchCount > 0;
+
+        html += `
+          <div class="pattern-group">
+            <div class="pattern-group-header">
+              <span class="group-icon">${group.groupIcon}</span>
+              <span class="group-name">${escapeHtml(group.group)}</span>
+              <span class="group-match-count ${hasMatches ? 'has-matches' : ''}">${matchCount}/${group.patterns.length}</span>
+            </div>
+            <div class="pattern-list">
+              ${group.patterns.map(p => renderPatternCatalogItem(p, matched.has(p.id))).join('')}
+            </div>
+          </div>
+        `;
+      });
+
+      grid.innerHTML = html;
+      document.getElementById('matchedPatternCount').textContent = matched.size;
+    }
+
+    // Render a single pattern item
+    function renderPatternCatalogItem(pattern, isMatched) {
+      return `
+        <div class="pattern-item ${isMatched ? 'matched' : 'not-matched'}">
+          <div class="pattern-header">
+            <span class="pattern-id">${escapeHtml(pattern.id.replace('P_', ''))}</span>
+            ${pattern.severity ? `<span class="priority-badge ${pattern.severity.toLowerCase()}">${pattern.severity}</span>` : ''}
+            ${isMatched ? '<span class="match-indicator">✓ Detected</span>' : ''}
+          </div>
+          <div class="pattern-desc">${escapeHtml(pattern.description)}</div>
+          <div class="pattern-formula">${escapeHtml(pattern.formula)}</div>
+        </div>
+      `;
     }
 
     // Restore saved tab on page load and initialize hierarchy viewer
