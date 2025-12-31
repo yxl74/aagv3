@@ -14,11 +14,6 @@ from apk_analyzer.agents.recon import ReconAgent
 from apk_analyzer.agents.recon_tools import ReconToolRunner
 from apk_analyzer.agents.package_scope import PackageScopeAgent
 from apk_analyzer.agents.report import ReportAgent
-from apk_analyzer.agents.tier1_summarizer import Tier1SummarizerAgent
-from apk_analyzer.agents.tier1a_extraction import Tier1AExtractionAgent
-from apk_analyzer.agents.tier1b_interpretation import Tier1BInterpretationAgent
-from apk_analyzer.agents.tier1c_synthesis import Tier1CSynthesisAgent
-from apk_analyzer.agents.tier1_tool_registry import Tier1ToolRegistry
 from apk_analyzer.agents.tier2_intent import Tier2IntentAgent
 from apk_analyzer.agents.tier2a_reasoning import Tier2AReasoningAgent
 from apk_analyzer.agents.tier2b_commands import Tier2BCommandsAgent
@@ -471,6 +466,8 @@ class Orchestrator:
                 pattern_summary = build_cooccurrence_pattern_summary(
                     hit_groups_payload.get("groups", []) if isinstance(hit_groups_payload, dict) else [],
                     code_blocks,
+                    callgraph=callgraph_data if isinstance(callgraph_data, dict) else None,
+                    manifest=manifest,
                 )
                 artifact_store.write_json("seeds/cooccurrence_patterns.json", pattern_summary)
 
@@ -724,27 +721,11 @@ class Orchestrator:
                     entrypoint_paths_ref=entrypoint_paths_ref,
                 )
 
-                # Create Tier1 agent (no tools for first pass)
-                tier1_agent = Tier1SummarizerAgent(
-                    self.prompt_dir / "tier1_summarize.md",
-                    llm_client,
-                    model=llm_conf.get("model_tier1"),
-                    tool_runner=None,
-                    event_logger=event_logger,
-                )
-
-                # Create repair agent with tools (only used if first pass fails)
-                tier1_repair_agent = None
-                if jadx_root:
-                    from apk_analyzer.agents.tier1_tools import Tier1ToolRunner
-                    tier1_tool_runner = Tier1ToolRunner(jadx_root, artifact_store)
-                    tier1_repair_agent = Tier1SummarizerAgent(
-                        self.prompt_dir / "tier1_repair.md",
-                        llm_client,
-                        model=llm_conf.get("model_tier1"),
-                        tool_runner=tier1_tool_runner,
-                        max_tool_rounds=2,
-                        event_logger=event_logger,
+                # JADX is required for method-centric pipeline
+                if not jadx_root:
+                    raise ValueError(
+                        "JADX is required for analysis. "
+                        "Ensure jadx_enabled: true in config and JADX decompilation succeeded."
                     )
 
                 verifier_agent = VerifierAgent(self.prompt_dir / "verifier.md", llm_client)
@@ -754,33 +735,6 @@ class Orchestrator:
                     model=llm_conf.get("model_tier2"),
                     event_logger=event_logger,
                 )
-
-                # Load catalog for Tier1 (Fix 36: MUST be before tier1_split_enabled block)
-                tier1_catalog = sensitive_catalog
-
-                # Three-phase Tier1 agents (used when tier1_split_enabled=true)
-                tier1_split_enabled = llm_conf.get("tier1_split_enabled", False)
-                tier1a_agent = None
-                tier1b_agent = None
-                tier1c_agent = None
-                tier1_tool_registry = None
-                if tier1_split_enabled and jadx_root:
-                    tier1_tool_registry = Tier1ToolRegistry(
-                        store=artifact_store,
-                        jadx_dir=jadx_root,
-                    )
-                    tier1a_agent = Tier1AExtractionAgent(
-                        tool_registry=tier1_tool_registry,
-                        store=artifact_store,  # Fix 35: Add missing store argument
-                        sensitive_catalog=tier1_catalog,  # Fix 38: For sensitive API filtering
-                    )
-                    tier1b_agent = Tier1BInterpretationAgent(
-                        tool_registry=tier1_tool_registry,
-                        api_catalog=tier1_catalog,  # Fix 39: Pass ApiCatalog object, not .categories
-                    )
-                    tier1c_agent = Tier1CSynthesisAgent(
-                        tool_registry=tier1_tool_registry,
-                    )
 
                 # Two-phase Tier2 agents (used when tier2_split_enabled=true)
                 tier2_split_enabled = llm_conf.get("tier2_split_enabled", False)
@@ -814,8 +768,6 @@ class Orchestrator:
                 verified_count = 0
                 processed_count = 0
 
-                # tier1_catalog already loaded above (Fix 36)
-
                 # Generate methods_to_investigate.json early for UI progress display
                 # This runs before Tier 1 so the method count is visible immediately
                 max_seed_count = self.settings["analysis"].get("max_seed_count", 20)
@@ -824,29 +776,24 @@ class Orchestrator:
                     artifact_store=artifact_store,
                 )
 
-                # Method-centric Tier1 pipeline (new architecture)
-                method_tier1_enabled = llm_conf.get("method_tier1_enabled", False)
-                method_cache: Dict[str, MethodAnalysis] = {}
-
-                if method_tier1_enabled and jadx_root:
-                    event_logger.stage_start("method_tier1")
-                    with span("stage.method_tier1", stage="method_tier1"):
-                        method_cache = run_method_tier1_pipeline(
-                            bundles=bundles[: self.settings["analysis"].get("max_seed_count", 20)],
-                            jadx_root=jadx_root,
-                            llm_client=llm_client,
-                            artifact_store=artifact_store,
-                            event_logger=event_logger,
-                            model=llm_conf.get("model_tier1"),
-                            prompt_dir=self.prompt_dir,
-                        )
-                    event_logger.stage_end(
-                        "method_tier1",
-                        methods_analyzed=len(method_cache),
-                        methods_with_jadx=sum(1 for m in method_cache.values() if m.jadx_available),
+                # Method-centric Tier1 pipeline (the only Tier1 path)
+                event_logger.stage_start("method_tier1")
+                with span("stage.method_tier1", stage="method_tier1"):
+                    method_cache = run_method_tier1_pipeline(
+                        bundles=bundles[: self.settings["analysis"].get("max_seed_count", 20)],
+                        jadx_root=jadx_root,
+                        llm_client=llm_client,
+                        artifact_store=artifact_store,
+                        event_logger=event_logger,
+                        model=llm_conf.get("model_tier1"),
+                        prompt_dir=self.prompt_dir,
                     )
+                event_logger.stage_end(
+                    "method_tier1",
+                    methods_analyzed=len(method_cache),
+                    methods_with_jadx=sum(1 for m in method_cache.values() if m.jadx_available),
+                )
 
-                repair_count = 0
                 for seed_index, bundle in enumerate(bundles[: self.settings["analysis"].get("max_seed_count", 20)]):
                     seed_id = bundle["seed_id"]
                     case_info = case_lookup.get(seed_id, {})
@@ -862,83 +809,17 @@ class Orchestrator:
                     processed_count += 1
                     bundle_map[seed_id] = bundle
                     with span("llm.seed", stage="seed_processing", seed_id=seed_id, api_category=bundle.get("api_category")):
-                        # Check if method-centric Tier1 is enabled (static composition, no LLM here)
-                        if method_tier1_enabled and method_cache:
-                            # Static composition from pre-computed method analyses
-                            composed = compose_seed_analysis(bundle, method_cache)
-                            tier1 = tier1_from_composed(composed, bundle)
-                            artifact_store.write_json(f"llm/tier1/{seed_id}.json", tier1)
+                        # Static composition from pre-computed method analyses (method-centric pipeline)
+                        composed = compose_seed_analysis(bundle, method_cache)
+                        tier1 = tier1_from_composed(composed, bundle)
+                        artifact_store.write_json(f"llm/tier1/{seed_id}.json", tier1)
 
-                            # Save composed analysis for debugging
-                            artifact_store.write_json(f"llm/tier1/{seed_id}_composed.json", composed.to_dict())
+                        # Save composed analysis for debugging
+                        artifact_store.write_json(f"llm/tier1/{seed_id}_composed.json", composed.to_dict())
 
-                            # No verifier needed for static composition (methods already verified)
-                            verifier = {"status": "COMPOSED", "notes": "Static composition from method analyses"}
-                            artifact_store.write_json(f"llm/verifier/{seed_id}.json", verifier)
-
-                        # Check if three-phase Tier1 is enabled
-                        elif tier1_split_enabled and tier1a_agent and tier1b_agent and tier1c_agent:
-                            # Three-phase Tier1 flow (Fix 19: run for ALL seeds)
-                            tier1, verifier = _run_three_phase_tier1(
-                                seed_id=seed_id,
-                                bundle=bundle,
-                                tier1a_agent=tier1a_agent,
-                                tier1b_agent=tier1b_agent,
-                                tier1c_agent=tier1c_agent,
-                                tier1_tool_registry=tier1_tool_registry,
-                                verifier_agent=verifier_agent,
-                                tier1_repair_agent=tier1_repair_agent,
-                                tier1_catalog=tier1_catalog,
-                                jadx_root=jadx_root,
-                                seed_index=seed_index,
-                                artifact_store=artifact_store,
-                                event_logger=event_logger,
-                            )
-                        else:
-                            # Legacy single-phase Tier1 flow
-                            # Shape Tier1 payload for token efficiency
-                            tier1_payload = shape_tier1_payload(
-                                bundle,
-                                tier1_catalog,
-                                jadx_root=jadx_root,
-                                seed_index=seed_index,
-                            )
-                            # Pass 1: Normal Tier1 (no tools)
-                            with llm_context("tier1", seed_id=seed_id):
-                                tier1 = tier1_agent.run(tier1_payload)
-                            artifact_store.write_json(f"llm/tier1/{seed_id}.json", tier1)
-
-                            # Verify first pass
-                            verifier = verifier_agent.run(tier1, bundle)
-                            artifact_store.write_json(f"llm/verifier/{seed_id}.json", verifier)
-
-                            # Pass 2: Repair if failed or low confidence
-                            needs_repair = (
-                                verifier.get("status") != "VERIFIED" or
-                                tier1.get("confidence", 1.0) < 0.7
-                            )
-                            if needs_repair and tier1_repair_agent:
-                                repair_payload = {
-                                    **tier1_payload,  # Use shaped payload
-                                    "previous_attempt": tier1,
-                                    "verifier_feedback": verifier,
-                                }
-                                with llm_context("tier1_repair", seed_id=seed_id):
-                                    tier1 = tier1_repair_agent.run(repair_payload)
-                                artifact_store.write_json(f"llm/tier1/{seed_id}_repair.json", tier1)
-
-                                # Re-verify after repair
-                                verifier = verifier_agent.run(tier1, bundle)
-                                artifact_store.write_json(f"llm/verifier/{seed_id}_repair.json", verifier)
-
-                                repair_count += 1
-                                tool_history = tier1.get("_meta", {}).get("tool_history", [])
-                                event_logger.log(
-                                    "tier1.repair",
-                                    seed_id=seed_id,
-                                    tool_rounds=len(tool_history),
-                                    repair_verified=(verifier.get("status") == "VERIFIED"),
-                                )
+                        # No verifier needed for static composition (methods already verified)
+                        verifier = {"status": "COMPOSED", "notes": "Static composition from method analyses"}
+                        artifact_store.write_json(f"llm/verifier/{seed_id}.json", verifier)
 
                     for idx, fact in enumerate(tier1.get("facts", [])):
                         ev_id = f"ev-{bundle['seed_id']}-{idx}"
@@ -966,7 +847,6 @@ class Orchestrator:
                     "seed.summary",
                     processed_count=processed_count,
                     verified_count=verified_count,
-                    repair_count=repair_count,
                 )
 
                 flowdroid_summary = None
@@ -2439,190 +2319,6 @@ def _parse_target_sdk(manifest: Dict[str, Any]) -> Optional[int]:
 
 
 # =============================================================================
-# Tier1 Payload Shaping (Token Optimization)
-# =============================================================================
-
-# Noise patterns for string filtering (library/framework strings)
-_STRING_NOISE_PATTERNS = [
-    "androidx.", "kotlin", "jackson", "google.android.gms",
-    "fasterxml", "apache.org", "coroutines", "java.lang",
-    "org.xml", "javax.", "com.google.android.material",
-]
-
-# Dangerous permissions for fallback filtering
-_DANGEROUS_PERMISSIONS = [
-    "RECORD_AUDIO", "CAMERA", "READ_CONTACTS", "ACCESS_FINE_LOCATION",
-    "READ_EXTERNAL_STORAGE", "SEND_SMS", "READ_SMS", "INTERNET",
-    "SYSTEM_ALERT_WINDOW", "BIND_ACCESSIBILITY_SERVICE",
-]
-
-
-def _is_network_indicator(s: str) -> bool:
-    """Check if string is a potential network indicator (IP or URL)."""
-    # IP address pattern
-    if re.match(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', s):
-        return True
-    # URL pattern
-    if s.startswith("http://") or s.startswith("https://"):
-        return True
-    return False
-
-
-def _suspicion_score(s: str) -> int:
-    """Score a string for suspiciousness (higher = more suspicious)."""
-    score = 0
-    s_lower = s.lower()
-    # Network indicators are highly suspicious
-    if _is_network_indicator(s):
-        score += 100
-    # Suspicious keywords
-    suspicious_keywords = [
-        "c2", "command", "shell", "root", "payload", "update",
-        "socket", "telegram", "backdoor", "exfil", "inject",
-        "decrypt", "encrypt", "base64", "exec", "runtime",
-    ]
-    for keyword in suspicious_keywords:
-        if keyword in s_lower:
-            score += 10
-    # Paths are moderately suspicious
-    if "/" in s and len(s) > 5:
-        score += 5
-    return score
-
-
-def _filter_permissions(bundle: Dict[str, Any], catalog: Optional["ApiCatalog"]) -> List[str]:
-    """
-    Filter permissions to only those relevant to the API category.
-    Uses suffix matching to handle full vs short permission names.
-    """
-    api_category = bundle.get("api_category", "")
-    static_context = bundle.get("static_context", {})
-    full_perms = static_context.get("permissions", [])
-
-    # Get permission hints from catalog for this category
-    relevant = set()
-    if catalog:
-        if api_category and api_category != "MULTIPLE":
-            category = catalog.categories.get(api_category)
-            if category:
-                relevant.update(category.permission_hints or [])
-
-        # Handle merged categories from case_context (not callsite_descriptor!)
-        case_ctx = bundle.get("case_context", {}) or {}
-        merged_categories = case_ctx.get("merged_categories", [])
-        if not merged_categories:
-            merged_categories = bundle.get("api_categories", [])
-
-        for cat in merged_categories:
-            category = catalog.categories.get(cat)
-            if category:
-                relevant.update(category.permission_hints or [])
-
-    # Always include common malware permissions
-    relevant.update(["INTERNET", "FOREGROUND_SERVICE"])
-
-    def matches_hint(perm: str, hint: str) -> bool:
-        """Use suffix match to handle full vs short permission names."""
-        return perm.endswith(hint) or perm == hint
-
-    # Filter to matching permissions (exact or suffix match)
-    filtered = [p for p in full_perms if any(matches_hint(p, h) for h in relevant)]
-
-    # FALLBACK: If no matches, use dangerous permissions subset
-    if not filtered:
-        filtered = [
-            p for p in full_perms
-            if any(matches_hint(p, d) for d in _DANGEROUS_PERMISSIONS)
-        ][:10]
-
-    return filtered[:10]
-
-
-def _filter_strings(bundle: Dict[str, Any]) -> List[str]:
-    """
-    Filter strings to remove library noise and prioritize suspicious strings.
-    Preserves IPs and URLs even if they match noise patterns.
-    """
-    static_context = bundle.get("static_context", {})
-    raw = static_context.get("strings_nearby", [])
-
-    def should_keep(s: str) -> bool:
-        # Always keep network indicators (potential C2)
-        if _is_network_indicator(s):
-            return True
-        # Filter library noise (case-insensitive)
-        s_lower = s.lower()
-        return not any(n.lower() in s_lower for n in _STRING_NOISE_PATTERNS)
-
-    filtered = [s for s in raw if should_keep(s)]
-
-    # Score and sort by suspiciousness
-    scored = [(s, _suspicion_score(s)) for s in filtered]
-    scored.sort(key=lambda x: -x[1])
-
-    return [s for s, _ in scored[:50]]
-
-
-def _should_include_source(bundle: Dict[str, Any], seed_index: int, max_with_source: int = 10) -> bool:
-    """Determine if this seed should get JADX source."""
-    # Gate 1: Priority from case_context (if present)
-    case_ctx = bundle.get("case_context") or {}
-    priority = case_ctx.get("priority")
-    if priority is not None and priority <= 2:
-        return True
-
-    # Gate 2: Fallback - include source for top N seeds by index
-    if seed_index < max_with_source:
-        return True
-
-    return False
-
-
-def shape_tier1_payload(
-    bundle: Dict[str, Any],
-    catalog: "ApiCatalog",
-    jadx_root: Optional[Path] = None,
-    seed_index: int = 0,
-) -> Dict[str, Any]:
-    """
-    Create optimized Tier1 LLM payload from full bundle.
-
-    Excludes:
-    - fcg_neighborhood (Tier2 needs it, Tier1 doesn't)
-    - callsite_descriptor (raw recon data - case_context is sufficient)
-    - Full static_context (replaced with filtered versions)
-
-    Adds:
-    - permissions_relevant (filtered permissions)
-    - strings_filtered (filtered strings)
-    - caller_method_source (JADX source for high-priority seeds)
-    """
-    payload = {
-        "seed_id": bundle.get("seed_id"),
-        "api_category": bundle.get("api_category"),
-        "api_signatures": bundle.get("api_signatures", []),
-        "caller_method": bundle.get("caller_method"),
-        "sliced_cfg": bundle.get("sliced_cfg"),
-        "branch_conditions": bundle.get("branch_conditions"),
-        "control_flow_path": bundle.get("control_flow_path"),
-        "case_context": bundle.get("case_context"),
-        # Shaped fields
-        "permissions_relevant": _filter_permissions(bundle, catalog),
-        "strings_filtered": _filter_strings(bundle),
-    }
-
-    # Optionally add JADX source for high-priority seeds
-    if jadx_root and jadx_root.exists() and _should_include_source(bundle, seed_index):
-        caller = bundle.get("caller_method")
-        if caller:
-            source = extract_method_source(jadx_root, caller, max_lines=80, max_chars=2500)
-            if source:
-                payload["caller_method_source"] = source
-
-    return payload
-
-
-# =============================================================================
 # Method-Centric Tier1 Pipeline
 # =============================================================================
 
@@ -3390,392 +3086,3 @@ class _noop_context:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         return None
-
-
-# =============================================================================
-# Three-Phase Tier1 Processing (Fix 19, 27, 29, 30)
-# =============================================================================
-
-
-def _run_three_phase_tier1(
-    seed_id: str,
-    bundle: Dict[str, Any],
-    tier1a_agent: Tier1AExtractionAgent,
-    tier1b_agent: Tier1BInterpretationAgent,
-    tier1c_agent: Tier1CSynthesisAgent,
-    tier1_tool_registry: Tier1ToolRegistry,
-    verifier_agent: VerifierAgent,
-    tier1_repair_agent: Optional[Tier1SummarizerAgent],
-    tier1_catalog: ApiCatalog,
-    jadx_root: Optional[Path],
-    seed_index: int,
-    artifact_store: ArtifactStore,
-    event_logger: EventLogger,
-) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    """
-    Run three-phase Tier1 analysis.
-
-    Phase 1A: Structural extraction (deterministic + validation)
-    Phase 1B: Semantic interpretation (behavioral claims)
-    Phase 1C: Evidence synthesis (combine 1A + 1B)
-
-    Fix 19: Run for ALL seeds with sensitive API callsites.
-    Fix 27: Track unclaimed_apis for repair flow.
-    Fix 29: Use ArtifactStore paths only (no AnalysisContext paths).
-    Fix 30: Cache keys use run_id.
-
-    Args:
-        seed_id: The seed ID to process.
-        bundle: The context bundle for this seed.
-        tier1a_agent: Phase 1A agent.
-        tier1b_agent: Phase 1B agent.
-        tier1c_agent: Phase 1C agent.
-        tier1_tool_registry: Tool registry for data access.
-        verifier_agent: Verifier agent for consistency checking.
-        artifact_store: Artifact store for saving outputs.
-        event_logger: Event logger for telemetry.
-
-    Returns:
-        Tuple of (tier1_output, verifier_result).
-    """
-    from apk_analyzer.models.tier1_phases import (
-        ExtractedStructure,
-        ExtractionCoverage,
-        InterpretedBehavior,
-        PhaseStatus,
-    )
-
-    caller_method = bundle.get("caller_method", "")
-
-    # Phase 1A: Structural Extraction
-    # Fix 37: Don't pass sliced_cfg - agent reads CFG via tool_registry
-    event_logger.log("tier1.phase_start", seed_id=seed_id, phase="1A")
-    phase1a_error = None
-    try:
-        with llm_context("tier1a", seed_id=seed_id):
-            extracted = tier1a_agent.run(
-                seed_id=seed_id,
-                caller_method=caller_method,
-                # pre_extracted=None - agent will call _run_deterministic_extraction
-            )
-    except Exception as exc:
-        phase1a_error = str(exc)
-        event_logger.log(
-            "tier1.phase_error",
-            seed_id=seed_id,
-            phase="1A",
-            error=phase1a_error,
-        )
-        extracted = ExtractedStructure(
-            seed_id=seed_id,
-            api_calls=[],
-            control_guards=[],
-            component_hints=None,
-            semantic_annotations=[],
-            permissions=[],
-            ambiguous_units=[],
-            flagged_for_review=[f"Phase 1A failed: {phase1a_error}"],
-            extraction_coverage=ExtractionCoverage.MINIMAL,
-            extraction_confidence=0.0,
-            phase_status=PhaseStatus.FAILED,
-            status_reason="phase1a_exception",
-        )
-
-    # Save Phase 1A output
-    phase1a_output = {
-        "seed_id": seed_id,
-        "api_calls": [
-            {
-                "unit_id": ac.unit_id,
-                "signature": ac.signature,
-                "class_name": ac.class_name,
-                "method_name": ac.method_name,
-                "sensitivity_source": ac.sensitivity_source,
-                "sensitivity_confidence": ac.sensitivity_confidence,
-            }
-            for ac in extracted.api_calls
-        ],
-        "control_guards": [
-            {"unit_id": cg.unit_id, "condition": cg.condition, "guard_type": cg.guard_type}
-            for cg in extracted.control_guards
-        ],
-        "permissions": [
-            {"permission": p.permission, "scope": p.scope, "evidence_unit_ids": p.evidence_unit_ids, "confidence": p.confidence}
-            for p in extracted.permissions
-        ],
-        "ambiguous_units": extracted.ambiguous_units,
-        "flagged_for_review": extracted.flagged_for_review,
-        "extraction_coverage": extracted.extraction_coverage.value,
-        "extraction_confidence": extracted.extraction_confidence,
-        "phase_status": extracted.phase_status.value,
-        "status_reason": extracted.status_reason,
-    }
-    artifact_store.write_json(f"llm/tier1a/{seed_id}.json", phase1a_output)
-
-    event_logger.log(
-        "tier1.phase_end",
-        seed_id=seed_id,
-        phase="1A",
-        api_call_count=len(extracted.api_calls),
-        ambiguous_count=len(extracted.ambiguous_units),
-        coverage=extracted.extraction_coverage.value,
-        status="failed" if phase1a_error else "ok",
-        error=phase1a_error,
-    )
-
-    # Phase 1B: Semantic Interpretation (if any interpretation is needed)
-    interpreted: InterpretedBehavior
-    phase1b_error = None
-    if extracted.phase_status == PhaseStatus.FAILED:
-        interpreted = InterpretedBehavior(
-            seed_id=seed_id,
-            claims=[],
-            source_lookups=[],
-            unresolved=extracted.ambiguous_units,
-            unclaimed_apis=[c.unit_id for c in extracted.api_calls],
-            phase_status=PhaseStatus.FAILED,
-            status_reason="phase1a_failed",
-        )
-        event_logger.log(
-            "tier1.phase_skip",
-            seed_id=seed_id,
-            phase="1B",
-            reason="phase1a_failed",
-        )
-    elif extracted.needs_interpretation():
-        event_logger.log("tier1.phase_start", seed_id=seed_id, phase="1B")
-        try:
-            with llm_context("tier1b", seed_id=seed_id):
-                interpreted = tier1b_agent.run(
-                    seed_id=seed_id,
-                    extracted=extracted,
-                )
-        except Exception as exc:
-            phase1b_error = str(exc)
-            event_logger.log(
-                "tier1.phase_error",
-                seed_id=seed_id,
-                phase="1B",
-                error=phase1b_error,
-            )
-            interpreted = InterpretedBehavior(
-                seed_id=seed_id,
-                claims=[],
-                source_lookups=[],
-                unresolved=extracted.ambiguous_units,
-                unclaimed_apis=[c.unit_id for c in extracted.api_calls],
-                phase_status=PhaseStatus.FAILED,
-                status_reason="phase1b_exception",
-            )
-
-        # Save Phase 1B output
-        phase1b_output = {
-            "seed_id": seed_id,
-            "claims": [
-                {
-                    "claim_id": c.claim_id,
-                    "unit_id": c.unit_id,
-                    "claim_type": c.claim_type,
-                    "tier1_field": c.tier1_field,
-                    "interpretation": c.interpretation,
-                    "source_unit_ids": c.source_unit_ids,
-                    "resolved_by": c.resolved_by,
-                    "confidence": c.confidence,
-                    "needs_investigation": c.needs_investigation,
-                }
-                for c in interpreted.claims
-            ],
-            "source_lookups": [
-                {
-                    "unit_id": sl.unit_id,
-                    "tool_used": sl.tool_used,
-                    "tool_args": sl.tool_args,
-                    "success": sl.success,
-                    "failure_reason": sl.failure_reason,
-                }
-                for sl in interpreted.source_lookups
-            ],
-            "unresolved": interpreted.unresolved,
-            "unclaimed_apis": interpreted.unclaimed_apis,
-            "phase_status": interpreted.phase_status.value,
-            "status_reason": interpreted.status_reason,
-        }
-        artifact_store.write_json(f"llm/tier1b/{seed_id}.json", phase1b_output)
-
-        event_logger.log(
-            "tier1.phase_end",
-            seed_id=seed_id,
-            phase="1B",
-            claim_count=len(interpreted.claims),
-            unclaimed_count=len(interpreted.unclaimed_apis),
-            status=interpreted.phase_status.value,
-            error=phase1b_error,
-        )
-
-        # Check for unclaimed APIs and potentially repair (Fix 27)
-        if interpreted.unclaimed_apis:
-            event_logger.log(
-                "tier1.unclaimed_apis",
-                seed_id=seed_id,
-                unclaimed_count=len(interpreted.unclaimed_apis),
-                unclaimed_ids=interpreted.unclaimed_apis[:5],  # Log first 5
-            )
-    else:
-        # No API calls - create empty interpretation
-        interpreted = InterpretedBehavior(
-            seed_id=seed_id,
-            claims=[],
-            source_lookups=[],
-            unresolved=[],
-            unclaimed_apis=[],
-            phase_status=PhaseStatus.OK,
-        )
-        event_logger.log(
-            "tier1.phase_skip",
-            seed_id=seed_id,
-            phase="1B",
-            reason="no_api_calls",
-        )
-
-    # Phase 1C: Evidence Synthesis
-    event_logger.log("tier1.phase_start", seed_id=seed_id, phase="1C")
-    phase1c_error = None
-    try:
-        with llm_context("tier1c", seed_id=seed_id):
-            tier1_output = tier1c_agent.run(
-                seed_id=seed_id,
-                extracted=extracted,
-                interpreted=interpreted,
-            )
-    except Exception as exc:
-        phase1c_error = str(exc)
-        event_logger.log(
-            "tier1.phase_error",
-            seed_id=seed_id,
-            phase="1C",
-            error=phase1c_error,
-        )
-        tier1_output = {
-            "seed_id": seed_id,
-            "function_summary": f"Phase 1C failed: {phase1c_error}",
-            "trigger_surface": {},
-            "required_inputs": [],
-            "path_constraints": [],
-            "observable_effects": [],
-            "facts": [],
-            "uncertainties": [f"Phase 1C failed: {phase1c_error}"],
-            "confidence": 0.0,
-            "phase_status": PhaseStatus.FAILED.value,
-            "extraction_coverage": extracted.extraction_coverage.value,
-        }
-
-    schema_valid = True
-    try:
-        validate_json(tier1_output, "config/schemas/Tier1Summary.schema.json")
-    except Exception as exc:
-        schema_valid = False
-        event_logger.log(
-            "tier1.schema_invalid",
-            seed_id=seed_id,
-            error=str(exc),
-        )
-
-    artifact_store.write_json(f"llm/tier1/{seed_id}.json", tier1_output)
-
-    event_logger.log(
-        "tier1.phase_end",
-        seed_id=seed_id,
-        phase="1C",
-        effect_count=len(tier1_output.get("observable_effects", [])),
-        fact_count=len(tier1_output.get("facts", [])),
-        confidence=tier1_output.get("confidence", 0.0),
-        status="failed" if phase1c_error else "ok",
-        error=phase1c_error,
-    )
-
-    # Verify using SliceProvider interface (Fix 10)
-    if bundle.get("sliced_cfg"):
-        verifier_result = verifier_agent.run(tier1_output, bundle)
-    else:
-        verifier_result = verifier_agent.run_by_seed_id(
-            tier1_output=tier1_output,
-            seed_id=seed_id,
-            tool_registry=tier1_tool_registry,
-        )
-    phase_status_value = tier1_output.get("phase_status")
-    if phase_status_value and phase_status_value != PhaseStatus.OK.value:
-        verifier_result["status"] = "FAILED"
-        verifier_result.setdefault("repair_hint", "Tier1 phase status not OK.")
-    if not schema_valid:
-        verifier_result["status"] = "FAILED"
-        verifier_result.setdefault("repair_hint", "Tier1 output failed schema validation.")
-    artifact_store.write_json(f"llm/verifier/{seed_id}.json", verifier_result)
-
-    event_logger.log(
-        "tier1.verified",
-        seed_id=seed_id,
-        status=verifier_result.get("status"),
-        missing_units=len(verifier_result.get("missing_unit_ids", [])),
-    )
-
-    repair_reasons = []
-    if interpreted.unclaimed_apis:
-        repair_reasons.append("unclaimed_apis")
-    if interpreted.phase_status != PhaseStatus.OK:
-        repair_reasons.append(f"phase1b_{interpreted.phase_status.value}")
-    if extracted.phase_status != PhaseStatus.OK:
-        repair_reasons.append(f"phase1a_{extracted.phase_status.value}")
-    if verifier_result.get("status") != "VERIFIED":
-        repair_reasons.append("verifier_failed")
-    if tier1_output.get("confidence", 1.0) < 0.7:
-        repair_reasons.append("low_confidence")
-    if not schema_valid:
-        repair_reasons.append("schema_invalid")
-
-    if repair_reasons and tier1_repair_agent:
-        repair_payload = shape_tier1_payload(
-            bundle,
-            tier1_catalog,
-            jadx_root=jadx_root,
-            seed_index=seed_index,
-        )
-        repair_payload["previous_attempt"] = tier1_output
-        repair_payload["verifier_feedback"] = {
-            **(verifier_result or {}),
-            "phase_status": tier1_output.get("phase_status"),
-            "schema_valid": schema_valid,
-            "unclaimed_apis": interpreted.unclaimed_apis,
-            "extraction_status": extracted.phase_status.value,
-        }
-        try:
-            with llm_context("tier1_repair", seed_id=seed_id):
-                repaired = tier1_repair_agent.run(repair_payload)
-            repaired.setdefault("seed_id", seed_id)
-            artifact_store.write_json(f"llm/tier1/{seed_id}_repair.json", repaired)
-            if bundle.get("sliced_cfg"):
-                verifier_result = verifier_agent.run(repaired, bundle)
-            else:
-                verifier_result = verifier_agent.run_by_seed_id(
-                    tier1_output=repaired,
-                    seed_id=seed_id,
-                    tool_registry=tier1_tool_registry,
-                )
-            artifact_store.write_json(f"llm/verifier/{seed_id}_repair.json", verifier_result)
-            tier1_output = repaired
-
-            tool_history = repaired.get("_meta", {}).get("tool_history", []) if isinstance(repaired, dict) else []
-            event_logger.log(
-                "tier1.repair",
-                seed_id=seed_id,
-                repair_reasons=repair_reasons,
-                tool_rounds=len(tool_history),
-                repair_verified=(verifier_result.get("status") == "VERIFIED"),
-            )
-        except Exception as exc:
-            event_logger.log(
-                "tier1.repair_error",
-                seed_id=seed_id,
-                error=str(exc),
-            )
-
-    return tier1_output, verifier_result

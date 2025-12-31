@@ -1,8 +1,4 @@
-"""Verifier Agent for Tier1 output validation.
-
-Fix 10: SliceProvider interface for flexible slice access.
-Supports both legacy context_bundle and new tool registry flows.
-"""
+"""Verifier Agent for Tier1 output validation."""
 from __future__ import annotations
 
 import json
@@ -13,17 +9,11 @@ from apk_analyzer.agents.base import LLMClient
 from apk_analyzer.analyzers.consistency_checker import consistency_check
 
 if TYPE_CHECKING:
-    from apk_analyzer.agents.tier1_tool_registry import Tier1ToolRegistry
     from apk_analyzer.utils.slice_provider import SliceProvider
 
 
 class VerifierAgent:
-    """Verifier agent for Tier1 output consistency checking.
-
-    Supports two flows:
-    - Legacy: run(tier1_summary, context_bundle) - uses BundleSliceProvider
-    - New: run_by_seed_id(tier1_output, seed_id, tool_registry) - uses ToolRegistrySliceProvider
-    """
+    """Verifier agent for Tier1 output consistency checking."""
 
     def __init__(self, prompt_path: str | Path, llm_client: Optional[LLMClient] = None) -> None:
         self.prompt_path = Path(prompt_path)
@@ -31,7 +21,7 @@ class VerifierAgent:
         self.prompt = self.prompt_path.read_text(encoding="utf-8") if self.prompt_path.exists() else ""
 
     def run(self, tier1_summary: Dict[str, Any], context_bundle: Dict[str, Any]) -> Dict[str, Any]:
-        """Legacy entry point using context bundle.
+        """Verify Tier1 output using context bundle.
 
         Args:
             tier1_summary: Tier1 output to verify.
@@ -59,33 +49,12 @@ class VerifierAgent:
             "mitre_candidates": [],
         }
 
-    def run_by_seed_id(
-        self,
-        tier1_output: Dict[str, Any],
-        seed_id: str,
-        tool_registry: "Tier1ToolRegistry",
-    ) -> Dict[str, Any]:
-        """New entry point using tool registry (Fix 10).
-
-        Args:
-            tier1_output: Tier1 phase output to verify.
-            seed_id: The seed ID for slice access.
-            tool_registry: Tool registry for data access.
-
-        Returns:
-            Verification result dict.
-        """
-        from apk_analyzer.utils.slice_provider import ToolRegistrySliceProvider
-
-        provider = ToolRegistrySliceProvider(seed_id, tool_registry)
-        return self.consistency_check_with_provider(tier1_output, provider)
-
     def consistency_check_with_provider(
         self,
         tier1_output: Dict[str, Any],
         provider: "SliceProvider",
     ) -> Dict[str, Any]:
-        """Consistency check using SliceProvider interface (Fix 10).
+        """Consistency check using SliceProvider interface.
 
         Args:
             tier1_output: Tier1 output to verify.
