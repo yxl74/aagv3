@@ -60,6 +60,7 @@ from apk_analyzer.phase0.sensitive_api_matcher import (
     load_callgraph,
 )
 from apk_analyzer.phase0.cooccurrence_scorer import compute_threat_score, COOCCURRENCE_PATTERNS
+from apk_analyzer.phase0.pattern_summary import build_cooccurrence_pattern_summary
 from apk_analyzer.telemetry import llm_context, set_run_context, span
 from apk_analyzer.telemetry.llm_instrumentation import InstrumentedLLMClient
 from apk_analyzer.tools.flowdroid_tools import run_targeted_taint_analysis
@@ -463,6 +464,15 @@ class Orchestrator:
                                 "group_count": len(library_groups),
                                 "groups": library_groups,
                             })
+
+                # Co-occurrence pattern summary across multiple scopes (group/block/app/package).
+                # This helps debug "low pattern count" situations where an attack chain is
+                # split across multiple classes (e.g., Accessibility in one class, C2 in another).
+                pattern_summary = build_cooccurrence_pattern_summary(
+                    hit_groups_payload.get("groups", []) if isinstance(hit_groups_payload, dict) else [],
+                    code_blocks,
+                )
+                artifact_store.write_json("seeds/cooccurrence_patterns.json", pattern_summary)
 
                 recon_result = {
                     "mode": "final",
@@ -1097,6 +1107,10 @@ class Orchestrator:
                         seed_summaries[sid]["tier2_case_id"] = case_id
 
                 seed_summary_list = list(seed_summaries.values())
+
+                # Generate tier2_summary.json for frontend Attack Chains display
+                generate_tier2_summary_json(seed_summary_list, artifact_store)
+
                 mitre_rules = load_rules("config/mitre/mapping_rules.json")
                 technique_index = load_technique_index("config/mitre/technique_index.json")
                 mitre_candidates = map_evidence(
@@ -2705,7 +2719,144 @@ def run_method_tier1_pipeline(
         safe_name = hashlib.sha256(method_sig.encode()).hexdigest()[:16]
         artifact_store.write_json(f"method_cache/{safe_name}.json", analysis.to_dict())
 
+    # Generate methods_to_investigate.json for frontend display
+    generate_methods_to_investigate_json(
+        method_cache=method_cache,
+        bundles=bundles,
+        artifact_store=artifact_store,
+    )
+
     return method_cache
+
+
+def generate_methods_to_investigate_json(
+    method_cache: Dict[str, MethodAnalysis],
+    bundles: List[Dict[str, Any]],
+    artifact_store: "ArtifactStore",
+) -> None:
+    """
+    Generate methods_to_investigate.json for frontend display.
+
+    This file provides aggregated method information including:
+    - Which methods are analyzed
+    - Usage count (how many execution paths use each method)
+    - Analysis status and summaries
+
+    Args:
+        method_cache: Dict of method_sig -> MethodAnalysis
+        bundles: List of seed bundles with control_flow_path
+        artifact_store: For storing output
+    """
+    # Count method usage across all execution paths
+    method_usage: Dict[str, List[str]] = {}  # method_sig -> list of path_ids
+
+    for bundle in bundles:
+        path_id = bundle.get("seed_id", "unknown")
+        control_flow_path = bundle.get("control_flow_path", {})
+        path_methods = control_flow_path.get("path_methods", [])
+
+        for method_sig in path_methods:
+            # Skip framework APIs
+            if any(method_sig.startswith(p) for p in ("<android.", "<java.", "<javax.", "<dalvik.")):
+                continue
+            if method_sig not in method_usage:
+                method_usage[method_sig] = []
+            method_usage[method_sig].append(path_id)
+
+    # Build methods list
+    methods_list = []
+    for method_sig, path_ids in method_usage.items():
+        analysis = method_cache.get(method_sig)
+        if analysis:
+            methods_list.append({
+                "method_sig": method_sig,
+                "jadx_available": analysis.jadx_available,
+                "usage_count": len(path_ids),
+                "path_ids": path_ids,
+                "analysis_status": "complete" if analysis.jadx_available else "no_jadx",
+                "function_summary": analysis.function_summary if analysis.jadx_available else None,
+                "confidence": analysis.confidence,
+            })
+        else:
+            methods_list.append({
+                "method_sig": method_sig,
+                "jadx_available": False,
+                "usage_count": len(path_ids),
+                "path_ids": path_ids,
+                "analysis_status": "pending",
+                "function_summary": None,
+                "confidence": 0.0,
+            })
+
+    # Sort by usage count (most used first)
+    methods_list.sort(key=lambda x: x["usage_count"], reverse=True)
+
+    # Calculate summary stats
+    analyzed_count = sum(1 for m in methods_list if m["analysis_status"] == "complete")
+    with_jadx = sum(1 for m in methods_list if m["jadx_available"])
+
+    output = {
+        "total_unique": len(methods_list),
+        "analyzed_count": analyzed_count,
+        "with_jadx": with_jadx,
+        "methods": methods_list,
+    }
+
+    artifact_store.write_json("llm/methods_to_investigate.json", output)
+
+
+def generate_tier2_summary_json(
+    seed_summary_list: List[Dict[str, Any]],
+    artifact_store: "ArtifactStore",
+) -> None:
+    """
+    Generate tier2_summary.json for frontend Attack Chains display.
+
+    Aggregates tier2 results into a summary file with:
+    - Chain count
+    - Summary per chain with severity and description
+
+    Args:
+        seed_summary_list: List of seed summaries with tier2 results
+        artifact_store: For storing output
+    """
+    chains = []
+
+    for summary in seed_summary_list:
+        tier2 = summary.get("tier2")
+        if not tier2:
+            continue
+
+        seed_id = summary.get("seed_id", "unknown")
+        case_id = summary.get("tier2_case_id") or summary.get("case_id")
+
+        # Extract key information from tier2
+        attack_summary = tier2.get("function_summary") or tier2.get("attack_summary") or ""
+        threat_level = tier2.get("threat_level") or tier2.get("severity") or "MEDIUM"
+
+        # Get observable effects if available
+        observable_effects = tier2.get("observable_effects", [])
+        if observable_effects and isinstance(observable_effects, list):
+            effects_summary = "; ".join(observable_effects[:3])
+        else:
+            effects_summary = ""
+
+        chains.append({
+            "seed_id": seed_id,
+            "case_id": case_id,
+            "attack_summary": attack_summary,
+            "severity": threat_level,
+            "observable_effects": effects_summary,
+            "has_driver_plan": bool(tier2.get("driver_plan")),
+            "has_execution_guidance": bool(tier2.get("execution_guidance_by_seed")),
+        })
+
+    output = {
+        "chain_count": len(chains),
+        "chains": chains,
+    }
+
+    artifact_store.write_json("llm/tier2_summary.json", output)
 
 
 def tier1_from_composed(

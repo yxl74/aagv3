@@ -2439,10 +2439,45 @@
     }
 
     /* ============================================================
-       Hierarchy Viewer - API Hits → Groups → Blocks → Cases
+       Hierarchy Viewer - Two Panel Layout
        ============================================================ */
     .hierarchy-section {
       margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .hierarchy-panel {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      border: 1px solid var(--gray-200);
+      padding: 16px;
+    }
+
+    .hierarchy-panel-compact {
+      padding: 12px 16px;
+    }
+
+    .hierarchy-panel-header {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--gray-100);
+    }
+
+    .hierarchy-panel-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--gray-900);
+    }
+
+    .hierarchy-panel-subtitle {
+      font-size: 12px;
+      color: var(--gray-400);
     }
 
     .hierarchy-summary-row {
@@ -2450,6 +2485,15 @@
       align-items: stretch;
       gap: 8px;
       margin-bottom: 0;
+    }
+
+    .hierarchy-summary-single {
+      justify-content: flex-start;
+    }
+
+    .hierarchy-summary-single .hierarchy-card {
+      flex: 0 0 auto;
+      min-width: 140px;
     }
 
     .hierarchy-card {
@@ -2496,11 +2540,18 @@
       height: 18px;
     }
 
-    .hierarchy-card-icon.blocks { background: var(--blue-light, #dbeafe); color: var(--blue); }
-    .hierarchy-card-icon.groups { background: var(--purple-light, #ede9fe); color: var(--purple, #8b5cf6); }
+    /* Static Analysis panel icons */
     .hierarchy-card-icon.hits { background: var(--orange-light); color: var(--orange); }
+    .hierarchy-card-icon.groups { background: var(--purple-light, #ede9fe); color: var(--purple, #8b5cf6); }
+    .hierarchy-card-icon.blocks { background: var(--blue-light, #dbeafe); color: var(--blue); }
+
+    /* Analysis Pipeline panel icons */
+    .hierarchy-card-icon.paths { background: var(--teal-light, #ccfbf1); color: var(--teal, #14b8a6); }
+    .hierarchy-card-icon.methods { background: #fef3c7; color: #d97706; }
+    .hierarchy-card-icon.chains { background: #fce7f3; color: #db2777; }
+
+    /* Cases section */
     .hierarchy-card-icon.cases { background: var(--green-light); color: var(--green); }
-    .hierarchy-card-icon.seeds { background: var(--teal-light, #ccfbf1); color: var(--teal, #14b8a6); }
 
     .hierarchy-card-label {
       font-size: 12px;
@@ -3049,6 +3100,173 @@
       font-style: normal;
       color: var(--gray-700);
     }
+
+    /* ============================================================
+       Methods to Investigate Display
+       ============================================================ */
+    .methods-summary {
+      padding: 12px 16px;
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .methods-stats {
+      display: flex;
+      gap: 16px;
+      font-size: 13px;
+      color: var(--gray-600);
+    }
+    .methods-stats .stat.derived {
+      color: var(--orange);
+      font-style: italic;
+    }
+    .methods-list {
+      padding: 8px 0;
+    }
+    .method-row {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .method-row:last-child {
+      border-bottom: none;
+    }
+    .method-row.analyzed {
+      background: linear-gradient(to right, rgba(34, 197, 94, 0.05), transparent);
+    }
+    .method-row.pending {
+      opacity: 0.7;
+    }
+    .method-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .method-status {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .method-status.complete {
+      background: var(--green-light);
+      color: var(--green);
+    }
+    .method-status.pending {
+      background: var(--gray-100);
+      color: var(--gray-400);
+    }
+    .method-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .method-name {
+      font-family: var(--font-mono, 'SF Mono', monospace);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--gray-800);
+    }
+    .method-class {
+      font-family: var(--font-mono, 'SF Mono', monospace);
+      font-size: 11px;
+      color: var(--gray-500);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .method-meta {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .usage-badge {
+      background: var(--blue-light, #dbeafe);
+      color: var(--blue);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .no-jadx-badge {
+      background: var(--orange-light);
+      color: var(--orange);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+    }
+    .method-summary {
+      font-size: 12px;
+      color: var(--gray-600);
+      margin-top: 8px;
+      margin-left: 32px;
+      font-style: italic;
+    }
+
+    /* ============================================================
+       Attack Chains Display (Tier2 Results)
+       ============================================================ */
+    .chains-summary {
+      padding: 12px 16px;
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+      font-size: 13px;
+      color: var(--gray-600);
+    }
+    .chains-list {
+      padding: 16px;
+    }
+    .chain-card {
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .chain-card:last-child {
+      margin-bottom: 0;
+    }
+    .chain-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .chain-id {
+      font-family: var(--font-mono, 'SF Mono', monospace);
+      font-size: 12px;
+      color: var(--gray-600);
+    }
+    .severity-badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .severity-badge.critical {
+      background: var(--red-light);
+      color: var(--red);
+    }
+    .severity-badge.high {
+      background: var(--orange-light);
+      color: var(--orange);
+    }
+    .severity-badge.medium {
+      background: #fef3c7;
+      color: #d97706;
+    }
+    .severity-badge.low {
+      background: var(--green-light);
+      color: var(--green);
+    }
+    .chain-summary {
+      font-size: 13px;
+      color: var(--gray-700);
+      line-height: 1.5;
+    }
   </style>
   <!-- Cytoscape.js for interactive graph visualization -->
   <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
@@ -3215,89 +3433,137 @@
     </div>
     {% endif %}
 
-    <!-- Hierarchy Viewer - API Hits → Groups → Blocks → Cases -->
+    <!-- Hierarchy Viewer - Two Panel Layout -->
     <div class="hierarchy-section" id="hierarchySection">
-      <!-- Summary Row: clickable cards showing aggregation flow -->
-      <div class="hierarchy-summary-row">
-        <!-- Hits Card -->
-        <div class="hierarchy-card" data-level="hits" onclick="showHierarchyLevel('hits')">
-          <div class="hierarchy-card-header">
-            <div class="hierarchy-card-icon hits">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-            </div>
-            <div class="hierarchy-card-label">API Hits</div>
-          </div>
-          <div class="hierarchy-card-value" id="hitCount">{{ sensitive_api.total_hits if sensitive_api else "—" }}</div>
-          <div class="hierarchy-card-sub">individual API calls</div>
+
+      <!-- Panel 1: Static Analysis Results -->
+      <div class="hierarchy-panel">
+        <div class="hierarchy-panel-header">
+          <span class="hierarchy-panel-title">Static Analysis</span>
+          <span class="hierarchy-panel-subtitle">What we found</span>
         </div>
-
-        <div class="hierarchy-arrow">→</div>
-
-        <!-- Groups Card -->
-        <div class="hierarchy-card" data-level="groups" onclick="showHierarchyLevel('groups')">
-          <div class="hierarchy-card-header">
-            <div class="hierarchy-card-icon groups">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+        <div class="hierarchy-summary-row">
+          <!-- Sensitive API Calls Card -->
+          <div class="hierarchy-card" data-level="hits" onclick="showHierarchyLevel('hits')">
+            <div class="hierarchy-card-header">
+              <div class="hierarchy-card-icon hits">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+              </div>
+              <div class="hierarchy-card-label">Sensitive API Calls</div>
             </div>
-            <div class="hierarchy-card-label">Groups</div>
+            <div class="hierarchy-card-value" id="hitCount">{{ sensitive_api.total_hits if sensitive_api else "—" }}</div>
+            <div class="hierarchy-card-sub">individual detections</div>
           </div>
-          <div class="hierarchy-card-value" id="groupCount">—</div>
-          <div class="hierarchy-card-sub">by caller method</div>
-        </div>
 
-        <div class="hierarchy-arrow">→</div>
+          <div class="hierarchy-arrow">→</div>
 
-        <!-- Blocks Card -->
-        <div class="hierarchy-card" data-level="blocks" onclick="showHierarchyLevel('blocks')">
-          <div class="hierarchy-card-header">
-            <div class="hierarchy-card-icon blocks">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
+          <!-- Caller Methods Card -->
+          <div class="hierarchy-card" data-level="groups" onclick="showHierarchyLevel('groups')">
+            <div class="hierarchy-card-header">
+              <div class="hierarchy-card-icon groups">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+              </div>
+              <div class="hierarchy-card-label">Caller Methods</div>
             </div>
-            <div class="hierarchy-card-label">Code Blocks</div>
+            <div class="hierarchy-card-value" id="groupCount">—</div>
+            <div class="hierarchy-card-sub">by method</div>
           </div>
-          <div class="hierarchy-card-value" id="blockCount">—</div>
-          <div class="hierarchy-card-sub">by class</div>
-        </div>
 
-        <div class="hierarchy-arrow">→</div>
+          <div class="hierarchy-arrow">→</div>
 
-        <!-- Cases Card -->
-        <div class="hierarchy-card" data-level="cases" onclick="showHierarchyLevel('cases')">
-          <div class="hierarchy-card-header">
-            <div class="hierarchy-card-icon cases">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+          <!-- Components Card -->
+          <div class="hierarchy-card" data-level="blocks" onclick="showHierarchyLevel('blocks')">
+            <div class="hierarchy-card-header">
+              <div class="hierarchy-card-icon blocks">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
+              </div>
+              <div class="hierarchy-card-label">Components</div>
             </div>
-            <div class="hierarchy-card-label">Cases</div>
-          </div>
-          <div class="hierarchy-card-value" id="caseCount">{{ recon.case_count if recon else "—" }}</div>
-          <div class="hierarchy-card-sub">
-            {% if recon and recon.threat_level %}
-            <span class="threat-badge {{ recon.threat_level|lower }}">{{ recon.threat_level }}</span>
-            {% else %}
-            LLM triage
-            {% endif %}
+            <div class="hierarchy-card-value" id="blockCount">—</div>
+            <div class="hierarchy-card-sub">by class</div>
           </div>
         </div>
+      </div>
 
-        <div class="hierarchy-arrow">→</div>
-
-        <!-- Seeds Card (Tier1 Input) -->
-        <div class="hierarchy-card" data-level="seeds" onclick="showHierarchyLevel('seeds')">
-          <div class="hierarchy-card-header">
-            <div class="hierarchy-card-icon seeds">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+      <!-- Panel 2: Analysis Pipeline -->
+      <div class="hierarchy-panel">
+        <div class="hierarchy-panel-header">
+          <span class="hierarchy-panel-title">Analysis Pipeline</span>
+          <span class="hierarchy-panel-subtitle">What we analyze</span>
+        </div>
+        <div class="hierarchy-summary-row">
+          <!-- Execution Paths Card -->
+          <div class="hierarchy-card" data-level="paths" onclick="showHierarchyLevel('paths')">
+            <div class="hierarchy-card-header">
+              <div class="hierarchy-card-icon paths">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+              </div>
+              <div class="hierarchy-card-label">Execution Paths</div>
             </div>
-            <div class="hierarchy-card-label">Seeds</div>
+            <div class="hierarchy-card-value" id="pathCount">—</div>
+            <div class="hierarchy-card-sub">to analyze</div>
           </div>
-          <div class="hierarchy-card-value" id="seedCount">—</div>
-          <div class="hierarchy-card-sub">Tier1 input</div>
+
+          <div class="hierarchy-arrow">→</div>
+
+          <!-- Methods to Investigate Card -->
+          <div class="hierarchy-card" data-level="methods" onclick="showHierarchyLevel('methods')">
+            <div class="hierarchy-card-header">
+              <div class="hierarchy-card-icon methods">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+              </div>
+              <div class="hierarchy-card-label">Methods</div>
+            </div>
+            <div class="hierarchy-card-value" id="methodCount">—</div>
+            <div class="hierarchy-card-sub" id="methodProgress">to investigate</div>
+          </div>
+
+          <div class="hierarchy-arrow">→</div>
+
+          <!-- Attack Chains Card -->
+          <div class="hierarchy-card" data-level="chains" onclick="showHierarchyLevel('chains')">
+            <div class="hierarchy-card-header">
+              <div class="hierarchy-card-icon chains">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+              </div>
+              <div class="hierarchy-card-label">Attack Chains</div>
+            </div>
+            <div class="hierarchy-card-value" id="chainCount">—</div>
+            <div class="hierarchy-card-sub">Tier2 results</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cases Section (Separate) -->
+      <div class="hierarchy-panel hierarchy-panel-compact">
+        <div class="hierarchy-panel-header">
+          <span class="hierarchy-panel-title">Investigation Cases</span>
+          <span class="hierarchy-panel-subtitle">LLM triage groupings</span>
+        </div>
+        <div class="hierarchy-summary-row hierarchy-summary-single">
+          <div class="hierarchy-card" data-level="cases" onclick="showHierarchyLevel('cases')">
+            <div class="hierarchy-card-header">
+              <div class="hierarchy-card-icon cases">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+              </div>
+              <div class="hierarchy-card-label">Cases</div>
+            </div>
+            <div class="hierarchy-card-value" id="caseCount">{{ recon.case_count if recon else "—" }}</div>
+            <div class="hierarchy-card-sub">
+              {% if recon and recon.threat_level %}
+              <span class="threat-badge {{ recon.threat_level|lower }}">{{ recon.threat_level }}</span>
+              {% else %}
+              investigation groups
+              {% endif %}
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- Expandable Tree Panel -->
       <div class="hierarchy-tree-panel" id="hierarchyTreePanel" style="display: none;">
         <div class="tree-header">
-          <span class="tree-title" id="treePanelTitle">Code Blocks</span>
+          <span class="tree-title" id="treePanelTitle">Components</span>
           <button class="tree-close" onclick="closeHierarchyPanel()">×</button>
         </div>
         <div class="tree-content" id="treeContent">
@@ -6183,12 +6449,14 @@
 
       try {
         // Parallel fetch all artifacts
-        const [blocksRes, groupsRes, hitsRes, casesRes, seedsRes] = await Promise.allSettled([
+        const [blocksRes, groupsRes, hitsRes, casesRes, seedsRes, methodsRes, tier2Res] = await Promise.allSettled([
           fetch(`${baseUrl}/seeds/code_blocks.json`),
           fetch(`${baseUrl}/seeds/sensitive_api_groups.json`),
           fetch(`${baseUrl}/seeds/sensitive_api_hits.json`),
           fetch(`${baseUrl}/llm/recon.json`),
-          fetch(`${baseUrl}/seeds/suspicious_api_index.json`)
+          fetch(`${baseUrl}/seeds/suspicious_api_index.json`),
+          fetch(`${baseUrl}/llm/methods_to_investigate.json`),
+          fetch(`${baseUrl}/llm/tier2_summary.json`)
         ]);
 
         // Parse responses
@@ -6217,6 +6485,12 @@
         if (seedsRes.status === 'fulfilled' && seedsRes.value.ok) {
           hierarchyData.seeds = await seedsRes.value.json();
         }
+        if (methodsRes.status === 'fulfilled' && methodsRes.value.ok) {
+          hierarchyData.methods = await methodsRes.value.json();
+        }
+        if (tier2Res.status === 'fulfilled' && tier2Res.value.ok) {
+          hierarchyData.tier2 = await tier2Res.value.json();
+        }
 
         updateHierarchySummary();
       } catch (err) {
@@ -6228,26 +6502,49 @@
 
     // Update summary card counts
     function updateHierarchySummary() {
+      // Static Analysis panel counts
       const blockCount = hierarchyData.blocks?.block_count ??
                          hierarchyData.blocks?.blocks?.length ?? null;
       const groupCount = hierarchyData.groups?.group_count ??
                          hierarchyData.groups?.groups?.length ?? null;
       const hitCount = hierarchyData.hits?.summary?.total_hits ??
                        hierarchyData.hits?.hits?.length ?? null;
-      const caseCount = hierarchyData.cases?.cases?.length ?? null;
-      const seedCount = hierarchyData.seeds?.callsites?.length ?? null;
 
+      // Analysis Pipeline panel counts
+      const pathCount = hierarchyData.seeds?.callsites?.length ?? null;
+      const methodsData = hierarchyData.methods;
+      const methodCount = methodsData?.total_unique ?? methodsData?.methods?.length ?? null;
+      const methodsAnalyzed = methodsData?.analyzed_count ?? methodsData?.with_jadx ?? null;
+      const chainCount = hierarchyData.tier2?.chain_count ?? hierarchyData.tier2?.chains?.length ?? null;
+
+      // Cases count
+      const caseCount = hierarchyData.cases?.cases?.length ?? null;
+
+      // Update Static Analysis cards
       const blockEl = document.getElementById('blockCount');
       const groupEl = document.getElementById('groupCount');
       const hitEl = document.getElementById('hitCount');
-      const caseEl = document.getElementById('caseCount');
-      const seedEl = document.getElementById('seedCount');
 
       if (blockEl && blockCount !== null) blockEl.textContent = blockCount;
       if (groupEl && groupCount !== null) groupEl.textContent = groupCount;
       if (hitEl && hitCount !== null) hitEl.textContent = hitCount;
+
+      // Update Analysis Pipeline cards
+      const pathEl = document.getElementById('pathCount');
+      const methodEl = document.getElementById('methodCount');
+      const methodProgressEl = document.getElementById('methodProgress');
+      const chainEl = document.getElementById('chainCount');
+
+      if (pathEl && pathCount !== null) pathEl.textContent = pathCount;
+      if (methodEl && methodCount !== null) methodEl.textContent = methodCount;
+      if (methodProgressEl && methodsAnalyzed !== null && methodCount !== null) {
+        methodProgressEl.textContent = `${methodsAnalyzed} of ${methodCount} analyzed`;
+      }
+      if (chainEl && chainCount !== null) chainEl.textContent = chainCount;
+
+      // Update Cases card
+      const caseEl = document.getElementById('caseCount');
       if (caseEl && caseCount !== null) caseEl.textContent = caseCount;
-      if (seedEl && seedCount !== null) seedEl.textContent = seedCount;
     }
 
     // Show hierarchy level in tree panel
@@ -6261,13 +6558,20 @@
         card.classList.toggle('active', card.dataset.level === level);
       });
 
-      // Set title
+      // Set title - updated terminology
       const titles = {
-        'blocks': 'Code Blocks (by class)',
-        'groups': 'Method Groups (by caller)',
-        'hits': 'API Hits (individual calls)',
-        'cases': 'Investigation Cases (LLM triage)',
-        'seeds': 'Seeds (Tier1 input)'
+        // Static Analysis panel
+        'hits': 'Sensitive API Calls',
+        'groups': 'Caller Methods',
+        'blocks': 'Components (by class)',
+        // Analysis Pipeline panel
+        'paths': 'Execution Paths',
+        'methods': 'Methods to Investigate',
+        'chains': 'Attack Chains (Tier2 results)',
+        // Cases section
+        'cases': 'Investigation Cases',
+        // Legacy support
+        'seeds': 'Execution Paths'
       };
       title.textContent = titles[level] || level;
 
@@ -6296,20 +6600,30 @@
     // Render tree content based on level
     function renderTreeLevel(level, container) {
       switch (level) {
-        case 'blocks':
-          renderBlocksTree(container);
+        // Static Analysis panel
+        case 'hits':
+          renderHitsTree(container);
           break;
         case 'groups':
           renderGroupsTree(container);
           break;
-        case 'hits':
-          renderHitsTree(container);
+        case 'blocks':
+          renderBlocksTree(container);
           break;
+        // Analysis Pipeline panel
+        case 'paths':
+        case 'seeds':  // Legacy support
+          renderExecutionPathsTree(container);
+          break;
+        case 'methods':
+          renderMethodsTree(container);
+          break;
+        case 'chains':
+          renderAttackChainsTree(container);
+          break;
+        // Cases section
         case 'cases':
           renderCasesTree(container);
-          break;
-        case 'seeds':
-          renderSeedsTree(container);
           break;
       }
     }
@@ -6567,35 +6881,217 @@
       container.innerHTML = html;
     }
 
-    // Render seeds tree (Tier1 input)
-    function renderSeedsTree(container) {
-      const seeds = hierarchyData.seeds?.callsites ?? [];
-      if (!seeds.length) {
-        container.innerHTML = '<div class="tree-empty">No seeds found (seeding stage may not have completed)</div>';
+    // Render execution paths tree (Analysis Pipeline)
+    function renderExecutionPathsTree(container) {
+      const paths = hierarchyData.seeds?.callsites ?? [];
+      if (!paths.length) {
+        container.innerHTML = '<div class="tree-empty">No execution paths found (seeding stage may not have completed)</div>';
         return;
       }
 
-      // Count merged seeds
-      const mergedCount = seeds.filter(s => (s.callsite_descriptor?.merged_count || 0) > 1).length;
+      // Count merged paths
+      const mergedCount = paths.filter(s => (s.callsite_descriptor?.merged_count || 0) > 1).length;
 
       // Sort by priority
-      const sorted = [...seeds].sort((a, b) =>
+      const sorted = [...paths].sort((a, b) =>
         (a.callsite_descriptor?.priority ?? 99) - (b.callsite_descriptor?.priority ?? 99)
       );
 
       let html = `
         <div class="seeds-summary">
-          ${seeds.length} seeds${mergedCount > 0 ? ` (${mergedCount} merged)` : ''}
+          ${paths.length} execution paths${mergedCount > 0 ? ` (${mergedCount} merged)` : ''}
         </div>
         <div class="seeds-list">
       `;
 
-      sorted.forEach(seed => {
-        html += renderSeedCard(seed);
+      sorted.forEach(path => {
+        html += renderSeedCard(path);
       });
 
       html += '</div>';
       container.innerHTML = html;
+    }
+
+    // Render methods to investigate tree (Tier1 LLM input)
+    function renderMethodsTree(container) {
+      const methodsData = hierarchyData.methods;
+      const methods = methodsData?.methods ?? [];
+
+      if (!methods.length) {
+        // Try to derive methods from execution paths if methods_to_investigate.json not available
+        const derivedMethods = deriveMethodsFromPaths();
+        if (derivedMethods.length) {
+          renderDerivedMethodsTree(container, derivedMethods);
+          return;
+        }
+        container.innerHTML = '<div class="tree-empty">No method analysis data available</div>';
+        return;
+      }
+
+      // Sort by usage count (most used first)
+      const sorted = [...methods].sort((a, b) => (b.usage_count || 0) - (a.usage_count || 0));
+
+      const analyzedCount = methods.filter(m => m.analysis_status === 'complete' || m.jadx_available).length;
+
+      let html = `
+        <div class="methods-summary">
+          <div class="methods-stats">
+            <span class="stat">${methods.length} unique methods</span>
+            <span class="stat">${analyzedCount} analyzed</span>
+          </div>
+        </div>
+        <div class="methods-list">
+      `;
+
+      sorted.forEach(method => {
+        const methodName = extractMethodName(method.method_sig);
+        const className = extractClassName(method.method_sig);
+        const usageCount = method.usage_count || 1;
+        const hasJadx = method.jadx_available !== false;
+        const isAnalyzed = method.analysis_status === 'complete' || hasJadx;
+
+        html += `
+          <div class="method-row ${isAnalyzed ? 'analyzed' : 'pending'}">
+            <div class="method-header">
+              <div class="method-status ${isAnalyzed ? 'complete' : 'pending'}">
+                ${isAnalyzed ? '✓' : '○'}
+              </div>
+              <div class="method-info">
+                <div class="method-name">${escapeHtml(methodName)}</div>
+                <div class="method-class">${escapeHtml(className)}</div>
+              </div>
+              <div class="method-meta">
+                ${usageCount > 1 ? `<span class="usage-badge" title="Used by ${usageCount} execution paths">×${usageCount}</span>` : ''}
+                ${!hasJadx ? '<span class="no-jadx-badge">No JADX</span>' : ''}
+              </div>
+            </div>
+            ${method.function_summary ? `
+              <div class="method-summary">${escapeHtml(truncateText(method.function_summary, 150))}</div>
+            ` : ''}
+          </div>
+        `;
+      });
+
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    // Derive methods from execution paths when methods_to_investigate.json not available
+    function deriveMethodsFromPaths() {
+      const paths = hierarchyData.seeds?.callsites ?? [];
+      const methodUsage = new Map();
+
+      paths.forEach(path => {
+        const pathMethods = path.control_flow_path?.path_methods ?? [];
+        pathMethods.forEach(method => {
+          // Skip framework APIs
+          if (method.startsWith('<android.') || method.startsWith('<java.') ||
+              method.startsWith('<javax.') || method.startsWith('<dalvik.')) {
+            return;
+          }
+          const count = methodUsage.get(method) || 0;
+          methodUsage.set(method, count + 1);
+        });
+      });
+
+      return Array.from(methodUsage.entries()).map(([sig, count]) => ({
+        method_sig: sig,
+        usage_count: count,
+        jadx_available: true,
+        analysis_status: 'pending'
+      }));
+    }
+
+    // Render derived methods tree
+    function renderDerivedMethodsTree(container, methods) {
+      const sorted = [...methods].sort((a, b) => (b.usage_count || 0) - (a.usage_count || 0));
+
+      let html = `
+        <div class="methods-summary">
+          <div class="methods-stats">
+            <span class="stat">${methods.length} unique methods</span>
+            <span class="stat derived">Derived from paths</span>
+          </div>
+        </div>
+        <div class="methods-list">
+      `;
+
+      sorted.forEach(method => {
+        const methodName = extractMethodName(method.method_sig);
+        const className = extractClassName(method.method_sig);
+        const usageCount = method.usage_count || 1;
+
+        html += `
+          <div class="method-row pending">
+            <div class="method-header">
+              <div class="method-status pending">○</div>
+              <div class="method-info">
+                <div class="method-name">${escapeHtml(methodName)}</div>
+                <div class="method-class">${escapeHtml(className)}</div>
+              </div>
+              <div class="method-meta">
+                ${usageCount > 1 ? `<span class="usage-badge" title="Used by ${usageCount} execution paths">×${usageCount}</span>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    // Render attack chains tree (Tier2 results)
+    function renderAttackChainsTree(container) {
+      const tier2Data = hierarchyData.tier2;
+      const chains = tier2Data?.chains ?? [];
+
+      if (!chains.length) {
+        container.innerHTML = '<div class="tree-empty">No attack chain analysis available (Tier2 may not have completed)</div>';
+        return;
+      }
+
+      let html = `
+        <div class="chains-summary">
+          ${chains.length} attack chains analyzed
+        </div>
+        <div class="chains-list">
+      `;
+
+      chains.forEach(chain => {
+        const seedId = chain.seed_id || 'Unknown';
+        const summary = chain.attack_summary || chain.function_summary || 'No summary available';
+        const severity = chain.severity || chain.threat_level || 'MEDIUM';
+
+        html += `
+          <div class="chain-card">
+            <div class="chain-header">
+              <span class="chain-id">${escapeHtml(seedId)}</span>
+              <span class="severity-badge ${severity.toLowerCase()}">${escapeHtml(severity)}</span>
+            </div>
+            <div class="chain-summary">${escapeHtml(truncateText(summary, 200))}</div>
+          </div>
+        `;
+      });
+
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    // Extract method name from Soot signature
+    function extractMethodName(sig) {
+      if (!sig) return 'Unknown';
+      // Format: <package.Class: returnType methodName(params)>
+      const match = sig.match(/:\s*\S+\s+(\w+)\s*\(/);
+      return match ? match[1] + '()' : sig.split(':').pop()?.trim() || sig;
+    }
+
+    // Extract class name from Soot signature
+    function extractClassName(sig) {
+      if (!sig) return 'Unknown';
+      // Format: <package.Class: ...>
+      const match = sig.match(/<([^:]+):/);
+      return match ? match[1] : sig;
     }
 
     // Render a single seed card
