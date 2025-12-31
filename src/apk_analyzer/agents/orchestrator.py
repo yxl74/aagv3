@@ -26,9 +26,9 @@ from apk_analyzer.agents.method_tier1 import (
     batch_extract_jadx_sources,
     collect_unique_methods,
 )
-from apk_analyzer.agents.seed_composer import (
-    ComposedSeedAnalysis,
-    compose_seed_analysis,
+from apk_analyzer.agents.flow_composer import (
+    ComposedFlowAnalysis,
+    compose_flow_analysis,
     prepare_tier2_input,
 )
 from apk_analyzer.analyzers.context_bundle_builder import ContextBundleBuilder, build_static_context
@@ -761,7 +761,7 @@ class Orchestrator:
                 )
 
                 case_lookup = _case_lookup(cases, hit_groups_by_id)
-                seed_summaries: Dict[str, Dict[str, Any]] = {}
+                flow_summaries: Dict[str, Dict[str, Any]] = {}
                 bundle_map: Dict[str, Dict[str, Any]] = {}
                 verified_ids: List[str] = []
                 evidence_support_index: Dict[str, Any] = {}
@@ -810,7 +810,7 @@ class Orchestrator:
                     bundle_map[seed_id] = bundle
                     with span("llm.seed", stage="seed_processing", seed_id=seed_id, api_category=bundle.get("api_category")):
                         # Static composition from pre-computed method analyses (method-centric pipeline)
-                        composed = compose_seed_analysis(bundle, method_cache)
+                        composed = compose_flow_analysis(bundle, method_cache)
                         tier1 = tier1_from_composed(composed, bundle)
                         artifact_store.write_json(f"llm/tier1/{seed_id}.json", tier1)
 
@@ -828,7 +828,7 @@ class Orchestrator:
                             "artifact": artifact_store.relpath(f"graphs/slices/{bundle['seed_id']}.json"),
                         }
 
-                    seed_summaries[seed_id] = {
+                    flow_summaries[seed_id] = {
                         "seed_id": seed_id,
                         "case_id": case_info.get("case_id"),
                         "case_priority": case_info.get("priority"),
@@ -839,7 +839,8 @@ class Orchestrator:
                     }
 
                     phase_status = (tier1.get("phase_status") or "").lower()
-                    if verifier.get("status") == "VERIFIED" and (not phase_status or phase_status == "ok"):
+                    # Accept both VERIFIED (legacy) and COMPOSED (method-centric pipeline)
+                    if verifier.get("status") in ("VERIFIED", "COMPOSED") and (not phase_status or phase_status == "ok"):
                         verified_count += 1
                         verified_ids.append(seed_id)
 
@@ -884,79 +885,40 @@ class Orchestrator:
                 #             ref=artifact_store.relpath("taint/flowdroid_summary.json"),
                 #         )
 
-                # Group verified seeds by case_id for case-level Tier2 aggregation
-                # This allows Tier2 to reason about attack chains across related seeds
-                cases_with_verified_seeds: Dict[str, List[str]] = {}
+                # Initialize package_name from manifest
+                package_name = manifest.get("package_name") or manifest.get("package")
+
+                # Process Tier2 per control flow (each seed = one flow path)
+                # Each seed represents a complete control flow from entry point to sink
                 for seed_id in verified_ids:
-                    case_info = case_lookup.get(seed_id, {})
-                    case_id = case_info.get("case_id") or seed_id  # Fallback to seed_id
-                    cases_with_verified_seeds.setdefault(case_id, []).append(seed_id)
-
-                # Process Tier2 per case (aggregated)
-                for case_id, case_seed_ids in cases_with_verified_seeds.items():
-                    # Collect all Tier1 results and context for seeds in this case
-                    case_seeds_data = []
-                    primary_bundle = None
-                    for sid in case_seed_ids:
-                        bundle = bundle_map.get(sid)
-                        if not bundle:
-                            continue
-                        if primary_bundle is None:
-                            primary_bundle = bundle
-                        case_seeds_data.append({
-                            "seed_id": sid,
-                            "tier1": _consolidate_tier1_for_tier2(seed_summaries[sid]["tier1"], bundle),
-                            "api_category": bundle.get("api_category"),
-                            "api_signature": bundle.get("api_signature"),
-                            "caller_method": bundle.get("caller_method"),
-                            "control_flow_path": bundle.get("control_flow_path"),
-                        })
-
-                    if not case_seeds_data or not primary_bundle:
+                    bundle = bundle_map.get(seed_id)
+                    if not bundle:
                         continue
 
-                    # Get Recon context for this case
-                    recon_case_context = case_lookup.get(case_seed_ids[0], {})
+                    tier1 = flow_summaries.get(seed_id, {}).get("tier1", {})
+                    if not tier1:
+                        continue
 
-                    # Build case-level Tier2 input
-                    tier2_input_raw = {
-                        # Case-level identifiers
-                        "case_id": case_id,
-                        "primary_seed_id": case_seed_ids[0],
-                        # All seeds in this case with their Tier1 results
-                        "seeds": case_seeds_data,
-                        "seed_count": len(case_seeds_data),
-                        # Recon context (rationale, severity, tags)
-                        "recon_context": {
-                            "rationale": recon_case_context.get("recon_rationale"),
-                            "severity": recon_case_context.get("recon_severity"),
-                            "severity_reasoning": recon_case_context.get("severity_reasoning"),
-                            "tags": recon_case_context.get("tags"),
-                        },
-                        # Shared context from primary bundle
-                        "fcg": primary_bundle.get("fcg_neighborhood"),
-                        "static_context": primary_bundle.get("static_context"),
-                        "component_intents": component_intents,  # Intent-filters for driver synthesis
-                        "intent_contracts": (primary_bundle.get("static_context") or {}).get("intent_contracts"),
-                        "file_artifacts": (primary_bundle.get("static_context") or {}).get("file_artifacts"),
-                        "log_hints": (primary_bundle.get("static_context") or {}).get("log_hints"),
-                        "case_context": primary_bundle.get("case_context"),
-                        # FlowDroid results
-                        "flowdroid_summary": flowdroid_summary or {},
-                    }
+                    # Generate flow ID from the control flow path
+                    flow_id = _get_flow_id(bundle)
 
-                    # Shape Tier2 payload for token efficiency
-                    package_name = (primary_bundle.get("static_context") or {}).get("package_name")
-                    static_ctx = primary_bundle.get("static_context") or {}
+                    # Get case info for context (preserved for traceability, not grouping)
+                    case_info = case_lookup.get(seed_id, {})
+                    case_id = case_info.get("case_id") or seed_id
+
+                    # Get static context
+                    static_ctx = bundle.get("static_context") or {}
+                    pkg_name = static_ctx.get("package_name") or package_name
 
                     # Check if two-phase Tier2 is enabled
                     if tier2_split_enabled and tier2a_agent and tier2b_agent:
                         # Two-phase flow: Phase 2A (reasoning) + Phase 2B (commands)
-                        tier2 = _run_two_phase_tier2(
-                            case_id=case_id,
-                            case_seeds_data=case_seeds_data,
-                            bundle_map=bundle_map,
-                            seed_summaries=seed_summaries,
+                        tier2 = _run_flow_tier2(
+                            flow_id=flow_id,
+                            seed_id=seed_id,
+                            bundle=bundle,
+                            tier1=tier1,
+                            case_info=case_info,
                             static_ctx=static_ctx,
                             manifest=manifest,
                             tier2a_agent=tier2a_agent,
@@ -965,10 +927,19 @@ class Orchestrator:
                             event_logger=event_logger,
                         )
                     else:
-                        # Legacy single-phase Tier2 flow
-                        tier2_input = shape_tier2_payload(tier2_input_raw, package_name)
+                        # Legacy single-phase Tier2 flow (also updated to per-flow)
+                        tier2_input = _build_flow_tier2_input(
+                            flow_id=flow_id,
+                            seed_id=seed_id,
+                            bundle=bundle,
+                            tier1=tier1,
+                            case_info=case_info,
+                            static_ctx=static_ctx,
+                            component_intents=component_intents,
+                            pkg_name=pkg_name,
+                        )
 
-                        with llm_context("tier2", seed_id=case_seed_ids[0]):
+                        with llm_context("tier2", seed_id=seed_id):
                             tier2 = tier2_agent.run(tier2_input)
 
                         intent_contracts_full = static_ctx.get("intent_contracts") or {}
@@ -982,36 +953,37 @@ class Orchestrator:
                                     intent_contracts_full,
                                     file_artifacts=file_artifacts_full,
                                     log_hints=log_hints_full,
-                                    package_name=package_name,
+                                    package_name=pkg_name,
                                 )
 
-                    # Save Tier2 result using case_id (or primary seed_id if same)
-                    tier2_filename = case_id if case_id != case_seed_ids[0] else case_seed_ids[0]
-                    artifact_store.write_json(f"llm/tier2/{tier2_filename}.json", tier2)
+                    # Save Tier2 result using flow_id
+                    artifact_store.write_json(f"llm/tier2/{flow_id}.json", tier2)
 
-                    # Assign same Tier2 result to all seeds in this case
-                    for sid in case_seed_ids:
-                        seed_summaries[sid]["tier2"] = tier2
-                        seed_summaries[sid]["tier2_case_id"] = case_id
+                    # Assign Tier2 result to this seed (each seed gets its own tier2)
+                    flow_summaries[seed_id]["tier2"] = tier2
+                    flow_summaries[seed_id]["flow_id"] = flow_id
+                    flow_summaries[seed_id]["case_id"] = case_id  # Preserved for traceability
 
-                seed_summary_list = list(seed_summaries.values())
+                flow_summary_list = list(flow_summaries.values())
 
                 # Generate tier2_summary.json for frontend Attack Chains display
-                generate_tier2_summary_json(seed_summary_list, artifact_store)
+                generate_tier2_summary_json(flow_summary_list, artifact_store)
 
                 mitre_rules = load_rules("config/mitre/mapping_rules.json")
                 technique_index = load_technique_index("config/mitre/technique_index.json")
                 mitre_candidates = map_evidence(
-                    [fact for seed in seed_summary_list for fact in seed.get("tier1", {}).get("facts", [])],
+                    [fact for seed in flow_summary_list for fact in seed.get("tier1", {}).get("facts", [])],
                     mitre_rules,
                     technique_index,
                 )
 
                 report_payload = {
                     "analysis_id": artifact_store.analysis_id,
+                    "package_name": package_name,  # For method-centric report
                     "verdict": recon_result.get("threat_level", "UNKNOWN"),
                     "summary": "Static analysis completed. LLM summaries may be partial.",
-                    "seed_summaries": seed_summary_list,
+                    "flow_summaries": flow_summary_list,
+                    "method_cache": method_cache,  # For method-centric report
                     "evidence_support_index": evidence_support_index,
                     "analysis_artifacts": {
                         "callgraph": artifact_store.relpath("graphs/callgraph.json") if callgraph_path else None,
@@ -1022,8 +994,8 @@ class Orchestrator:
                         "class_hierarchy": artifact_store.relpath("graphs/class_hierarchy.json") if class_hierarchy else None,
                     },
                     "mitre_candidates": mitre_candidates,
-                    "driver_guidance": _build_driver_guidance(seed_summary_list),
-                    "execution_guidance": _build_execution_guidance(seed_summary_list),
+                    "driver_guidance": _build_driver_guidance(flow_summary_list),
+                    "execution_guidance": _build_execution_guidance(flow_summary_list),
                 }
                 event_logger.stage_start("report")
                 with span("stage.report", stage="report"):
@@ -1870,6 +1842,26 @@ def _case_id_for_group(group_id: str) -> str:
     return f"CASE-GRP-{suffix[:8]}"
 
 
+def _get_flow_id(bundle: Dict[str, Any]) -> str:
+    """Generate a flow ID from the control flow path methods.
+
+    Each seed represents one control flow path (entry → methods → sink).
+    The flow_id is derived from the ordered list of methods in the path.
+    """
+    import hashlib
+    path_methods = bundle.get("control_flow_path", {}).get("path_methods", [])
+    if not path_methods:
+        # Fallback: use caller_method + sink API
+        caller = bundle.get("caller_method", "")
+        sink = bundle.get("api_signature", "")
+        path_methods = [caller, sink] if caller else [sink]
+
+    # Create stable hash from ordered method list
+    path_str = "|".join(path_methods)
+    hash_suffix = hashlib.sha1(path_str.encode()).hexdigest()[:8]
+    return f"FLOW-{hash_suffix}"
+
+
 def _fallback_cases_from_groups(
     group_ids: set[str],
     hit_groups_by_id: Dict[str, Dict[str, Any]],
@@ -2217,9 +2209,9 @@ def _write_suspicious_index(store: ArtifactStore, index: SuspiciousApiIndex) -> 
     )
 
 
-def _build_driver_guidance(seed_summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _build_driver_guidance(flow_summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     guidance = []
-    for summary in seed_summaries:
+    for summary in flow_summaries:
         tier2 = summary.get("tier2") or {}
         guidance.append({
             "seed_id": summary.get("seed_id"),
@@ -2232,7 +2224,7 @@ def _build_driver_guidance(seed_summaries: List[Dict[str, Any]]) -> List[Dict[st
     return guidance
 
 
-def _build_execution_guidance(seed_summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _build_execution_guidance(flow_summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Build top-level execution_guidance array from Tier2 outputs.
     Prefer per-seed guidance when available; fall back to case-level guidance.
@@ -2240,7 +2232,7 @@ def _build_execution_guidance(seed_summaries: List[Dict[str, Any]]) -> List[Dict
     seen_cases: set = set()
     seen_entries: set = set()
     guidance = []
-    for summary in seed_summaries:
+    for summary in flow_summaries:
         tier2 = summary.get("tier2") or {}
         exec_by_seed = tier2.get("execution_guidance_by_seed") or []
         if isinstance(exec_by_seed, list) and exec_by_seed:
@@ -2568,7 +2560,7 @@ def generate_methods_to_investigate_json(
 
 
 def generate_tier2_summary_json(
-    seed_summary_list: List[Dict[str, Any]],
+    flow_summary_list: List[Dict[str, Any]],
     artifact_store: "ArtifactStore",
 ) -> None:
     """
@@ -2579,12 +2571,12 @@ def generate_tier2_summary_json(
     - Summary per chain with severity and description
 
     Args:
-        seed_summary_list: List of seed summaries with tier2 results
+        flow_summary_list: List of seed summaries with tier2 results
         artifact_store: For storing output
     """
     chains = []
 
-    for summary in seed_summary_list:
+    for summary in flow_summary_list:
         tier2 = summary.get("tier2")
         if not tier2:
             continue
@@ -2622,11 +2614,11 @@ def generate_tier2_summary_json(
 
 
 def tier1_from_composed(
-    composed: ComposedSeedAnalysis,
+    composed: ComposedFlowAnalysis,
     bundle: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Convert ComposedSeedAnalysis to tier1 output format with execution_path.
+    Convert ComposedFlowAnalysis to tier1 output format with execution_path.
 
     Includes:
     - Legacy fields for backward compatibility
@@ -2698,7 +2690,7 @@ def tier1_from_composed(
     ]
 
     return {
-        "seed_id": composed.seed_id,
+        "seed_id": composed.flow_id,  # Access flow_id, output as seed_id for backward compat
         "function_summary": function_summary,
         "path_constraints": composed.all_constraints,
         "required_inputs": composed.all_required_inputs,
@@ -2948,11 +2940,206 @@ def shape_tier2_payload(
     return payload
 
 
+def _build_flow_tier2_input(
+    flow_id: str,
+    seed_id: str,
+    bundle: Dict[str, Any],
+    tier1: Dict[str, Any],
+    case_info: Dict[str, Any],
+    static_ctx: Dict[str, Any],
+    component_intents: Dict[str, Any],
+    pkg_name: str,
+) -> Dict[str, Any]:
+    """Build Tier2 input for a single control flow (per-seed).
+
+    Each seed represents one complete control flow from entry point to sink.
+    The Tier2 input focuses on this specific execution path.
+    """
+    control_flow = bundle.get("control_flow_path", {})
+
+    return {
+        # Flow identity
+        "flow_id": flow_id,
+        "seed_id": seed_id,
+        "package_name": pkg_name,
+
+        # Execution path (method-by-method breakdown from Tier1)
+        "execution_path": tier1.get("execution_path", []),
+
+        # Sink API info
+        "api_category": bundle.get("api_category"),
+        "sink_api": bundle.get("api_signature"),
+        "caller_method": bundle.get("caller_method"),
+
+        # Component context (entry point info)
+        "component_context": control_flow.get("component_context", {}),
+        "reachability": control_flow.get("reachability", {}),
+
+        # Aggregated constraints from Tier1
+        "path_constraints": tier1.get("path_constraints", []),
+        "required_inputs": tier1.get("required_inputs", []),
+        "required_permissions": tier1.get("required_permissions", []),
+
+        # Threat context from Recon (preserved for context, not grouping)
+        "threat_category": case_info.get("category_id"),
+        "threat_severity": case_info.get("recon_severity"),
+        "threat_tags": case_info.get("tags", []),
+
+        # Static context for driver synthesis
+        "intent_contracts": static_ctx.get("intent_contracts", {}),
+        "file_artifacts": static_ctx.get("file_artifacts", {}),
+        "log_hints": static_ctx.get("log_hints", {}),
+        "component_intents": component_intents,
+    }
+
+
+def _run_flow_tier2(
+    flow_id: str,
+    seed_id: str,
+    bundle: Dict[str, Any],
+    tier1: Dict[str, Any],
+    case_info: Dict[str, Any],
+    static_ctx: Dict[str, Any],
+    manifest: Dict[str, Any],
+    tier2a_agent: "Tier2AReasoningAgent",
+    tier2b_agent: "Tier2BCommandsAgent",
+    artifact_store: "ArtifactStore",
+    event_logger: "EventLogger",
+) -> Dict[str, Any]:
+    """Run two-phase Tier2 processing for a single control flow.
+
+    Phase 2A: Attack chain reasoning for this specific flow
+    Phase 2B: Command generation based on driver requirements
+
+    Each seed = one control flow path. Tier2 reasons about this specific
+    method sequence from entry point to sink.
+    """
+    package_name = static_ctx.get("package_name", "")
+    intent_contracts = static_ctx.get("intent_contracts", {})
+    file_artifacts = static_ctx.get("file_artifacts", {})
+    log_hints = static_ctx.get("log_hints", {})
+    control_flow = bundle.get("control_flow_path", {})
+
+    # Build full Tier1 data for this flow
+    seed_tier1 = _consolidate_tier1_for_tier2_full(tier1, bundle)
+
+    # Pre-validate
+    validation = prevalidate_for_tier2([seed_tier1], manifest, intent_contracts)
+    if validation.all_warnings:
+        event_logger.log(
+            "tier2.prevalidation",
+            flow_id=flow_id,
+            seed_id=seed_id,
+            warnings_count=len(validation.all_warnings),
+            summary=format_validation_summary(validation),
+        )
+
+    # Phase 2A: Reasoning for this flow
+    tier2a_input = {
+        "flow_id": flow_id,
+        "seed_id": seed_id,
+        "case_id": flow_id,  # Use flow_id as case identifier for per-flow processing
+        "package_name": package_name,
+
+        # Single flow with execution path
+        "execution_path": tier1.get("execution_path", []),
+        "api_category": bundle.get("api_category"),
+        "sink_api": bundle.get("api_signature"),
+
+        # Component and reachability
+        "component_context": control_flow.get("component_context", {}),
+        "reachability": control_flow.get("reachability", {}),
+
+        # Aggregated from Tier1
+        "path_constraints": tier1.get("path_constraints", []),
+        "required_inputs": tier1.get("required_inputs", []),
+        "required_permissions": tier1.get("required_permissions", []),
+
+        # Threat context
+        "threat_category": case_info.get("category_id"),
+        "threat_severity": case_info.get("recon_severity"),
+
+        # Validation status
+        "validation": {
+            "fully_automatable": validation.fully_automatable_seeds,
+            "partially_automatable": validation.partially_automatable_seeds,
+            "manual_investigation": validation.manual_investigation_seeds,
+        },
+    }
+
+    with llm_context("tier2a", seed_id=seed_id):
+        tier2a_result = tier2a_agent.run(tier2a_input)
+
+    artifact_store.write_json(f"llm/tier2a/{flow_id}.json", tier2a_result.to_dict())
+
+    # Phase 2B: Commands (per driver requirement)
+    tier2b_results: List["Phase2BOutput"] = []
+
+    for driver_req in tier2a_result.driver_requirements:
+        # Build value hints for this seed
+        value_hints = build_value_hints_for_seed(
+            tier1_output=seed_tier1,
+            intent_contracts=intent_contracts,
+            file_artifacts=file_artifacts,
+            log_hints=log_hints,
+            manifest=manifest,
+            package_name=package_name,
+            component_intents=static_ctx.get("component_intents"),
+        )
+
+        with llm_context("tier2b", seed_id=seed_id):
+            tier2b_result = tier2b_agent.run(
+                driver_requirement=driver_req,
+                value_hints=value_hints,
+                seed_tier1=seed_tier1,
+                package_name=package_name,
+            )
+
+        # Post-QA validation
+        if tier2b_result.steps:
+            exec_guidance = {
+                "package_name": package_name,
+                "steps": [s.to_dict() for s in tier2b_result.steps],
+            }
+            validated_guidance = validate_execution_guidance(
+                exec_guidance,
+                intent_contracts,
+                file_artifacts=file_artifacts,
+                log_hints=log_hints,
+                package_name=package_name,
+            )
+            validated_steps: List["ExecutionStep"] = []
+            for step_data in validated_guidance.get("steps", []) if isinstance(validated_guidance, dict) else []:
+                validated_steps.append(ExecutionStep(
+                    step_id=step_data.get("step_id", f"step_{len(validated_steps)}"),
+                    type=step_data.get("type", "adb"),
+                    description=step_data.get("description", ""),
+                    command=step_data.get("command"),
+                    verify=step_data.get("verify"),
+                    evidence_citation=step_data.get("evidence_citation"),
+                    notes=step_data.get("notes"),
+                    template_id=step_data.get("template_id") or step_data.get("_template_id"),
+                    template_vars=step_data.get("template_vars", {}),
+                ))
+            if validated_steps:
+                tier2b_result.steps = validated_steps
+            tier2b_result.validated = True
+
+        tier2b_results.append(tier2b_result)
+        artifact_store.write_json(
+            f"llm/tier2b/{flow_id}_{driver_req.requirement_id}.json",
+            tier2b_result.to_dict(),
+        )
+
+    # Merge into backward-compatible Tier2 output
+    return merge_phase_outputs(tier2a_result, tier2b_results, package_name).to_dict()
+
+
 def _run_two_phase_tier2(
     case_id: str,
     case_seeds_data: List[Dict[str, Any]],
     bundle_map: Dict[str, Any],
-    seed_summaries: Dict[str, Any],
+    flow_summaries: Dict[str, Any],
     static_ctx: Dict[str, Any],
     manifest: Dict[str, Any],
     tier2a_agent: Tier2AReasoningAgent,
@@ -2961,12 +3148,12 @@ def _run_two_phase_tier2(
     event_logger: EventLogger,
 ) -> Dict[str, Any]:
     """
-    Run two-phase Tier2 processing.
+    DEPRECATED: Use _run_flow_tier2 instead.
 
-    Phase 2A: Attack chain reasoning
-    Phase 2B: Command generation (per driver requirement)
+    This function used case-based aggregation (multiple seeds per case).
+    The new _run_flow_tier2 processes per control flow (one seed = one flow).
 
-    Returns merged Tier2 output for backward compatibility.
+    Kept for backward compatibility but no longer called in main orchestration.
     """
     package_name = static_ctx.get("package_name", "")
     intent_contracts = static_ctx.get("intent_contracts", {})
@@ -2978,7 +3165,7 @@ def _run_two_phase_tier2(
     for seed_data in case_seeds_data:
         sid = seed_data.get("seed_id")
         bundle = bundle_map.get(sid, {})
-        tier1 = seed_summaries.get(sid, {}).get("tier1", {})
+        tier1 = flow_summaries.get(sid, {}).get("tier1", {})
         seeds_for_2a.append(_consolidate_tier1_for_tier2_full(tier1, bundle))
 
     # Pre-validate seeds

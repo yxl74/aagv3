@@ -3,10 +3,29 @@ You are analyzing a single method from an Android application to understand its 
 ## Method Signature
 {method_sig}
 
+{% if jadx_source %}
 ## JADX Decompiled Source Code
 ```java
 {jadx_source}
 ```
+{% endif %}
+
+{% if jimple_ir %}
+## Jimple IR (Intermediate Representation)
+When JADX decompilation is not available, analyze the Jimple IR instead.
+Jimple is Soot's intermediate representation - a simplified Java bytecode format.
+
+```
+{jimple_ir}
+```
+
+{% if jimple_invokes %}
+### Methods Invoked
+{% for method in jimple_invokes %}
+- `{method}`
+{% endfor %}
+{% endif %}
+{% endif %}
 
 {% if cfg %}
 ## Control Flow Graph (CFG)
@@ -100,5 +119,22 @@ Return ONLY valid JSON (no markdown, no code fences, no extra text) with these f
 
 8. **confidence**: Rate your confidence in the analysis (0.0-1.0)
    - 1.0: Clear, readable code with obvious behavior
+   - 0.7: Jimple IR only (no JADX) but behavior is clear from statements
    - 0.5: Some obfuscation or complexity
+   - 0.3: Jimple IR only with unclear behavior
    - 0.0: Cannot understand the method
+
+## Analyzing Jimple IR
+
+When JADX decompilation is unavailable, use Jimple IR. Key patterns:
+- `virtualinvoke r1.<Class: Type method()>()` = calling instance method on r1
+- `staticinvoke <Class: Type method()>()` = calling static method
+- `specialinvoke r0.<Class: void <init>()>()` = constructor call
+- `$r0 = r1.<Class: Type field>` = reading a field
+- `r1.<Class: Type field> = $r0` = writing a field
+- `if $i0 == 0 goto label1` = conditional branch
+
+Focus on:
+1. What methods are invoked (the `<Class: Type method()>` signatures)
+2. What fields are accessed
+3. Control flow patterns (if statements, loops)

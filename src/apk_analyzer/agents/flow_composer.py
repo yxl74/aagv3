@@ -1,11 +1,11 @@
-"""Static seed composition module.
+"""Static flow composition module.
 
-This module implements static (non-LLM) composition of seed-level analyses
+This module implements static (non-LLM) composition of flow-level analyses
 from pre-computed method analyses.
 
 Key classes:
-- ComposedSeedAnalysis: Statically composed analysis for a seed
-- SeedComposer: Composes method analyses into seed-level context
+- ComposedFlowAnalysis: Statically composed analysis for a flow
+- FlowComposer: Composes method analyses into flow-level context
 """
 from __future__ import annotations
 
@@ -16,14 +16,14 @@ from apk_analyzer.agents.method_tier1 import MethodAnalysis
 
 
 @dataclass
-class ComposedSeedAnalysis:
-    """Statically composed analysis for a seed.
+class ComposedFlowAnalysis:
+    """Statically composed analysis for a flow.
 
     Aggregates method analyses along the execution path into
-    a unified seed-level analysis for tier2 consumption.
+    a unified flow-level analysis for tier2 consumption.
     """
 
-    seed_id: str
+    flow_id: str
     api_category: str
     sink_api: str
 
@@ -53,6 +53,10 @@ class ComposedSeedAnalysis:
         return result
 
 
+# Backwards compatibility alias
+ComposedSeedAnalysis = ComposedFlowAnalysis
+
+
 def deduplicate_inputs(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Deduplicate required inputs by type+name.
 
@@ -70,20 +74,20 @@ def deduplicate_inputs(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return result
 
 
-def compose_seed_analysis(
-    seed: Dict[str, Any],
+def compose_flow_analysis(
+    flow: Dict[str, Any],
     method_cache: Dict[str, MethodAnalysis],
-) -> ComposedSeedAnalysis:
-    """Statically compose method analyses into seed-level analysis.
+) -> ComposedFlowAnalysis:
+    """Statically compose method analyses into flow-level analysis.
 
     Args:
-        seed: Seed dict with control_flow_path, api_category, etc.
+        flow: Flow dict with control_flow_path, api_category, etc.
         method_cache: Dict of method_sig -> MethodAnalysis
 
     Returns:
-        ComposedSeedAnalysis with aggregated path analyses
+        ComposedFlowAnalysis with aggregated path analyses
     """
-    control_flow_path = seed.get("control_flow_path", {})
+    control_flow_path = flow.get("control_flow_path", {})
     path_methods = control_flow_path.get("path_methods", [])
 
     # Collect analyses for each method in path
@@ -119,9 +123,9 @@ def compose_seed_analysis(
             sink_api = method
             break
 
-    return ComposedSeedAnalysis(
-        seed_id=seed.get("seed_id", ""),
-        api_category=seed.get("api_category", ""),
+    return ComposedFlowAnalysis(
+        flow_id=flow.get("flow_id") or flow.get("seed_id", ""),
+        api_category=flow.get("api_category", ""),
         sink_api=sink_api,
         path_analyses=path_analyses,
         all_constraints=all_constraints,
@@ -133,14 +137,18 @@ def compose_seed_analysis(
     )
 
 
+# Backwards compatibility alias
+compose_seed_analysis = compose_flow_analysis
+
+
 def prepare_tier2_input(
-    composed: ComposedSeedAnalysis,
+    composed: ComposedFlowAnalysis,
     include_full_analyses: bool = False,
 ) -> Dict[str, Any]:
-    """Prepare tier2 input from composed seed analysis.
+    """Prepare tier2 input from composed flow analysis.
 
     Args:
-        composed: ComposedSeedAnalysis to convert
+        composed: ComposedFlowAnalysis to convert
         include_full_analyses: If True, include full MethodAnalysis objects.
                               If False, include only summaries (lighter).
 
@@ -185,7 +193,7 @@ def prepare_tier2_input(
     ]
 
     return {
-        "seed_id": composed.seed_id,
+        "flow_id": composed.flow_id,
         "api_category": composed.api_category,
         "sink_api": composed.sink_api,
 
@@ -207,30 +215,34 @@ def prepare_tier2_input(
     }
 
 
-def compose_all_seeds(
-    seeds: List[Dict[str, Any]],
+def compose_all_flows(
+    flows: List[Dict[str, Any]],
     method_cache: Dict[str, MethodAnalysis],
-) -> List[ComposedSeedAnalysis]:
-    """Compose analyses for all seeds.
+) -> List[ComposedFlowAnalysis]:
+    """Compose analyses for all flows.
 
     Args:
-        seeds: List of seed dicts
+        flows: List of flow dicts
         method_cache: Dict of method_sig -> MethodAnalysis
 
     Returns:
-        List of ComposedSeedAnalysis, one per seed
+        List of ComposedFlowAnalysis, one per flow
     """
-    return [compose_seed_analysis(seed, method_cache) for seed in seeds]
+    return [compose_flow_analysis(flow, method_cache) for flow in flows]
+
+
+# Backwards compatibility alias
+compose_all_seeds = compose_all_flows
 
 
 def prepare_all_tier2_inputs(
-    composed_seeds: List[ComposedSeedAnalysis],
+    composed_flows: List[ComposedFlowAnalysis],
     include_full_analyses: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Prepare tier2 inputs for all seeds.
+    """Prepare tier2 inputs for all flows.
 
     Args:
-        composed_seeds: List of ComposedSeedAnalysis
+        composed_flows: List of ComposedFlowAnalysis
         include_full_analyses: Whether to include full method analysis details
 
     Returns:
@@ -238,5 +250,5 @@ def prepare_all_tier2_inputs(
     """
     return [
         prepare_tier2_input(composed, include_full_analyses)
-        for composed in composed_seeds
+        for composed in composed_flows
     ]
