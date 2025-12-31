@@ -12,6 +12,7 @@ import re
 
 from apk_analyzer.agents.recon import ReconAgent
 from apk_analyzer.agents.recon_tools import ReconToolRunner
+from apk_analyzer.agents.package_scope import PackageScopeAgent
 from apk_analyzer.agents.report import ReportAgent
 from apk_analyzer.agents.tier1_summarizer import Tier1SummarizerAgent
 from apk_analyzer.agents.tier1a_extraction import Tier1AExtractionAgent
@@ -22,6 +23,19 @@ from apk_analyzer.agents.tier2_intent import Tier2IntentAgent
 from apk_analyzer.agents.tier2a_reasoning import Tier2AReasoningAgent
 from apk_analyzer.agents.tier2b_commands import Tier2BCommandsAgent
 from apk_analyzer.agents.verifier import VerifierAgent
+from apk_analyzer.agents.method_tier1 import (
+    MethodAnalysis,
+    MethodAnalysisCache,
+    MethodTier1Agent,
+    analyze_methods_sync,
+    batch_extract_jadx_sources,
+    collect_unique_methods,
+)
+from apk_analyzer.agents.seed_composer import (
+    ComposedSeedAnalysis,
+    compose_seed_analysis,
+    prepare_tier2_input,
+)
 from apk_analyzer.analyzers.context_bundle_builder import ContextBundleBuilder, build_static_context
 from apk_analyzer.analyzers.dex_invocation_indexer import ApiCallSite, DexInvocationIndexer, SuspiciousApiIndex
 from apk_analyzer.analyzers.jadx_extractors import extract_method_source, run_jadx
@@ -31,6 +45,7 @@ from apk_analyzer.analyzers.execution_guidance_validator import validate_executi
 from apk_analyzer.analyzers.semantic_annotator import annotate_sliced_cfg
 from apk_analyzer.analyzers.tier2_prevalidator import prevalidate_for_tier2, format_validation_summary
 from apk_analyzer.analyzers.value_hints_builder import build_value_hints_for_seed
+from apk_analyzer.analyzers.package_inventory import build_package_inventory, package_inventory_preview
 from apk_analyzer.models.tier2_phases import merge_phase_outputs, ExecutionStep, Phase2AOutput, Phase2BOutput
 from apk_analyzer.analyzers.local_query import search_source_code
 from apk_analyzer.analyzers.mitre_mapper import load_rules, load_technique_index, map_evidence
@@ -38,7 +53,12 @@ from apk_analyzer.analyzers.sources_sinks_subset import generate_subset
 from apk_analyzer.clients.knox_client import KnoxClient
 from apk_analyzer.knowledge.api_catalog import ApiCatalog
 from apk_analyzer.observability.logger import EventLogger
-from apk_analyzer.phase0.sensitive_api_matcher import build_sensitive_api_hits, load_callgraph
+from apk_analyzer.phase0.sensitive_api_matcher import (
+    _COMMON_LIBRARY_PREFIXES,
+    _LIBRARY_PREFIXES,
+    build_sensitive_api_hits,
+    load_callgraph,
+)
 from apk_analyzer.phase0.cooccurrence_scorer import compute_threat_score, COOCCURRENCE_PATTERNS
 from apk_analyzer.telemetry import llm_context, set_run_context, span
 from apk_analyzer.telemetry.llm_instrumentation import InstrumentedLLMClient
@@ -367,22 +387,82 @@ class Orchestrator:
                         manifest,
                         catalog=sensitive_catalog,
                     )
-                    artifact_store.write_json("seeds/code_blocks.json", {
-                        "block_count": len(code_blocks),
-                        "blocks": code_blocks,
-                    })
-                    artifact_store.write_json("seeds/library_groups.json", {
-                        "group_count": len(library_groups),
-                        "groups": library_groups,
-                    })
+                    artifact_store.write_json(
+                        "seeds/code_blocks.json",
+                        {"block_count": len(code_blocks), "blocks": code_blocks},
+                    )
+                    artifact_store.write_json(
+                        "seeds/library_groups.json",
+                        {"group_count": len(library_groups), "groups": library_groups},
+                    )
                 else:
                     code_blocks = []
                     library_groups = []
 
+                # Package inventory (debug + optional LLM package scope selection)
+                package_inventory = build_package_inventory(
+                    callgraph_data if isinstance(callgraph_data, dict) else None,
+                    sensitive_hits.get("hits", []) if isinstance(sensitive_hits, dict) else [],
+                    hit_groups_payload.get("groups", []) if isinstance(hit_groups_payload, dict) else [],
+                    manifest,
+                )
+                artifact_store.write_json("graphs/package_inventory.json", package_inventory)
+
                 llm_conf = self.settings.get("llm", {}) or {}
+                analysis_conf = self.settings.get("analysis", {}) or {}
                 llm_client = self.llm_client
                 if llm_client:
                     llm_client = InstrumentedLLMClient(llm_client, artifact_store, event_logger=event_logger)
+
+                    # Optional: ask a high-capacity LLM to choose in-scope package prefixes.
+                    if llm_client and analysis_conf.get("package_scope_llm_enabled") and package_inventory:
+                        preview_max = int(analysis_conf.get("package_scope_llm_max_packages", 80) or 80)
+                        preview_min_hits = int(analysis_conf.get("package_scope_llm_min_hit_count", 1) or 1)
+                        inventory_preview = package_inventory_preview(
+                            package_inventory,
+                            max_packages=preview_max,
+                            min_hit_count=preview_min_hits,
+                        )
+                        scope_payload = {
+                            "manifest_package": package_inventory.get("manifest_package", ""),
+                            "component_packages": package_inventory.get("component_packages", []),
+                            "dominant_component_prefixes": package_inventory.get("dominant_component_prefixes", []),
+                            "inventory_preview": inventory_preview,
+                        }
+                        scope_agent = PackageScopeAgent(
+                            self.prompt_dir / "package_scope.md",
+                            llm_client,
+                            model=(
+                                llm_conf.get("model_package_scope")
+                                or llm_conf.get("model_recon")
+                                or llm_conf.get("model_orchestrator")
+                            ),
+                            event_logger=event_logger,
+                        )
+                        with span("stage.package_scope", stage="package_scope"):
+                            with llm_context("package_scope"):
+                                package_scope = scope_agent.run(scope_payload)
+                        artifact_store.write_json("llm/package_scope.json", package_scope)
+
+                        analyze_prefixes = package_scope.get("analyze_prefixes") if isinstance(package_scope, dict) else []
+                        ignore_prefixes = package_scope.get("ignore_prefixes") if isinstance(package_scope, dict) else []
+                        if analyze_prefixes or ignore_prefixes:
+                            # Rebuild code blocks using LLM-selected package prefixes to reduce false negatives.
+                            code_blocks, library_groups = build_code_blocks(
+                                hit_groups_payload.get("groups", []) if isinstance(hit_groups_payload, dict) else [],
+                                manifest,
+                                catalog=sensitive_catalog,
+                                extra_app_prefixes=analyze_prefixes if isinstance(analyze_prefixes, list) else None,
+                                ignore_prefixes=ignore_prefixes if isinstance(ignore_prefixes, list) else None,
+                            )
+                            artifact_store.write_json("seeds/code_blocks.json", {
+                                "block_count": len(code_blocks),
+                                "blocks": code_blocks,
+                            })
+                            artifact_store.write_json("seeds/library_groups.json", {
+                                "group_count": len(library_groups),
+                                "groups": library_groups,
+                            })
 
                 recon_result = {
                     "mode": "final",
@@ -726,6 +806,28 @@ class Orchestrator:
 
                 # tier1_catalog already loaded above (Fix 36)
 
+                # Method-centric Tier1 pipeline (new architecture)
+                method_tier1_enabled = llm_conf.get("method_tier1_enabled", False)
+                method_cache: Dict[str, MethodAnalysis] = {}
+
+                if method_tier1_enabled and jadx_root:
+                    event_logger.stage_start("method_tier1")
+                    with span("stage.method_tier1", stage="method_tier1"):
+                        method_cache = run_method_tier1_pipeline(
+                            bundles=bundles[: self.settings["analysis"].get("max_seed_count", 20)],
+                            jadx_root=jadx_root,
+                            llm_client=llm_client,
+                            artifact_store=artifact_store,
+                            event_logger=event_logger,
+                            model=llm_conf.get("model_tier1"),
+                            prompt_dir=self.prompt_dir,
+                        )
+                    event_logger.stage_end(
+                        "method_tier1",
+                        methods_analyzed=len(method_cache),
+                        methods_with_jadx=sum(1 for m in method_cache.values() if m.jadx_available),
+                    )
+
                 repair_count = 0
                 for seed_index, bundle in enumerate(bundles[: self.settings["analysis"].get("max_seed_count", 20)]):
                     seed_id = bundle["seed_id"]
@@ -742,8 +844,22 @@ class Orchestrator:
                     processed_count += 1
                     bundle_map[seed_id] = bundle
                     with span("llm.seed", stage="seed_processing", seed_id=seed_id, api_category=bundle.get("api_category")):
+                        # Check if method-centric Tier1 is enabled (static composition, no LLM here)
+                        if method_tier1_enabled and method_cache:
+                            # Static composition from pre-computed method analyses
+                            composed = compose_seed_analysis(bundle, method_cache)
+                            tier1 = tier1_from_composed(composed, bundle)
+                            artifact_store.write_json(f"llm/tier1/{seed_id}.json", tier1)
+
+                            # Save composed analysis for debugging
+                            artifact_store.write_json(f"llm/tier1/{seed_id}_composed.json", composed.to_dict())
+
+                            # No verifier needed for static composition (methods already verified)
+                            verifier = {"status": "COMPOSED", "notes": "Static composition from method analyses"}
+                            artifact_store.write_json(f"llm/verifier/{seed_id}.json", verifier)
+
                         # Check if three-phase Tier1 is enabled
-                        if tier1_split_enabled and tier1a_agent and tier1b_agent and tier1c_agent:
+                        elif tier1_split_enabled and tier1a_agent and tier1b_agent and tier1c_agent:
                             # Three-phase Tier1 flow (Fix 19: run for ALL seeds)
                             tier1, verifier = _run_three_phase_tier1(
                                 seed_id=seed_id,
@@ -1385,17 +1501,22 @@ def _get_outer_class(class_name: str) -> str:
 
 def _is_app_code_class(
     caller_class: str,
-    app_package: str,
     component_classes: set[str],
+    app_prefixes: List[str],
 ) -> bool:
     """Check if a class is app code (not library)."""
+    if not caller_class:
+        return False
     # Check if it's a known component
     outer_class = _get_outer_class(caller_class)
     if outer_class in component_classes or caller_class in component_classes:
         return True
-    # Check if it matches app package
-    if app_package and caller_class.startswith(app_package):
-        return True
+    # Check if it matches app prefixes (package_name or dominant component package)
+    for prefix in app_prefixes:
+        if not prefix:
+            continue
+        if caller_class == prefix or caller_class.startswith(prefix):
+            return True
     return False
 
 
@@ -1403,6 +1524,9 @@ def build_code_blocks(
     groups: List[Dict[str, Any]],
     manifest: Dict[str, Any],
     catalog: Optional[ApiCatalog] = None,
+    *,
+    extra_app_prefixes: Optional[List[str]] = None,
+    ignore_prefixes: Optional[List[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Aggregate method-level groups into class-level Code Blocks.
@@ -1435,24 +1559,90 @@ def build_code_blocks(
                     name = app_package + name
                 component_classes.add(name)
 
+    # App code prefix heuristic:
+    # - Always include manifest package_name (when present)
+    # - Also include the dominant package prefix among non-library manifest components
+    #
+    # This handles cases where the APK package_name differs from the Java package where
+    # most app classes live (e.g., applicationId != source package), which would
+    # otherwise misclassify real app code as "library" and cause false negatives.
+    app_prefixes: List[str] = []
+    if app_package:
+        app_prefixes.append(app_package)
+        app_prefixes.append(f"{app_package}.")
+
+    component_package_counts: Dict[str, int] = {}
+    for class_name in component_classes:
+        if not class_name:
+            continue
+        if class_name.startswith(_LIBRARY_PREFIXES) or class_name.startswith(_COMMON_LIBRARY_PREFIXES):
+            continue
+        if "." not in class_name:
+            continue
+        package_prefix = class_name.rsplit(".", 1)[0] + "."
+        component_package_counts[package_prefix] = component_package_counts.get(package_prefix, 0) + 1
+    if component_package_counts:
+        max_count = max(component_package_counts.values())
+        for prefix, count in component_package_counts.items():
+            if count == max_count:
+                app_prefixes.append(prefix)
+    app_prefixes = list(dict.fromkeys([p for p in app_prefixes if p]))
+
+    def _normalize_package_prefix(value: str) -> str:
+        prefix = (value or "").strip()
+        if not prefix:
+            return ""
+        if prefix.endswith(".*"):
+            prefix = prefix[:-2]
+        if prefix.endswith("."):
+            return prefix
+        return prefix + "."
+
+    # Optional LLM-selected prefixes (additive).
+    if extra_app_prefixes:
+        for p in extra_app_prefixes:
+            normalized = _normalize_package_prefix(str(p))
+            if normalized:
+                app_prefixes.append(normalized)
+    app_prefixes = list(dict.fromkeys([p for p in app_prefixes if p]))
+
+    ignore_prefixes_norm: List[str] = []
+    if ignore_prefixes:
+        ignore_prefixes_norm = [
+            normalized
+            for p in ignore_prefixes
+            if (normalized := _normalize_package_prefix(str(p)))
+        ]
+    ignore_prefixes_norm = list(dict.fromkeys(ignore_prefixes_norm))
+
+    def _is_ignored_class(class_name: str) -> bool:
+        if not class_name:
+            return False
+        return any(class_name.startswith(prefix) for prefix in ignore_prefixes_norm)
+
     # Group by outer class
     class_buckets: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     library_groups: List[Dict[str, Any]] = []
+    library_class_buckets: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
 
     for group in groups:
         caller_class = group.get("caller_class", "")
         outer_class = _get_outer_class(caller_class)
 
-        if _is_app_code_class(caller_class, app_package, component_classes):
+        # Never ignore manifest components.
+        is_manifest_component = outer_class in component_classes or caller_class in component_classes
+        if is_manifest_component:
+            class_buckets[outer_class].append(group)
+        elif _is_ignored_class(caller_class):
+            library_groups.append(group)
+            library_class_buckets[outer_class].append(group)
+        elif _is_app_code_class(caller_class, component_classes, app_prefixes):
             class_buckets[outer_class].append(group)
         else:
             library_groups.append(group)
+            library_class_buckets[outer_class].append(group)
 
-    # Build code blocks from app class buckets
-    code_blocks: List[Dict[str, Any]] = []
-    priority_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
-
-    for outer_class, class_groups in class_buckets.items():
+    def _build_block(outer_class: str, class_groups: List[Dict[str, Any]], *, is_library_code: bool) -> Dict[str, Any]:
         # Aggregate from all groups in this class
         all_hit_ids: List[str] = []
         all_group_ids: List[str] = []
@@ -1559,9 +1749,10 @@ def build_code_blocks(
                 all_categories_for_scoring, catalog, COOCCURRENCE_PATTERNS, level="block"
             )
 
-        code_blocks.append({
+        return {
             "block_id": block_id,
             "caller_class": outer_class,
+            "is_library_code": is_library_code,
             # Pre-computed context
             "component_type": comp_type,
             "component_name": comp_name,
@@ -1590,7 +1781,23 @@ def build_code_blocks(
             # Group IDs for drill-down
             "group_ids": all_group_ids,
             "hit_ids": all_hit_ids,
-        })
+        }
+
+    # Build code blocks from app class buckets (+ optionally keep patterned library blocks)
+    code_blocks: List[Dict[str, Any]] = []
+    priority_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+
+    for outer_class, class_groups in class_buckets.items():
+        code_blocks.append(_build_block(outer_class, class_groups, is_library_code=False))
+
+    # Keep only high-signal library code by co-occurrence pattern match.
+    # Rationale: third-party SDK code is often noisy, but if it matches an attack-chain
+    # co-occurrence pattern we still want to surface it to Recon instead of dropping it.
+    if catalog:
+        for outer_class, class_groups in library_class_buckets.items():
+            block = _build_block(outer_class, class_groups, is_library_code=True)
+            if (block.get("threat_meta") or {}).get("pattern_count", 0) > 0:
+                code_blocks.append(block)
 
     # Sort by effective priority, then threat_score_raw (uncapped for separation), then investigability
     code_blocks.sort(key=lambda b: (
@@ -2391,6 +2598,186 @@ def shape_tier1_payload(
                 payload["caller_method_source"] = source
 
     return payload
+
+
+# =============================================================================
+# Method-Centric Tier1 Pipeline
+# =============================================================================
+
+
+def run_method_tier1_pipeline(
+    bundles: List[Dict[str, Any]],
+    jadx_root: Path,
+    llm_client: Any,
+    artifact_store: "ArtifactStore",
+    event_logger: Optional["EventLogger"] = None,
+    model: Optional[str] = None,
+    prompt_dir: Optional[Path] = None,
+) -> Dict[str, MethodAnalysis]:
+    """
+    Run method-centric tier1 analysis pipeline.
+
+    1. Collect unique methods from all seed paths
+    2. Batch extract JADX sources
+    3. Analyze each method once (parallelizable)
+    4. Return method cache for static composition
+
+    Args:
+        bundles: List of seed bundles with control_flow_path
+        jadx_root: JADX output directory
+        llm_client: LLM client for analysis
+        artifact_store: For storing outputs
+        event_logger: Optional logger
+        model: Optional model name
+        prompt_dir: Directory containing prompts
+
+    Returns:
+        Dict mapping method_sig -> MethodAnalysis
+    """
+    prompt_dir = prompt_dir or Path("src/apk_analyzer/prompts")
+
+    # Phase 0.5: Collect unique methods from all paths
+    if event_logger:
+        event_logger.log("method_tier1.collect_start", bundle_count=len(bundles))
+
+    unique_methods = collect_unique_methods(bundles)
+
+    if event_logger:
+        event_logger.log(
+            "method_tier1.collect_done",
+            unique_methods=len(unique_methods),
+        )
+
+    if not unique_methods:
+        return {}
+
+    # Phase 0.6: Batch JADX extraction
+    if event_logger:
+        event_logger.log("method_tier1.jadx_start", methods=len(unique_methods))
+
+    method_sources = batch_extract_jadx_sources(unique_methods, jadx_root)
+
+    if event_logger:
+        event_logger.log(
+            "method_tier1.jadx_done",
+            extracted=len(method_sources),
+            missing=len(unique_methods) - len(method_sources),
+        )
+
+    # Setup cache directory
+    cache_dir = artifact_store.ensure_dir("method_cache")
+    cache = MethodAnalysisCache(cache_dir)
+
+    # Setup agent
+    agent = MethodTier1Agent(
+        prompt_path=prompt_dir / "tier1_method.md",
+        llm_client=llm_client,
+        model=model,
+        event_logger=event_logger,
+    )
+
+    # Phase 0.7: Analyze methods
+    if event_logger:
+        event_logger.log("method_tier1.analyze_start", methods=len(method_sources))
+
+    method_cache = analyze_methods_sync(
+        methods_with_sources=method_sources,
+        agent=agent,
+        cache=cache,
+        cfgs=None,  # TODO: Extract per-method CFGs if available
+    )
+
+    # Add placeholders for methods without JADX
+    for method_sig in unique_methods:
+        if method_sig not in method_cache:
+            method_cache[method_sig] = MethodAnalysis.placeholder(method_sig)
+
+    if event_logger:
+        analyzed_with_jadx = sum(1 for m in method_cache.values() if m.jadx_available)
+        event_logger.log(
+            "method_tier1.analyze_done",
+            analyzed=len(method_cache),
+            with_jadx=analyzed_with_jadx,
+        )
+
+    # Save method analyses to artifacts
+    for method_sig, analysis in method_cache.items():
+        safe_name = hashlib.sha256(method_sig.encode()).hexdigest()[:16]
+        artifact_store.write_json(f"method_cache/{safe_name}.json", analysis.to_dict())
+
+    return method_cache
+
+
+def tier1_from_composed(
+    composed: ComposedSeedAnalysis,
+    bundle: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Convert ComposedSeedAnalysis to legacy tier1 output format.
+
+    This allows the rest of the pipeline (tier2, report) to work unchanged.
+    """
+    # Aggregate function summaries from all methods
+    summaries = [
+        f"{a.method_sig}: {a.function_summary}"
+        for a in composed.path_analyses
+        if a.function_summary and a.jadx_available
+    ]
+    function_summary = " → ".join(summaries) if summaries else "Static composition from method analyses"
+
+    # Build trigger_surface from first method (entrypoint) or component_context
+    trigger_surface = composed.component_context.copy()
+    for analysis in composed.path_analyses:
+        if analysis.trigger_info and analysis.trigger_info.get("is_entrypoint"):
+            trigger_surface.update({
+                "notes": analysis.function_summary,
+            })
+            break
+
+    # Build facts from all method facts
+    facts = []
+    for analysis in composed.path_analyses:
+        for fact in analysis.facts:
+            facts.append({
+                "fact": fact.get("fact", ""),
+                "support_unit_ids": [],  # Static composition doesn't have CFG unit IDs
+                "source_method": analysis.method_sig,
+            })
+
+    # Build observable effects from method summaries
+    observable_effects = [
+        a.function_summary
+        for a in composed.path_analyses
+        if a.jadx_available
+    ]
+
+    # Aggregate uncertainties
+    uncertainties = []
+    for analysis in composed.path_analyses:
+        uncertainties.extend(analysis.uncertainties)
+
+    # Calculate confidence (average of method confidences)
+    confidences = [a.confidence for a in composed.path_analyses if a.jadx_available]
+    confidence = sum(confidences) / len(confidences) if confidences else 0.5
+
+    return {
+        "seed_id": composed.seed_id,
+        "function_summary": function_summary,
+        "path_constraints": composed.all_constraints,
+        "required_inputs": composed.all_required_inputs,
+        "trigger_surface": trigger_surface,
+        "observable_effects": observable_effects,
+        "facts": facts,
+        "uncertainties": uncertainties,
+        "confidence": confidence,
+        "mode": "method_composed",
+        "_meta": {
+            "llm_valid": True,
+            "methods_analyzed": composed.methods_analyzed,
+            "methods_with_jadx": composed.methods_with_jadx,
+            "composition_type": "static",
+        },
+    }
 
 
 # =============================================================================

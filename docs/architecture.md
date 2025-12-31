@@ -180,6 +180,53 @@ The Tier2 stage is split into two cognitive phases for maximum accuracy:
 
 ### Stage G: Tier1 + Verifier + Repair (LLM)
 
+The pipeline supports two Tier1 modes: **seed-centric** (legacy) and **method-centric** (new).
+
+#### Method-Centric Mode (`method_tier1_enabled: true`)
+
+When `llm.method_tier1_enabled: true`, the pipeline uses a method-centric architecture that analyzes each unique method ONCE with JADX source, then statically composes seed-level analyses:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Method-Centric Tier1 Pipeline                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│ Phase 0.5: Collect unique methods from all seed paths           │
+│            → Filter out framework APIs (android.*, java.*)      │
+│            → ~33 unique app methods (from 20 seeds, 53 total)   │
+│                                                                 │
+│ Phase 0.6: Batch JADX extraction for all unique methods         │
+│            → Extract decompiled Java source in one pass         │
+│                                                                 │
+│ Phase 0.7: Method-Level Tier1 Analysis (PARALLELIZABLE)         │
+│            → ~33 LLM calls (one per unique app method)          │
+│            → Each method analyzed with its JADX source          │
+│            → Results cached to disk for cross-run reuse         │
+│                                                                 │
+│ Phase 1: Static Composition (NO LLM)                            │
+│          → For each seed, assemble method analyses              │
+│          → Aggregate constraints, inputs, facts                 │
+│          → Output: ComposedSeedAnalysis → legacy tier1 format   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key components:**
+- **MethodAnalysis** (`src/apk_analyzer/agents/method_tier1.py`): Dataclass for per-method analysis results
+- **MethodTier1Agent**: Analyzes individual methods with JADX source using `tier1_method.md` prompt
+- **MethodAnalysisCache**: Disk-based cache enabling cross-run reuse of method analyses
+- **SeedComposer** (`src/apk_analyzer/agents/seed_composer.py`): Static composition of method analyses
+
+**Benefits:**
+- Every path method analyzed with JADX source (not inferred from name)
+- Method analyses parallelizable (no inter-dependencies)
+- Cross-run caching: subsequent runs on same APK skip already-analyzed methods
+- Richer tier2 input: method-by-method execution path breakdown
+
+**Artifacts**: `method_cache/*.json` (per-method analyses), `llm/tier1/*_composed.json`
+
+#### Seed-Centric Mode (Legacy, Default)
+
 - **Payload shaping** (`shape_tier1_payload` in `orchestrator.py`): optimizes context bundles before LLM calls:
   - Filters permissions to category-relevant subset (suffix matching against catalog `permission_hints`)
   - Filters strings to remove library noise, preserves IPs/URLs, scores by suspiciousness
@@ -278,11 +325,14 @@ artifacts/{analysis_id}/runs/{run_id}/
 │   ├── sensitive_api_groups.json
 │   ├── code_blocks.json
 │   └── suspicious_api_index.json
+├── method_cache/                          # Method-centric Tier1 (when enabled)
+│   └── <method_hash>.json                 # Per-method analysis cache
 ├── llm/
 │   ├── recon.json
 │   ├── tier1/
 │   │   ├── <seed_id>.json
-│   │   └── <seed_id>_repair.json
+│   │   ├── <seed_id>_repair.json
+│   │   └── <seed_id>_composed.json        # Static composition output
 │   ├── verifier/
 │   │   └── <seed_id>.json
 │   ├── tier2a/
@@ -309,6 +359,8 @@ artifacts/{analysis_id}/runs/{run_id}/
 | Orchestrator | `src/apk_analyzer/agents/orchestrator.py` |
 | Recon agent | `src/apk_analyzer/agents/recon.py` |
 | Tier1 summarizer | `src/apk_analyzer/agents/tier1_summarizer.py` |
+| Method-centric Tier1 | `src/apk_analyzer/agents/method_tier1.py` |
+| Seed composer | `src/apk_analyzer/agents/seed_composer.py` |
 | Tier2A reasoning | `src/apk_analyzer/agents/tier2a_reasoning.py` |
 | Tier2B commands | `src/apk_analyzer/agents/tier2b_commands.py` |
 | Verifier | `src/apk_analyzer/agents/verifier.py` |
