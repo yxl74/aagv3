@@ -2500,6 +2500,7 @@
     .hierarchy-card-icon.groups { background: var(--purple-light, #ede9fe); color: var(--purple, #8b5cf6); }
     .hierarchy-card-icon.hits { background: var(--orange-light); color: var(--orange); }
     .hierarchy-card-icon.cases { background: var(--green-light); color: var(--green); }
+    .hierarchy-card-icon.seeds { background: var(--teal-light, #ccfbf1); color: var(--teal, #14b8a6); }
 
     .hierarchy-card-label {
       font-size: 12px;
@@ -2904,6 +2905,147 @@
       color: var(--gray-500);
       margin-top: 4px;
     }
+
+    /* ============================================================
+       Seeds Display (Tier1 Input)
+       ============================================================ */
+    .seeds-summary {
+      padding: 12px 16px;
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+      font-size: 13px;
+      color: var(--gray-600);
+    }
+    .seeds-list {
+      padding: 16px;
+    }
+    .seed-card {
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .seed-card.merged {
+      border-left: 4px solid var(--teal, #14b8a6);
+      background: linear-gradient(to right, rgba(20, 184, 166, 0.05), transparent);
+    }
+    .seed-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+    .seed-category {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .merged-badge {
+      background: var(--teal, #14b8a6);
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .seed-category-name {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--gray-800);
+    }
+    .seed-meta {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .case-badge {
+      background: var(--gray-100);
+      color: var(--gray-600);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: var(--font-mono, monospace);
+    }
+    .seed-caller {
+      font-family: var(--font-mono, 'SF Mono', monospace);
+      font-size: 13px;
+      color: var(--gray-700);
+      background: var(--gray-50);
+      padding: 8px 12px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+    .seed-caller-label {
+      font-size: 10px;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+      font-family: var(--font-sans, system-ui);
+    }
+    .seed-caller-value {
+      word-break: break-all;
+    }
+    .merged-apis {
+      margin: 12px 0;
+      padding-left: 16px;
+      border-left: 2px solid var(--teal-light, #99f6e4);
+    }
+    .merged-apis-label {
+      font-size: 10px;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+    .merged-api-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      font-family: var(--font-mono, 'SF Mono', monospace);
+      font-size: 12px;
+      gap: 12px;
+    }
+    .api-signature {
+      color: var(--gray-700);
+      word-break: break-all;
+    }
+    .api-category-tag {
+      font-size: 10px;
+      color: var(--gray-500);
+      background: var(--gray-100);
+      padding: 2px 6px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .single-api {
+      font-family: var(--font-mono, 'SF Mono', monospace);
+      font-size: 12px;
+      color: var(--gray-700);
+      padding: 8px 12px;
+      background: var(--gray-50);
+      border-radius: 4px;
+    }
+    .api-label {
+      color: var(--gray-500);
+      margin-right: 8px;
+    }
+    .seed-rationale {
+      font-size: 13px;
+      color: var(--gray-600);
+      font-style: italic;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--gray-100);
+    }
+    .seed-rationale strong {
+      font-style: normal;
+      color: var(--gray-700);
+    }
   </style>
   <!-- Cytoscape.js for interactive graph visualization -->
   <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
@@ -3132,6 +3274,20 @@
             LLM triage
             {% endif %}
           </div>
+        </div>
+
+        <div class="hierarchy-arrow">→</div>
+
+        <!-- Seeds Card (Tier1 Input) -->
+        <div class="hierarchy-card" data-level="seeds" onclick="showHierarchyLevel('seeds')">
+          <div class="hierarchy-card-header">
+            <div class="hierarchy-card-icon seeds">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+            </div>
+            <div class="hierarchy-card-label">Seeds</div>
+          </div>
+          <div class="hierarchy-card-value" id="seedCount">—</div>
+          <div class="hierarchy-card-sub">Tier1 input</div>
         </div>
       </div>
 
@@ -5935,6 +6091,7 @@
       groups: null,
       hits: null,
       cases: null,
+      seeds: null,
       loading: false
     };
 
@@ -6023,11 +6180,12 @@
 
       try {
         // Parallel fetch all artifacts
-        const [blocksRes, groupsRes, hitsRes, casesRes] = await Promise.allSettled([
+        const [blocksRes, groupsRes, hitsRes, casesRes, seedsRes] = await Promise.allSettled([
           fetch(`${baseUrl}/seeds/code_blocks.json`),
           fetch(`${baseUrl}/seeds/sensitive_api_groups.json`),
           fetch(`${baseUrl}/seeds/sensitive_api_hits.json`),
-          fetch(`${baseUrl}/llm/recon.json`)
+          fetch(`${baseUrl}/llm/recon.json`),
+          fetch(`${baseUrl}/seeds/suspicious_api_index.json`)
         ]);
 
         // Parse responses
@@ -6053,6 +6211,9 @@
         if (casesRes.status === 'fulfilled' && casesRes.value.ok) {
           hierarchyData.cases = await casesRes.value.json();
         }
+        if (seedsRes.status === 'fulfilled' && seedsRes.value.ok) {
+          hierarchyData.seeds = await seedsRes.value.json();
+        }
 
         updateHierarchySummary();
       } catch (err) {
@@ -6071,16 +6232,19 @@
       const hitCount = hierarchyData.hits?.summary?.total_hits ??
                        hierarchyData.hits?.hits?.length ?? null;
       const caseCount = hierarchyData.cases?.cases?.length ?? null;
+      const seedCount = hierarchyData.seeds?.callsites?.length ?? null;
 
       const blockEl = document.getElementById('blockCount');
       const groupEl = document.getElementById('groupCount');
       const hitEl = document.getElementById('hitCount');
       const caseEl = document.getElementById('caseCount');
+      const seedEl = document.getElementById('seedCount');
 
       if (blockEl && blockCount !== null) blockEl.textContent = blockCount;
       if (groupEl && groupCount !== null) groupEl.textContent = groupCount;
       if (hitEl && hitCount !== null) hitEl.textContent = hitCount;
       if (caseEl && caseCount !== null) caseEl.textContent = caseCount;
+      if (seedEl && seedCount !== null) seedEl.textContent = seedCount;
     }
 
     // Show hierarchy level in tree panel
@@ -6099,7 +6263,8 @@
         'blocks': 'Code Blocks (by class)',
         'groups': 'Method Groups (by caller)',
         'hits': 'API Hits (individual calls)',
-        'cases': 'Investigation Cases (LLM triage)'
+        'cases': 'Investigation Cases (LLM triage)',
+        'seeds': 'Seeds (Tier1 input)'
       };
       title.textContent = titles[level] || level;
 
@@ -6139,6 +6304,9 @@
           break;
         case 'cases':
           renderCasesTree(container);
+          break;
+        case 'seeds':
+          renderSeedsTree(container);
           break;
       }
     }
@@ -6396,6 +6564,144 @@
       container.innerHTML = html;
     }
 
+    // Render seeds tree (Tier1 input)
+    function renderSeedsTree(container) {
+      const seeds = hierarchyData.seeds?.callsites ?? [];
+      if (!seeds.length) {
+        container.innerHTML = '<div class="tree-empty">No seeds found (seeding stage may not have completed)</div>';
+        return;
+      }
+
+      // Count merged seeds
+      const mergedCount = seeds.filter(s => (s.callsite_descriptor?.merged_count || 0) > 1).length;
+
+      // Sort by priority
+      const sorted = [...seeds].sort((a, b) =>
+        (a.callsite_descriptor?.priority ?? 99) - (b.callsite_descriptor?.priority ?? 99)
+      );
+
+      let html = `
+        <div class="seeds-summary">
+          ${seeds.length} seeds${mergedCount > 0 ? ` (${mergedCount} merged)` : ''}
+        </div>
+        <div class="seeds-list">
+      `;
+
+      sorted.forEach(seed => {
+        html += renderSeedCard(seed);
+      });
+
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    // Render a single seed card
+    function renderSeedCard(seed) {
+      const desc = seed.callsite_descriptor || {};
+      const isMerged = (desc.merged_count || 0) > 1;
+      const priority = desc.recon_severity || 'MEDIUM';
+      const callerShort = extractCallerMethodName(seed.caller_method);
+
+      // Get display category
+      let displayCategory = seed.category;
+      if (displayCategory && displayCategory.startsWith('MERGED')) {
+        displayCategory = desc.merged_categories?.[0] || 'UNKNOWN';
+      }
+
+      let html = `
+        <div class="seed-card ${isMerged ? 'merged' : ''}">
+          <div class="seed-header">
+            <div class="seed-category">
+              ${isMerged ? `<span class="merged-badge">🔀 MERGED (${desc.merged_count} APIs)</span>` : ''}
+              <span class="seed-category-name">${escapeHtml(displayCategory || 'UNKNOWN')}</span>
+            </div>
+            <div class="seed-meta">
+              <span class="priority-badge ${priority.toLowerCase()}">${escapeHtml(priority)}</span>
+              ${desc.case_id ? `<span class="case-badge">${escapeHtml(desc.case_id)}</span>` : ''}
+            </div>
+          </div>
+
+          <div class="seed-caller">
+            <div class="seed-caller-label">Parent Method</div>
+            <div class="seed-caller-value">${escapeHtml(callerShort)}</div>
+          </div>
+
+          ${isMerged ? renderMergedApis(desc) : renderSingleApi(seed)}
+
+          ${desc.recon_rationale ? `
+            <div class="seed-rationale">
+              <strong>Recon:</strong> "${escapeHtml(truncateText(desc.recon_rationale, 200))}"
+            </div>
+          ` : ''}
+        </div>
+      `;
+
+      return html;
+    }
+
+    // Render merged API list
+    function renderMergedApis(desc) {
+      const signatures = desc.merged_signatures || [];
+      const categories = desc.merged_categories || [];
+
+      let html = `
+        <div class="merged-apis">
+          <div class="merged-apis-label">Merged API Calls:</div>
+      `;
+
+      signatures.forEach((sig, i) => {
+        const catDisplay = categories[i % categories.length] || '';
+        html += `
+          <div class="merged-api-item">
+            <span class="api-signature">${escapeHtml(extractApiName(sig))}</span>
+            ${catDisplay ? `<span class="api-category-tag">${escapeHtml(catDisplay)}</span>` : ''}
+          </div>
+        `;
+      });
+
+      html += '</div>';
+      return html;
+    }
+
+    // Render single API
+    function renderSingleApi(seed) {
+      return `
+        <div class="single-api">
+          <span class="api-label">API:</span>
+          <span class="api-signature">${escapeHtml(extractApiName(seed.signature))}</span>
+        </div>
+      `;
+    }
+
+    // Extract readable caller method name
+    function extractCallerMethodName(fullSig) {
+      if (!fullSig) return '?';
+      // "<com.example.App: void recordMic()>" → "App.recordMic()"
+      const match = fullSig.match(/<([^:]+):\s*\S+\s+(\w+)\s*\(/);
+      if (match) {
+        const className = match[1].split('.').pop();
+        return `${className}.${match[2]}()`;
+      }
+      return fullSig;
+    }
+
+    // Extract readable API name
+    function extractApiName(sig) {
+      if (!sig) return '?';
+      // "android/media/MediaRecorder;->start()" → "MediaRecorder.start()"
+      const match = sig.match(/([^/;]+);?->(\w+)\s*\(/);
+      if (match) {
+        return `${match[1]}.${match[2]}()`;
+      }
+      return sig;
+    }
+
+    // Truncate text helper
+    function truncateText(text, maxLen) {
+      if (!text || text.length <= maxLen) return text;
+      return text.substring(0, maxLen) + '...';
+    }
+
     // Refresh hierarchy data (called from SSE handler)
     async function refreshHierarchyData() {
       // Add loading state to cards
@@ -6408,6 +6714,7 @@
       hierarchyData.groups = null;
       hierarchyData.hits = null;
       hierarchyData.cases = null;
+      hierarchyData.seeds = null;
 
       await fetchHierarchyData();
 
