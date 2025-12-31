@@ -17,6 +17,9 @@ from typing import Any, Dict, List, Optional
 
 from apk_analyzer.agents.base import LLMClient
 from apk_analyzer.models.tier2_phases import (
+    AttackChain,
+    AttackStage,
+    DataFlowTrace,
     DriverRequirement,
     EvidenceCitation,
     IntentVerdict,
@@ -80,9 +83,9 @@ class Tier2AReasoningAgent:
         response = self.llm_client.complete(self.prompt, payload, model=self.model)
 
         # Required keys for Phase 2A output
+        # Accept either attack_chain (new) or attack_chain_summary (legacy)
         required_keys = (
             "intent_verdict",
-            "attack_chain_summary",
             "driver_requirements",
         )
 
@@ -122,11 +125,14 @@ class Tier2AReasoningAgent:
         for req_data in result.get("driver_requirements", []):
             citations = []
             for cit in req_data.get("evidence_citations", []):
+                # Support both legacy (unit_id) and new (method:fact_index) formats
                 citations.append(EvidenceCitation(
                     unit_id=cit.get("unit_id", ""),
                     seed_id=cit.get("seed_id", ""),
                     statement=cit.get("statement", ""),
                     interpretation=cit.get("interpretation", ""),
+                    method=cit.get("method", ""),
+                    fact_index=cit.get("fact_index", -1),
                 ))
 
             dr = DriverRequirement(
@@ -145,21 +151,72 @@ class Tier2AReasoningAgent:
             )
             driver_reqs.append(dr)
 
-        # Aggregate facts from seeds
+        # Parse attack_chain (new dual-level format)
+        attack_chain = None
+        attack_chain_data = result.get("attack_chain")
+        if attack_chain_data and isinstance(attack_chain_data, dict):
+            stages = []
+            for stage_data in attack_chain_data.get("stage_level", []):
+                stages.append(AttackStage(
+                    stage=stage_data.get("stage", ""),
+                    methods=stage_data.get("methods", []),
+                    description=stage_data.get("description", ""),
+                ))
+            attack_chain = AttackChain(
+                method_level=attack_chain_data.get("method_level", []),
+                stage_level=stages,
+            )
+
+        # Parse data_flow_trace (new)
+        data_flow_trace = []
+        for trace_data in result.get("data_flow_trace", []):
+            data_flow_trace.append(DataFlowTrace(
+                from_method=trace_data.get("from_method", ""),
+                to_method=trace_data.get("to_method", ""),
+                data=trace_data.get("data", ""),
+                note=trace_data.get("note", ""),
+            ))
+
+        # Parse method_roles (new)
+        method_roles = result.get("method_roles", {})
+
+        # Aggregate facts from seeds (handle both legacy and new formats)
         aggregated_facts = []
         for seed in seeds:
+            seed_id = seed.get("seed_id", "unknown")
+            # Legacy format: facts at seed level
             for fact in seed.get("facts", []):
                 aggregated_facts.append({
                     **fact,
-                    "seed_id": seed.get("seed_id", "unknown"),
+                    "seed_id": seed_id,
                 })
+            # New format: facts within execution_path methods
+            for method_info in seed.get("execution_path", []):
+                method_name = method_info.get("method", "")
+                for i, fact in enumerate(method_info.get("facts", [])):
+                    aggregated_facts.append({
+                        **fact,
+                        "seed_id": seed_id,
+                        "method": method_name,
+                        "fact_index": i,
+                    })
+
+        # Build attack_chain_summary from attack_chain if needed
+        attack_chain_summary = result.get("attack_chain_summary", "")
+        if not attack_chain_summary and attack_chain:
+            # Generate summary from stage_level
+            stages_desc = [f"{s.stage}: {s.description}" for s in attack_chain.stage_level]
+            attack_chain_summary = " → ".join(stages_desc) if stages_desc else ""
 
         return Phase2AOutput(
             case_id=case_id,
             intent_verdict=verdict,
             confidence=result.get("confidence", 0.0),
-            attack_chain_summary=result.get("attack_chain_summary", ""),
+            attack_chain=attack_chain,
+            attack_chain_summary=attack_chain_summary,
             attack_stages=result.get("attack_stages", []),
+            method_roles=method_roles,
+            data_flow_trace=data_flow_trace,
             evidence=result.get("evidence", []),
             driver_requirements=driver_reqs,
             aggregated_facts=aggregated_facts,
@@ -174,18 +231,40 @@ class Tier2AReasoningAgent:
         reason: str,
     ) -> Phase2AOutput:
         """Build fallback Phase2AOutput when LLM fails."""
-        # Create driver requirements from seed trigger surfaces
+        # Create driver requirements from seed data
         driver_reqs = []
         for seed in seeds:
+            seed_id = seed.get("seed_id", "unknown")
+
+            # Try to get component info from execution_path (new format)
+            execution_path = seed.get("execution_path", [])
+            component_context = seed.get("component_context", {})
+
+            # Find entrypoint from execution_path
+            entrypoint_method = ""
+            for method_info in execution_path:
+                trigger_info = method_info.get("trigger_info", {})
+                if trigger_info.get("is_entrypoint"):
+                    entrypoint_method = method_info.get("method", "")
+                    break
+
+            # Fall back to trigger_surface (legacy format)
             trigger = seed.get("trigger_surface", {})
-            if trigger.get("component_name"):
+            component_name = component_context.get("component_name") or trigger.get("component_name", "")
+            component_type = component_context.get("component_type") or trigger.get("component_type", "unknown")
+
+            if component_name or entrypoint_method:
+                # Build expected behavior from execution_path summaries
+                summaries = [m.get("summary", "") for m in execution_path if m.get("summary")]
+                expected_behavior = " → ".join(summaries) if summaries else seed.get("function_summary", "Unknown behavior")
+
                 dr = DriverRequirement(
-                    requirement_id=f"fallback_{seed.get('seed_id', 'unknown')}",
-                    seed_id=seed.get("seed_id", "unknown"),
-                    component_name=trigger.get("component_name", ""),
-                    component_type=trigger.get("component_type", "unknown"),
+                    requirement_id=f"fallback_{seed_id}",
+                    seed_id=seed_id,
+                    component_name=component_name,
+                    component_type=component_type,
                     trigger_method="adb_start",
-                    expected_behavior=seed.get("function_summary", "Unknown behavior"),
+                    expected_behavior=expected_behavior,
                     automation_feasibility="manual_investigation_required",
                 )
                 driver_reqs.append(dr)

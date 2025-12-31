@@ -8,8 +8,19 @@ You receive:
   - `file_hints`: File paths from code
   - `log_hints`: Log tags for verification
   - `urls`, `ip_addresses`, `domains`: Strings of interest
-- `seed_tier1`: Relevant seed's analysis (facts, trigger_surface, constraints)
-  - `observable_effects_detail` (if present): structured effects with unit_ids/claim_id
+- `seed_analysis`: The composed seed analysis containing:
+  - `seed_id`: Unique identifier for this path
+  - `api_category`: Type of sensitive API
+  - `sink_api`: The framework API call at the end of the path
+  - `execution_path`: Method-by-method breakdown:
+    - `method`: Full method signature (use for Frida hooks!)
+    - `summary`: What this method does
+    - `data_flow`: What data enters and exits
+    - `trigger_info`: Is this method an entrypoint?
+    - `constraints`: Conditions for this method to execute
+    - `facts`: Evidence for this method
+  - `required_permissions`: Permissions needed
+  - `component_context`: Entrypoint component info
 - `available_templates`: Command templates you can use as patterns
 - `package_name`: APK package name
 
@@ -20,12 +31,32 @@ Generate executable steps that:
 3. Capture evidence
 
 ## Critical Rules - ANTI-HALLUCINATION
-1. **Only use methods from evidence**: Do NOT fabricate Frida hooks for methods not in seed_tier1.facts
+1. **Only hook methods from execution_path**: For Frida hooks, use EXACT method signatures from seed_analysis.execution_path
 2. **Only use file paths from value_hints**: Do NOT invent paths like "/sdcard/recording.mp3"
 3. **Only use log tags from value_hints.log_hints**: Do NOT invent tags
 4. **Use templates as patterns**: Adapt them, don't invent new syntax
-5. **Cite evidence**: Each step should reference where the info came from
-6. **Prefer structured effects**: If `seed_tier1.observable_effects_detail` is present, use its unit_ids for evidence citations
+5. **Cite evidence**: Reference method:fact_index for each step (e.g., "readContacts:0")
+
+## Frida Hook Generation
+When generating Frida hooks:
+1. **Find the target method** in seed_analysis.execution_path
+2. **Use the EXACT method signature** (e.g., `<com.malware.MaliciousFunctions: void readContacts(android.content.Context)>`)
+3. **Use data_flow** to understand what parameters to log
+4. **Use facts** as evidence for why you're hooking this method
+
+Example: If execution_path contains:
+```json
+{
+  "method": "<com.malware.MaliciousFunctions: void readContacts(android.content.Context)>",
+  "summary": "Reads all contacts and serializes to JSON",
+  "data_flow": ["Receives Context", "Outputs JSON string"]
+}
+```
+
+Then generate a Frida hook for:
+- Class: `com.malware.MaliciousFunctions`
+- Method: `readContacts`
+- Expected behavior: Log Context input and JSON output
 
 ## Template Usage
 Templates are GUARDRAILS, not restrictions. Use them as patterns:
@@ -35,7 +66,7 @@ Templates are GUARDRAILS, not restrictions. Use them as patterns:
 
 ## Step Types
 - `adb`: ADB shell commands (start, broadcast, pm grant, etc.)
-- `frida`: Frida hooks (ONLY for methods in evidence)
+- `frida`: Frida hooks (ONLY for methods in execution_path)
 - `manual`: Steps requiring human intervention
 - `verify`: Verification commands
 
@@ -54,30 +85,29 @@ Use value_hints.intent_extras:
     {
       "step_id": "grant_permissions",
       "type": "adb",
-      "description": "Grant RECORD_AUDIO permission",
-      "command": "adb shell pm grant {package_name} android.permission.RECORD_AUDIO",
+      "description": "Grant READ_CONTACTS permission",
+      "command": "adb shell pm grant {package_name} android.permission.READ_CONTACTS",
       "template_id": "grant_permission",
-      "evidence_citation": "Required per seed_tier1.required_inputs"
+      "evidence_citation": "Required per seed_analysis.required_permissions"
+    },
+    {
+      "step_id": "hook_collector",
+      "type": "frida",
+      "description": "Hook readContacts to observe data collection",
+      "command": "Java.perform(function() { var MaliciousFunctions = Java.use('com.malware.MaliciousFunctions'); MaliciousFunctions.readContacts.implementation = function(ctx) { console.log('[readContacts] called'); var result = this.readContacts(ctx); console.log('[readContacts] result:', result); return result; }; });",
+      "evidence_citation": "readContacts:0 - Queries ContactsContract"
     },
     {
       "step_id": "trigger_service",
       "type": "adb",
-      "description": "Start recording service with CMD extra",
-      "command": "adb shell am start-service -n {package_name}/{component} --es CMD START",
+      "description": "Start service with CMD extra",
+      "command": "adb shell am start-service -n {package_name}/{component} --es CMD CONTACTS",
       "verify": {
         "command": "adb shell dumpsys activity services | grep {component}",
         "expect_contains": "service running"
       },
       "template_id": "start_service",
-      "template_vars": {"package_name": "com.example", "component_name": ".RecordService"},
-      "evidence_citation": "u5: getStringExtra(CMD).equals(START)"
-    },
-    {
-      "step_id": "verify_recording",
-      "type": "adb",
-      "description": "Check for recording file",
-      "command": "adb shell ls -la /data/data/{package_name}/cache/rec.mp3",
-      "evidence_citation": "u8: setOutputFile(cacheDir/rec.mp3)"
+      "evidence_citation": "CommandRunner.run():0 - Routes commands to handlers"
     }
   ],
   "manual_steps": [
@@ -94,22 +124,27 @@ Use value_hints.intent_extras:
 }
 ```
 
-## Example Command Generation
+## Example: Using execution_path for Frida Hooks
 
-Given value_hints.intent_extras:
+Given seed_analysis.execution_path:
 ```json
-[{"name": "CMD", "type": "string", "value_hints": ["START", "STOP"], "injectable": true}]
+[
+  {"method": "<com.malware.CommandRunner: void run()>", "summary": "Dispatcher", "trigger_info": {"is_entrypoint": true}},
+  {"method": "<com.malware.MaliciousFunctions: java.lang.String readContacts(android.content.Context)>", "summary": "Reads contacts"}
+]
 ```
 
-Generate:
-```
-adb shell am start-service -n com.pkg/.Service --es CMD START
-```
-
-NOT:
-```
-adb shell am start-service -n com.pkg/.Service  // Missing extra
-adb shell am start-service -n com.pkg/.Service --es ACTION START  // Wrong extra name
+Generate Frida hook for readContacts (the collector, not the dispatcher):
+```javascript
+Java.perform(function() {
+  var MaliciousFunctions = Java.use('com.malware.MaliciousFunctions');
+  MaliciousFunctions.readContacts.overload('android.content.Context').implementation = function(ctx) {
+    console.log('[HOOK] readContacts called');
+    var result = this.readContacts(ctx);
+    console.log('[HOOK] readContacts result: ' + result);
+    return result;
+  };
+});
 ```
 
 ## Verification Strategies
@@ -117,5 +152,11 @@ adb shell am start-service -n com.pkg/.Service --es ACTION START  // Wrong extra
 2. **Log-based**: Use log_hints for `adb logcat -s TAG | grep message`
 3. **Service-based**: `adb shell dumpsys activity services | grep component`
 4. **Process-based**: `adb shell ps | grep package_name`
+5. **Network-based**: If monitoring network, use `adb shell netstat` or Frida network hooks
+
+## Citing Evidence
+Use method:fact_index format for citations:
+- `readContacts:0` = first fact from readContacts method in execution_path
+- `CommandRunner.run():1` = second fact from CommandRunner.run method
 
 Remember: Generate ONLY what the evidence supports. If uncertain, add to manual_steps.

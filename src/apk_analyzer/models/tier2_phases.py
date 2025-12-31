@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 
 # =============================================================================
@@ -27,11 +27,76 @@ class IntentVerdict(Enum):
 
 @dataclass
 class EvidenceCitation:
-    """Citation to support a claim."""
-    unit_id: str
+    """Citation to support a claim.
+
+    Supports both legacy unit_id format and new method:fact_index format.
+    """
+    unit_id: str  # Legacy format OR method:fact_index
     seed_id: str
     statement: str
-    interpretation: str
+    interpretation: str = ""
+    # New method-centric fields
+    method: str = ""  # Method name for method:fact_index citations
+    fact_index: int = -1  # Fact index within method
+
+
+@dataclass
+class AttackStage:
+    """A stage in the attack chain with associated methods."""
+    stage: str
+    methods: List[str]
+    description: str
+
+
+@dataclass
+class AttackChain:
+    """Dual-level attack chain representation."""
+    method_level: List[str]  # Ordered list of method names
+    stage_level: List[AttackStage]  # Grouped into stages
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "method_level": self.method_level,
+            "stage_level": [
+                {"stage": s.stage, "methods": s.methods, "description": s.description}
+                for s in self.stage_level
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AttackChain":
+        """Create from dictionary."""
+        stages = [
+            AttackStage(
+                stage=s.get("stage", ""),
+                methods=s.get("methods", []),
+                description=s.get("description", ""),
+            )
+            for s in data.get("stage_level", [])
+        ]
+        return cls(
+            method_level=data.get("method_level", []),
+            stage_level=stages,
+        )
+
+
+@dataclass
+class DataFlowTrace:
+    """Trace of data flow between methods."""
+    from_method: str
+    to_method: str
+    data: str
+    note: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "from_method": self.from_method,
+            "to_method": self.to_method,
+            "data": self.data,
+            "note": self.note,
+        }
 
 
 @dataclass
@@ -108,9 +173,17 @@ class Phase2AOutput:
     intent_verdict: IntentVerdict
     confidence: float  # 0.0-1.0
 
-    # Attack chain summary
-    attack_chain_summary: str
+    # Attack chain - dual level (new)
+    attack_chain: Optional[AttackChain] = None
+    # Legacy attack chain summary (for backward compatibility)
+    attack_chain_summary: str = ""
     attack_stages: List[str] = field(default_factory=list)
+
+    # Method roles in the attack (new)
+    method_roles: Dict[str, str] = field(default_factory=dict)
+
+    # Data flow trace between methods (new)
+    data_flow_trace: List[DataFlowTrace] = field(default_factory=list)
 
     # Aggregated evidence
     evidence: List[Dict[str, Any]] = field(default_factory=list)
@@ -129,7 +202,7 @@ class Phase2AOutput:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             "case_id": self.case_id,
             "intent_verdict": self.intent_verdict.value,
             "confidence": self.confidence,
@@ -140,18 +213,34 @@ class Phase2AOutput:
             "aggregated_facts": self.aggregated_facts,
             "uncertainties": self.uncertainties,
             "threat_categories": self.threat_categories,
-            "schema_version": "2.0",
+            "schema_version": "2.1",
             "phase": "2a",
         }
+        # Add new fields
+        if self.attack_chain:
+            result["attack_chain"] = self.attack_chain.to_dict()
+        if self.method_roles:
+            result["method_roles"] = self.method_roles
+        if self.data_flow_trace:
+            result["data_flow_trace"] = [t.to_dict() for t in self.data_flow_trace]
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Phase2AOutput":
         """Create from dictionary."""
         driver_reqs = []
         for dr_data in data.get("driver_requirements", []):
-            citations = [
-                EvidenceCitation(**c) for c in dr_data.get("evidence_citations", [])
-            ]
+            citations = []
+            for c in dr_data.get("evidence_citations", []):
+                # Handle both old and new citation formats
+                citations.append(EvidenceCitation(
+                    unit_id=c.get("unit_id", ""),
+                    seed_id=c.get("seed_id", ""),
+                    statement=c.get("statement", ""),
+                    interpretation=c.get("interpretation", ""),
+                    method=c.get("method", ""),
+                    fact_index=c.get("fact_index", -1),
+                ))
             dr = DriverRequirement(
                 requirement_id=dr_data.get("requirement_id", ""),
                 seed_id=dr_data.get("seed_id", ""),
@@ -168,12 +257,30 @@ class Phase2AOutput:
             )
             driver_reqs.append(dr)
 
+        # Parse attack_chain if present
+        attack_chain = None
+        if "attack_chain" in data:
+            attack_chain = AttackChain.from_dict(data["attack_chain"])
+
+        # Parse data_flow_trace if present
+        data_flow_trace = []
+        for t in data.get("data_flow_trace", []):
+            data_flow_trace.append(DataFlowTrace(
+                from_method=t.get("from_method", ""),
+                to_method=t.get("to_method", ""),
+                data=t.get("data", ""),
+                note=t.get("note", ""),
+            ))
+
         return cls(
             case_id=data.get("case_id", ""),
             intent_verdict=IntentVerdict(data.get("intent_verdict", "insufficient_evidence")),
             confidence=data.get("confidence", 0.0),
+            attack_chain=attack_chain,
             attack_chain_summary=data.get("attack_chain_summary", ""),
             attack_stages=data.get("attack_stages", []),
+            method_roles=data.get("method_roles", {}),
+            data_flow_trace=data_flow_trace,
             evidence=data.get("evidence", []),
             driver_requirements=driver_reqs,
             aggregated_facts=data.get("aggregated_facts", []),

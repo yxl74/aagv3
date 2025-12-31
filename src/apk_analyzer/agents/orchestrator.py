@@ -2864,9 +2864,11 @@ def tier1_from_composed(
     bundle: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Convert ComposedSeedAnalysis to legacy tier1 output format.
+    Convert ComposedSeedAnalysis to tier1 output format with execution_path.
 
-    This allows the rest of the pipeline (tier2, report) to work unchanged.
+    Includes:
+    - Legacy fields for backward compatibility
+    - execution_path for new Tier 2 prompts with method-level detail
     """
     # Aggregate function summaries from all methods
     summaries = [
@@ -2911,6 +2913,28 @@ def tier1_from_composed(
     confidences = [a.confidence for a in composed.path_analyses if a.jadx_available]
     confidence = sum(confidences) / len(confidences) if confidences else 0.5
 
+    # Build execution_path for new Tier 2 prompts
+    execution_path = []
+    for analysis in composed.path_analyses:
+        execution_path.append({
+            "method": analysis.method_sig,
+            "jadx_available": analysis.jadx_available,
+            "summary": analysis.function_summary,
+            "data_flow": analysis.data_flow,
+            "trigger_info": analysis.trigger_info,
+            "constraints": analysis.path_constraints,
+            "facts": analysis.facts,
+            "required_inputs": analysis.required_inputs,
+            "uncertainties": analysis.uncertainties,
+            "confidence": analysis.confidence,
+        })
+
+    # Extract permissions from required_inputs
+    required_permissions = [
+        inp for inp in composed.all_required_inputs
+        if inp.get("type") == "permission"
+    ]
+
     return {
         "seed_id": composed.seed_id,
         "function_summary": function_summary,
@@ -2922,6 +2946,15 @@ def tier1_from_composed(
         "uncertainties": uncertainties,
         "confidence": confidence,
         "mode": "method_composed",
+
+        # NEW: Method-centric fields for Tier 2
+        "api_category": composed.api_category,
+        "sink_api": composed.sink_api,
+        "execution_path": execution_path,
+        "required_permissions": required_permissions,
+        "component_context": composed.component_context,
+        "reachability": composed.reachability,
+
         "_meta": {
             "llm_valid": True,
             "methods_analyzed": composed.methods_analyzed,
@@ -3049,10 +3082,12 @@ def _consolidate_tier1_for_tier2_full(tier1: Dict[str, Any], bundle: Dict[str, A
     """
     Preserve FULL Tier1 output for two-phase Tier2 flow.
     Phase 2A needs facts, confidence, uncertainties for evidence synthesis.
+
+    Supports both legacy format and new method-centric format with execution_path.
     """
-    return {
+    result = {
         "seed_id": bundle.get("seed_id"),
-        "api_category": bundle.get("api_category"),
+        "api_category": bundle.get("api_category") or tier1.get("api_category", ""),
         "trigger_surface": tier1.get("trigger_surface", {}),
         "required_inputs": tier1.get("required_inputs", []),
         "path_constraints": tier1.get("path_constraints", []),
@@ -3067,6 +3102,18 @@ def _consolidate_tier1_for_tier2_full(tier1: Dict[str, Any], bundle: Dict[str, A
         "confidence": tier1.get("confidence", 0.0),
         "function_summary": tier1.get("function_summary", ""),
     }
+
+    # NEW: Pass through method-centric fields when present (from tier1_from_composed)
+    if "execution_path" in tier1:
+        result["execution_path"] = tier1["execution_path"]
+        result["sink_api"] = tier1.get("sink_api", "")
+        result["required_permissions"] = tier1.get("required_permissions", [])
+        result["component_context"] = tier1.get("component_context", {})
+        result["reachability"] = tier1.get("reachability", {})
+        result["all_constraints"] = tier1.get("path_constraints", [])
+        result["all_required_inputs"] = tier1.get("required_inputs", [])
+
+    return result
 
 
 def shape_tier2_payload(

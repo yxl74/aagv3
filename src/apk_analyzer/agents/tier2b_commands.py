@@ -120,7 +120,10 @@ class Tier2BCommandsAgent:
         seed_tier1: Dict[str, Any],
         package_name: str,
     ) -> Dict[str, Any]:
-        """Build LLM payload with all context."""
+        """Build LLM payload with all context.
+
+        Supports both legacy (seed_tier1) and new (seed_analysis with execution_path) formats.
+        """
         # Get relevant templates for this threat category
         category = driver_req.threat_category
         templates = get_templates_for_category(category)
@@ -139,12 +142,61 @@ class Tier2BCommandsAgent:
             for t in templates
         ]
 
+        # Build seed_analysis for new format (includes execution_path)
+        # Check if we have execution_path (new format from seed_composer)
+        if "execution_path" in seed_tier1:
+            # New method-centric format
+            seed_analysis = {
+                "seed_id": seed_tier1.get("seed_id", driver_req.seed_id),
+                "api_category": seed_tier1.get("api_category", ""),
+                "sink_api": seed_tier1.get("sink_api", ""),
+                "execution_path": seed_tier1.get("execution_path", []),
+                "all_constraints": seed_tier1.get("all_constraints", []),
+                "required_permissions": seed_tier1.get("required_permissions", []),
+                "all_required_inputs": seed_tier1.get("all_required_inputs", []),
+                "component_context": seed_tier1.get("component_context", {}),
+                "reachability": seed_tier1.get("reachability", {}),
+            }
+        else:
+            # Legacy format - wrap in execution_path-like structure
+            seed_analysis = {
+                "seed_id": seed_tier1.get("seed_id", driver_req.seed_id),
+                "api_category": seed_tier1.get("api_category", ""),
+                "sink_api": "",
+                # Create a single-method execution_path from legacy data
+                "execution_path": [
+                    {
+                        "method": seed_tier1.get("trigger_surface", {}).get("entrypoint_method", ""),
+                        "summary": seed_tier1.get("function_summary", ""),
+                        "data_flow": [],
+                        "trigger_info": {
+                            "is_entrypoint": True,
+                            "component_type": seed_tier1.get("trigger_surface", {}).get("component_type"),
+                            "component_name": seed_tier1.get("trigger_surface", {}).get("component_name"),
+                        },
+                        "constraints": seed_tier1.get("path_constraints", []),
+                        "facts": seed_tier1.get("facts", []),
+                    }
+                ] if seed_tier1.get("trigger_surface") else [],
+                "all_constraints": seed_tier1.get("path_constraints", []),
+                "required_permissions": [
+                    inp for inp in seed_tier1.get("required_inputs", [])
+                    if inp.get("type") == "permission"
+                ],
+                "all_required_inputs": seed_tier1.get("required_inputs", []),
+                "component_context": seed_tier1.get("trigger_surface", {}),
+                "reachability": {},
+            }
+
         return {
             "requirement_id": driver_req.requirement_id,
             "seed_id": driver_req.seed_id,
             "package_name": package_name,
             "driver_requirement": driver_req.to_dict(),
             "value_hints": value_hints.to_dict(),
+            # Use seed_analysis (new name matching prompt)
+            "seed_analysis": seed_analysis,
+            # Keep seed_tier1 for backward compatibility
             "seed_tier1": {
                 "function_summary": seed_tier1.get("function_summary", ""),
                 "trigger_surface": seed_tier1.get("trigger_surface", {}),
