@@ -816,6 +816,14 @@ class Orchestrator:
 
                 # tier1_catalog already loaded above (Fix 36)
 
+                # Generate methods_to_investigate.json early for UI progress display
+                # This runs before Tier 1 so the method count is visible immediately
+                max_seed_count = self.settings["analysis"].get("max_seed_count", 20)
+                generate_methods_to_investigate_early(
+                    bundles=bundles[:max_seed_count],
+                    artifact_store=artifact_store,
+                )
+
                 # Method-centric Tier1 pipeline (new architecture)
                 method_tier1_enabled = llm_conf.get("method_tier1_enabled", False)
                 method_cache: Dict[str, MethodAnalysis] = {}
@@ -2727,6 +2735,64 @@ def run_method_tier1_pipeline(
     )
 
     return method_cache
+
+
+def generate_methods_to_investigate_early(
+    bundles: List[Dict[str, Any]],
+    artifact_store: "ArtifactStore",
+) -> None:
+    """
+    Generate initial methods_to_investigate.json before Tier 1 starts.
+
+    This provides early visibility into how many methods will be analyzed,
+    allowing the UI to show progress indicators before analysis completes.
+
+    All methods are marked as "pending" initially; the file is updated
+    with actual statuses after method-centric Tier 1 completes.
+
+    Args:
+        bundles: List of seed bundles with control_flow_path
+        artifact_store: For storing output
+    """
+    method_usage: Dict[str, List[str]] = {}
+
+    for bundle in bundles:
+        path_id = bundle.get("seed_id", "unknown")
+        control_flow_path = bundle.get("control_flow_path", {})
+        path_methods = control_flow_path.get("path_methods", [])
+
+        for method_sig in path_methods:
+            # Skip framework APIs
+            if any(method_sig.startswith(p) for p in ("<android.", "<java.", "<javax.", "<dalvik.")):
+                continue
+            if method_sig not in method_usage:
+                method_usage[method_sig] = []
+            method_usage[method_sig].append(path_id)
+
+    methods_list = [
+        {
+            "method_sig": method_sig,
+            "jadx_available": None,  # Unknown yet
+            "usage_count": len(path_ids),
+            "path_ids": path_ids,
+            "analysis_status": "pending",
+            "function_summary": None,
+            "confidence": 0.0,
+        }
+        for method_sig, path_ids in method_usage.items()
+    ]
+
+    # Sort by usage count (most used first)
+    methods_list.sort(key=lambda x: x["usage_count"], reverse=True)
+
+    output = {
+        "total_unique": len(methods_list),
+        "analyzed_count": 0,
+        "with_jadx": 0,
+        "methods": methods_list,
+    }
+
+    artifact_store.write_json("llm/methods_to_investigate.json", output)
 
 
 def generate_methods_to_investigate_json(
