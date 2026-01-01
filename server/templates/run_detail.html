@@ -459,12 +459,22 @@
       border-radius: 20px;
       font-size: 12px;
       font-weight: 500;
-      gap: 5px;
+      gap: 6px;
+    }
+    .pill::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
     }
 
     .pill.ok, .pill.success, .pill.completed {
       background: var(--green-light);
       color: #166534;
+    }
+    .pill.ok::before, .pill.success::before, .pill.completed::before {
+      background: #166534;
     }
 
     .pill.running, .pill.in-progress {
@@ -472,20 +482,32 @@
       color: var(--blue);
       animation: runningPulse 1.5s ease-in-out infinite;
     }
+    .pill.running::before, .pill.in-progress::before {
+      background: var(--blue);
+    }
 
     .pill.error, .pill.failed {
       background: var(--red-light);
       color: var(--red);
+    }
+    .pill.error::before, .pill.failed::before {
+      background: var(--red);
     }
 
     .pill.warning {
       background: var(--orange-light);
       color: #B45309;
     }
+    .pill.warning::before {
+      background: #B45309;
+    }
 
     .pill.neutral {
       background: var(--gray-100);
       color: var(--gray-600);
+    }
+    .pill.neutral::before {
+      background: var(--gray-400);
     }
 
     /* Monospace */
@@ -2342,7 +2364,13 @@
     }
 
     .report-verdict-icon {
-      font-size: 24px;
+      display: inline-flex;
+      align-items: center;
+      margin-right: 6px;
+    }
+    .report-verdict-icon svg {
+      width: 20px;
+      height: 20px;
     }
 
     .report-summary {
@@ -2371,7 +2399,13 @@
     }
 
     .report-finding-icon {
-      font-size: 16px;
+      display: inline-flex;
+      align-items: center;
+      color: var(--gray-500);
+    }
+    .report-finding-icon svg {
+      width: 16px;
+      height: 16px;
     }
 
     .report-finding-count {
@@ -2436,6 +2470,302 @@
       width: 20px;
       height: 20px;
       border-width: 2px;
+    }
+
+    /* ============================================================
+       Attack Chains & Execution Guidance
+       ============================================================ */
+    .report-details-section {
+      margin-top: 20px;
+    }
+    .report-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--gray-200);
+      margin-bottom: 0;
+    }
+    .report-tab {
+      padding: 12px 20px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--gray-500);
+      background: none;
+      border: none;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s ease;
+    }
+    .report-tab:hover {
+      color: var(--gray-700);
+    }
+    .report-tab.active {
+      color: var(--blue);
+      border-bottom-color: var(--blue);
+    }
+    .report-tab-content {
+      display: none;
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      border-top: none;
+      border-radius: 0 0 var(--radius) var(--radius);
+    }
+    .report-tab-content.active {
+      display: block;
+    }
+
+    /* Attack Chains */
+    .attack-chains-list {
+      padding: 0;
+    }
+    .attack-chain-item {
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .attack-chain-item:last-child {
+      border-bottom: none;
+    }
+    .attack-chain-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .attack-chain-header:hover {
+      background: var(--gray-50);
+    }
+    .attack-chain-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .attack-chain-chevron {
+      width: 16px;
+      height: 16px;
+      color: var(--gray-400);
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+    .attack-chain-item.expanded .attack-chain-chevron {
+      transform: rotate(90deg);
+    }
+    .attack-chain-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--gray-900);
+    }
+    .attack-chain-body {
+      display: none;
+      padding: 0 20px 16px 46px;
+    }
+    .attack-chain-item.expanded .attack-chain-body {
+      display: block;
+    }
+    .attack-chain-verdict {
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .attack-chain-verdict.likely_malicious {
+      background: var(--red-light);
+      color: var(--red);
+    }
+    .attack-chain-verdict.suspicious {
+      background: #fef3c7;
+      color: #d97706;
+    }
+    .attack-chain-verdict.benign,
+    .attack-chain-verdict.unknown {
+      background: var(--gray-100);
+      color: var(--gray-600);
+    }
+    .attack-chain-summary {
+      font-size: 13px;
+      color: var(--gray-600);
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
+    .attack-chain-path {
+      background: var(--gray-50);
+      border-radius: 6px;
+      padding: 12px;
+    }
+    .attack-chain-path-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .attack-chain-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .attack-chain-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--gray-700);
+    }
+    .attack-chain-step-arrow {
+      color: var(--gray-400);
+      font-size: 10px;
+    }
+    .attack-chain-step-method {
+      word-break: break-all;
+    }
+    .attack-chain-step.entrypoint .attack-chain-step-method {
+      color: var(--green);
+      font-weight: 500;
+    }
+    .attack-chain-step.sink .attack-chain-step-method {
+      color: var(--red);
+      font-weight: 500;
+    }
+
+    /* Execution Guidance */
+    .execution-guidance-list {
+      padding: 0;
+    }
+    .execution-guidance-item {
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .execution-guidance-item:last-child {
+      border-bottom: none;
+    }
+    .execution-guidance-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .execution-guidance-header:hover {
+      background: var(--gray-50);
+    }
+    .execution-guidance-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .execution-guidance-chevron {
+      width: 16px;
+      height: 16px;
+      color: var(--gray-400);
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+    .execution-guidance-item.expanded .execution-guidance-chevron {
+      transform: rotate(90deg);
+    }
+    .execution-guidance-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--gray-900);
+    }
+    .execution-guidance-category {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 8px;
+      background: var(--blue-light);
+      color: var(--blue);
+      border-radius: 4px;
+    }
+    .execution-guidance-body {
+      display: none;
+      padding: 0 20px 16px 46px;
+    }
+    .execution-guidance-item.expanded .execution-guidance-body {
+      display: block;
+    }
+    .execution-guidance-prereqs,
+    .execution-guidance-steps,
+    .execution-guidance-success {
+      margin-bottom: 16px;
+    }
+    .execution-guidance-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .execution-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--gray-50);
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+    .execution-step:last-child {
+      margin-bottom: 0;
+    }
+    .execution-step-number {
+      width: 20px;
+      height: 20px;
+      background: var(--blue);
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .execution-step-content {
+      flex: 1;
+    }
+    .execution-step-desc {
+      font-size: 13px;
+      color: var(--gray-700);
+      margin-bottom: 6px;
+    }
+    .execution-step-command {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: var(--gray-800);
+      color: var(--gray-100);
+      padding: 8px 12px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    .prereq-item,
+    .success-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--gray-50);
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: var(--gray-700);
+    }
+    .prereq-item:last-child,
+    .success-item:last-child {
+      margin-bottom: 0;
+    }
+    .prereq-icon,
+    .success-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--gray-400);
+    }
+    .no-data-message {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--gray-500);
+      font-size: 14px;
     }
 
     /* ============================================================
@@ -2868,10 +3198,6 @@
       font-size: 13px;
     }
 
-    .group-icon {
-      font-size: 16px;
-    }
-
     .group-name {
       flex: 1;
       color: var(--gray-800);
@@ -3141,22 +3467,16 @@
       gap: 12px;
     }
     .method-status {
-      width: 20px;
-      height: 20px;
+      width: 10px;
+      height: 10px;
       border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
       flex-shrink: 0;
     }
     .method-status.complete {
-      background: var(--green-light);
-      color: var(--green);
+      background: var(--green);
     }
     .method-status.pending {
-      background: var(--gray-100);
-      color: var(--gray-400);
+      background: var(--gray-300);
     }
     .method-info {
       flex: 1;
@@ -3341,11 +3661,11 @@
               <td class="mono">{{ stage.end_ts[:19] if stage.end_ts else "—" }}</td>
               <td>
                 {% if stage.status == 'ok' or stage.status == 'completed' %}
-                <span class="pill ok">✓ Complete</span>
+                <span class="pill ok">Complete</span>
                 {% elif stage.status == 'running' %}
-                <span class="pill running">● Running</span>
+                <span class="pill running">Running</span>
                 {% elif stage.status == 'error' or stage.status == 'failed' %}
-                <span class="pill error">✕ Failed</span>
+                <span class="pill error">Failed</span>
                 {% else %}
                 <span class="pill neutral">{{ stage.status or "—" }}</span>
                 {% endif %}
@@ -3365,15 +3685,17 @@
         <div>
           <div class="report-hero-title">Final Threat Report</div>
           <div class="report-verdict {{ threat_report.verdict|lower if threat_report.verdict else 'unknown' }}">
-            {% if threat_report.verdict|lower == 'critical' %}
-            <span class="report-verdict-icon">🚨</span>
-            {% elif threat_report.verdict|lower == 'high' %}
-            <span class="report-verdict-icon">⚠️</span>
-            {% elif threat_report.verdict|lower == 'medium' %}
-            <span class="report-verdict-icon">⚡</span>
-            {% else %}
-            <span class="report-verdict-icon">✓</span>
-            {% endif %}
+            <span class="report-verdict-icon">
+              {% if threat_report.verdict|lower == 'critical' %}
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+              {% elif threat_report.verdict|lower == 'high' %}
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              {% elif threat_report.verdict|lower == 'medium' %}
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              {% else %}
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              {% endif %}
+            </span>
             {{ threat_report.verdict }}
           </div>
         </div>
@@ -3386,14 +3708,14 @@
       {% if threat_report.seed_summaries %}
       <div class="report-findings">
         <div class="report-finding">
-          <span class="report-finding-icon">🔍</span>
+          <span class="report-finding-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg></span>
           <span class="report-finding-count">{{ threat_report.seed_summaries|length }}</span>
           <span class="report-finding-label">Cases Analyzed</span>
         </div>
         {% set malicious_count = threat_report.seed_summaries | selectattr('tier2.intent_verdict', 'equalto', 'likely_malicious') | list | length %}
         {% if malicious_count > 0 %}
         <div class="report-finding">
-          <span class="report-finding-icon">🎯</span>
+          <span class="report-finding-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg></span>
           <span class="report-finding-count">{{ malicious_count }}</span>
           <span class="report-finding-label">Likely Malicious</span>
         </div>
@@ -3401,7 +3723,7 @@
         {% set categories = threat_report.seed_summaries | map(attribute='category_id') | unique | list %}
         {% if categories|length > 0 %}
         <div class="report-finding">
-          <span class="report-finding-icon">📁</span>
+          <span class="report-finding-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg></span>
           <span class="report-finding-count">{{ categories|length }}</span>
           <span class="report-finding-label">Categories</span>
         </div>
@@ -3429,6 +3751,26 @@
       <div class="report-pending">
         <div class="spinner"></div>
         <span>Analysis in progress... Report will appear when complete.</span>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Attack Chains & Execution Guidance -->
+    {% if threat_report and threat_report.seed_summaries %}
+    <div class="report-details-section" id="reportDetailsSection">
+      <div class="report-tabs">
+        <button class="report-tab active" onclick="switchReportTab('chains')" data-tab="chains">Attack Chains</button>
+        <button class="report-tab" onclick="switchReportTab('guidance')" data-tab="guidance">Execution Guidance</button>
+      </div>
+      <div class="report-tab-content active" id="chainsTab">
+        <div class="attack-chains-list" id="attackChainsList">
+          <!-- Populated by JavaScript -->
+        </div>
+      </div>
+      <div class="report-tab-content" id="guidanceTab">
+        <div class="execution-guidance-list" id="executionGuidanceList">
+          <!-- Populated by JavaScript -->
+        </div>
       </div>
     </div>
     {% endif %}
@@ -4190,13 +4532,13 @@
       let pillText = current.status || '—';
       if (current.status === 'ok' || current.status === 'completed') {
         pillClass = 'ok';
-        pillText = '✓ Complete';
+        pillText = 'Complete';
       } else if (current.status === 'running') {
         pillClass = 'running';
-        pillText = '● Running';
+        pillText = 'Running';
       } else if (current.status === 'error' || current.status === 'failed') {
         pillClass = 'error';
-        pillText = '✕ Failed';
+        pillText = 'Failed';
       }
       cells[3].innerHTML = `<span class="pill ${pillClass}">${pillText}</span>`;
       cells[4].textContent = formatDuration(current.start_ts, current.end_ts);
@@ -6954,7 +7296,6 @@
           <div class="method-row ${isAnalyzed ? 'analyzed' : 'pending'}">
             <div class="method-header">
               <div class="method-status ${isAnalyzed ? 'complete' : 'pending'}">
-                ${isAnalyzed ? '✓' : '○'}
               </div>
               <div class="method-info">
                 <div class="method-name">${escapeHtml(methodName)}</div>
@@ -7024,7 +7365,7 @@
         html += `
           <div class="method-row pending">
             <div class="method-header">
-              <div class="method-status pending">○</div>
+              <div class="method-status pending"></div>
               <div class="method-info">
                 <div class="method-name">${escapeHtml(methodName)}</div>
                 <div class="method-class">${escapeHtml(className)}</div>
@@ -7253,7 +7594,7 @@
     const PATTERN_CATALOG = [
       {
         group: "Dropper",
-        groupIcon: "📦",
+        groupIcon: null,
         patterns: [
           {
             id: "P_DROP_INSTALL_VIA_DM",
@@ -7287,7 +7628,7 @@
       },
       {
         group: "Dynamic Load",
-        groupIcon: "⚙️",
+        groupIcon: null,
         patterns: [
           {
             id: "P_DYNLOAD_EVASION",
@@ -7307,7 +7648,7 @@
       },
       {
         group: "ODF/ATS",
-        groupIcon: "🎭",
+        groupIcon: null,
         patterns: [
           {
             id: "P_ODF_REMOTE_STREAM",
@@ -7334,7 +7675,7 @@
       },
       {
         group: "OTP Theft",
-        groupIcon: "🔐",
+        groupIcon: null,
         patterns: [
           {
             id: "P_OTP_SMS_INTERCEPT_EXFIL",
@@ -7361,7 +7702,7 @@
       },
       {
         group: "Smishing",
-        groupIcon: "📱",
+        groupIcon: null,
         patterns: [
           {
             id: "P_SMISHING_SPREAD",
@@ -7374,7 +7715,7 @@
       },
       {
         group: "Stalkerware",
-        groupIcon: "📍",
+        groupIcon: null,
         patterns: [
           {
             id: "P_STALKERWARE_PERSIST_LOCATION",
@@ -7401,7 +7742,7 @@
       },
       {
         group: "Push C2",
-        groupIcon: "📡",
+        groupIcon: null,
         patterns: [
           {
             id: "P_PUSH_WAKEUP_THEN_FETCH",
@@ -7414,7 +7755,7 @@
       },
       {
         group: "Toll Fraud",
-        groupIcon: "💸",
+        groupIcon: null,
         patterns: [
           {
             id: "P_TOLL_FRAUD_CHAIN",
@@ -7460,7 +7801,6 @@
         html += `
           <div class="pattern-group">
             <div class="pattern-group-header">
-              <span class="group-icon">${group.groupIcon}</span>
               <span class="group-name">${escapeHtml(group.group)}</span>
               <span class="group-match-count ${hasMatches ? 'has-matches' : ''}">${matchCount}/${group.patterns.length}</span>
             </div>
@@ -7482,7 +7822,7 @@
           <div class="pattern-header">
             <span class="pattern-id">${escapeHtml(pattern.id.replace('P_', ''))}</span>
             ${pattern.severity ? `<span class="priority-badge ${pattern.severity.toLowerCase()}">${pattern.severity}</span>` : ''}
-            ${isMatched ? '<span class="match-indicator">✓ Detected</span>' : ''}
+            ${isMatched ? '<span class="match-indicator">Detected</span>' : ''}
           </div>
           <div class="pattern-desc">${escapeHtml(pattern.description)}</div>
           <div class="pattern-formula">${escapeHtml(pattern.formula)}</div>
@@ -7490,10 +7830,198 @@
       `;
     }
 
+    // ============================================================
+    // Attack Chains & Execution Guidance
+    // ============================================================
+
+    // Threat report data from server
+    const threatReportData = {{ threat_report | tojson | safe if threat_report else 'null' }};
+
+    // Switch report detail tabs
+    function switchReportTab(tabName) {
+      document.querySelectorAll('.report-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.report-tab-content').forEach(c => c.classList.remove('active'));
+      document.querySelector(`.report-tab[data-tab="${tabName}"]`)?.classList.add('active');
+      document.getElementById(tabName + 'Tab')?.classList.add('active');
+    }
+
+    // Extract short method name from full signature
+    function extractShortMethod(sig) {
+      const match = sig.match(/<[^:]+:\s*[^\s]+\s+([^(]+)\([^)]*\)>/);
+      return match ? match[1] : sig.split(':').pop()?.replace(/[<>]/g, '').trim() || sig;
+    }
+
+    // Extract class name from full signature
+    function extractClassFromSig(sig) {
+      const match = sig.match(/<([^:]+):/);
+      return match ? match[1].split('.').pop() : '';
+    }
+
+    // Toggle attack chain item expansion
+    function toggleAttackChain(element) {
+      element.closest('.attack-chain-item').classList.toggle('expanded');
+    }
+
+    // Render attack chains
+    function renderAttackChains() {
+      const container = document.getElementById('attackChainsList');
+      if (!container || !threatReportData?.seed_summaries) return;
+
+      const seeds = threatReportData.seed_summaries;
+      if (seeds.length === 0) {
+        container.innerHTML = '<div class="no-data-message">No attack chains found</div>';
+        return;
+      }
+
+      let html = '';
+      seeds.forEach((seed, index) => {
+        const tier1 = seed.tier1 || {};
+        const tier2 = seed.tier2 || {};
+        const verdict = tier2.intent_verdict || 'unknown';
+        const summary = tier2.attack_chain_summary || tier1.function_summary || 'No summary available';
+        const path = tier1.reachability?.example_path || tier1.execution_path?.map(m => m.method) || [];
+        const category = seed.category_id || 'Unknown';
+        const flowId = seed.flow_id || `Flow ${index + 1}`;
+
+        html += `
+          <div class="attack-chain-item">
+            <div class="attack-chain-header" onclick="toggleAttackChain(this)">
+              <div class="attack-chain-header-left">
+                <svg class="attack-chain-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <div class="attack-chain-title">${escapeHtml(flowId)} - ${escapeHtml(category)}</div>
+              </div>
+              <div class="attack-chain-verdict ${verdict.toLowerCase().replace(/\s+/g, '_')}">${escapeHtml(verdict.replace(/_/g, ' '))}</div>
+            </div>
+            <div class="attack-chain-body">
+              <div class="attack-chain-summary">${escapeHtml(summary.substring(0, 500))}${summary.length > 500 ? '...' : ''}</div>
+              ${path.length > 0 ? `
+                <div class="attack-chain-path">
+                  <div class="attack-chain-path-label">Execution Path (${path.length} steps)</div>
+                  <div class="attack-chain-steps">
+                    ${path.slice(0, 10).map((method, i) => {
+                      const isFirst = i === 0;
+                      const isLast = i === path.length - 1 || i === 9;
+                      const stepClass = isFirst ? 'entrypoint' : (isLast && i === path.length - 1 ? 'sink' : '');
+                      const className = extractClassFromSig(method);
+                      const methodName = extractShortMethod(method);
+                      return `
+                        <div class="attack-chain-step ${stepClass}">
+                          ${i > 0 ? '<span class="attack-chain-step-arrow">→</span>' : ''}
+                          <span class="attack-chain-step-method">${escapeHtml(className)}.${escapeHtml(methodName)}()</span>
+                        </div>
+                      `;
+                    }).join('')}
+                    ${path.length > 10 ? `<div class="attack-chain-step"><span class="attack-chain-step-arrow">→</span><span class="attack-chain-step-method">... ${path.length - 10} more steps</span></div>` : ''}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+    }
+
+    // Toggle execution guidance item expansion
+    function toggleExecutionGuidance(element) {
+      element.closest('.execution-guidance-item').classList.toggle('expanded');
+    }
+
+    // Render execution guidance
+    function renderExecutionGuidance() {
+      const container = document.getElementById('executionGuidanceList');
+      if (!container || !threatReportData?.execution_guidance) return;
+
+      const guidance = threatReportData.execution_guidance;
+      if (!guidance || guidance.length === 0) {
+        container.innerHTML = '<div class="no-data-message">No execution guidance available</div>';
+        return;
+      }
+
+      let html = '';
+      let caseNum = 0;
+      guidance.forEach((item, index) => {
+        const category = item.category_id || item.target_capability || 'Unknown';
+        const prereqs = item.prerequisites || [];
+        const steps = item.steps || [];
+        const success = item.success_criteria || [];
+
+        // Skip entries with no meaningful content
+        if (steps.length === 0 && prereqs.length === 0 && success.length === 0) return;
+        caseNum++;
+
+        html += `
+          <div class="execution-guidance-item">
+            <div class="execution-guidance-header" onclick="toggleExecutionGuidance(this)">
+              <div class="execution-guidance-header-left">
+                <svg class="execution-guidance-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <div class="execution-guidance-title">Case ${caseNum}</div>
+              </div>
+              <div class="execution-guidance-category">${escapeHtml(category)}</div>
+            </div>
+            <div class="execution-guidance-body">
+              ${prereqs.length > 0 ? `
+                <div class="execution-guidance-prereqs">
+                  <div class="execution-guidance-section-title">Prerequisites</div>
+                  ${prereqs.map(p => `
+                    <div class="prereq-item">
+                      <svg class="prereq-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                      <span>${escapeHtml(typeof p === 'string' ? p : p.description || JSON.stringify(p))}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+              ${steps.length > 0 ? `
+                <div class="execution-guidance-steps">
+                  <div class="execution-guidance-section-title">Steps</div>
+                  ${steps.map((step, i) => `
+                    <div class="execution-step">
+                      <div class="execution-step-number">${i + 1}</div>
+                      <div class="execution-step-content">
+                        <div class="execution-step-desc">${escapeHtml(step.description || step.step_id || 'Step ' + (i + 1))}</div>
+                        ${step.command ? `<div class="execution-step-command">${escapeHtml(step.command)}</div>` : ''}
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+              ${success.length > 0 ? `
+                <div class="execution-guidance-success">
+                  <div class="execution-guidance-section-title">Success Criteria</div>
+                  ${success.map(s => `
+                    <div class="success-item">
+                      <svg class="success-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                      <span>${escapeHtml(typeof s === 'string' ? s : s.description || JSON.stringify(s))}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      });
+
+      if (html === '') {
+        container.innerHTML = '<div class="no-data-message">No execution guidance with steps available</div>';
+      } else {
+        container.innerHTML = html;
+      }
+    }
+
+    // Initialize report details
+    function initReportDetails() {
+      renderAttackChains();
+      renderExecutionGuidance();
+    }
+
     // Restore saved tab on page load and initialize hierarchy viewer
     document.addEventListener('DOMContentLoaded', function() {
       // Initialize hierarchy viewer
       initHierarchyViewer();
+
+      // Initialize report details
+      initReportDetails();
 
       // Restore LLM category tab
       try {

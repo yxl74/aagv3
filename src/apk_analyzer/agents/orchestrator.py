@@ -22,8 +22,8 @@ from apk_analyzer.agents.method_tier1 import (
     MethodAnalysis,
     MethodAnalysisCache,
     MethodTier1Agent,
-    analyze_methods_sync,
-    batch_extract_jadx_sources,
+    analyze_methods_with_sources,
+    batch_extract_sources,
     collect_unique_methods,
 )
 from apk_analyzer.agents.flow_composer import (
@@ -54,6 +54,7 @@ from apk_analyzer.phase0.sensitive_api_matcher import (
     build_sensitive_api_hits,
     load_callgraph,
 )
+from apk_analyzer.phase0.threading_edge_validator import validate_threading_edges
 from apk_analyzer.phase0.cooccurrence_scorer import compute_threat_score, COOCCURRENCE_PATTERNS
 from apk_analyzer.phase0.pattern_summary import build_cooccurrence_pattern_summary
 from apk_analyzer.telemetry import llm_context, set_run_context, span
@@ -270,6 +271,25 @@ class Orchestrator:
                                 "android_jar_api": metadata.get("android_jar_api"),
                                 "android_jar_reason": metadata.get("android_jar_reason"),
                             }
+                            if class_hierarchy and isinstance(callgraph_data, dict):
+                                try:
+                                    threading_validation = validate_threading_edges(callgraph_data, class_hierarchy)
+                                    artifact_store.write_json(
+                                        "graphs/threading_edge_validation.json",
+                                        threading_validation,
+                                    )
+                                    event_logger.log(
+                                        "graphs.threading_edge_validation",
+                                        start_callsites=threading_validation.get("start_callsites"),
+                                        missing_run_edges=threading_validation.get("missing_run_edges"),
+                                        threading_edge_count=threading_validation.get("threading_edge_count"),
+                                        ref=artifact_store.relpath("graphs/threading_edge_validation.json"),
+                                    )
+                                except Exception as exc:
+                                    event_logger.log(
+                                        "graphs.threading_edge_validation_failed",
+                                        error=str(exc),
+                                    )
                     cfg_dir = artifact_store.path("graphs/cfg")
                     cfg_count = len(list(cfg_dir.glob("*.json"))) if cfg_dir.exists() else 0
                     event_logger.stage_end(
@@ -782,6 +802,7 @@ class Orchestrator:
                     method_cache = run_method_tier1_pipeline(
                         bundles=bundles[: self.settings["analysis"].get("max_seed_count", 20)],
                         jadx_root=jadx_root,
+                        cfg_dir=artifact_store.path("graphs/cfg"),
                         llm_client=llm_client,
                         artifact_store=artifact_store,
                         event_logger=event_logger,
@@ -792,6 +813,7 @@ class Orchestrator:
                     "method_tier1",
                     methods_analyzed=len(method_cache),
                     methods_with_jadx=sum(1 for m in method_cache.values() if m.jadx_available),
+                    methods_with_jimple=sum(1 for m in method_cache.values() if m.jimple_available),
                 )
 
                 for seed_index, bundle in enumerate(bundles[: self.settings["analysis"].get("max_seed_count", 20)]):
@@ -982,8 +1004,8 @@ class Orchestrator:
                     "package_name": package_name,  # For method-centric report
                     "verdict": recon_result.get("threat_level", "UNKNOWN"),
                     "summary": "Static analysis completed. LLM summaries may be partial.",
-                    "flow_summaries": flow_summary_list,
-                    "method_cache": method_cache,  # For method-centric report
+                    # Use "seed_summaries" as the canonical report key (expected by UI/schema).
+                    "seed_summaries": flow_summary_list,
                     "evidence_support_index": evidence_support_index,
                     "analysis_artifacts": {
                         "callgraph": artifact_store.relpath("graphs/callgraph.json") if callgraph_path else None,
@@ -992,6 +1014,8 @@ class Orchestrator:
                         "recon": artifact_store.relpath("llm/recon.json"),
                         "entrypoint_paths": entrypoint_paths_ref,
                         "class_hierarchy": artifact_store.relpath("graphs/class_hierarchy.json") if class_hierarchy else None,
+                        # Method analyses are stored as per-method JSON artifacts; keep only references in the report.
+                        "method_cache_dir": artifact_store.relpath("method_cache"),
                     },
                     "mitre_candidates": mitre_candidates,
                     "driver_guidance": _build_driver_guidance(flow_summary_list),
@@ -2317,7 +2341,8 @@ def _parse_target_sdk(manifest: Dict[str, Any]) -> Optional[int]:
 
 def run_method_tier1_pipeline(
     bundles: List[Dict[str, Any]],
-    jadx_root: Path,
+    jadx_root: Optional[Path],
+    cfg_dir: Optional[Path],
     llm_client: Any,
     artifact_store: "ArtifactStore",
     event_logger: Optional["EventLogger"] = None,
@@ -2328,13 +2353,14 @@ def run_method_tier1_pipeline(
     Run method-centric tier1 analysis pipeline.
 
     1. Collect unique methods from all seed paths
-    2. Batch extract JADX sources
+    2. Batch extract JADX + Jimple IR sources (dual extraction)
     3. Analyze each method once (parallelizable)
     4. Return method cache for static composition
 
     Args:
         bundles: List of seed bundles with control_flow_path
-        jadx_root: JADX output directory
+        jadx_root: JADX output directory (optional)
+        cfg_dir: CFG directory for Jimple IR fallback (graphs/cfg/)
         llm_client: LLM client for analysis
         artifact_store: For storing outputs
         event_logger: Optional logger
@@ -2361,17 +2387,25 @@ def run_method_tier1_pipeline(
     if not unique_methods:
         return {}
 
-    # Phase 0.6: Batch JADX extraction
+    # Phase 0.6: Batch JADX + Jimple IR extraction
     if event_logger:
-        event_logger.log("method_tier1.jadx_start", methods=len(unique_methods))
+        event_logger.log("method_tier1.extract_start", methods=len(unique_methods))
 
-    method_sources = batch_extract_jadx_sources(unique_methods, jadx_root)
+    extraction_results = batch_extract_sources(unique_methods, jadx_root, cfg_dir)
+
+    # Count extraction strategies
+    jadx_count = sum(1 for e in extraction_results.values() if e.lookup_strategy == "jadx")
+    jimple_only_count = sum(1 for e in extraction_results.values() if e.lookup_strategy == "jimple_only")
+    jadx_with_jimple_count = sum(1 for e in extraction_results.values() if e.lookup_strategy == "jadx_with_jimple")
+    not_found_count = sum(1 for e in extraction_results.values() if e.lookup_strategy == "not_found")
 
     if event_logger:
         event_logger.log(
-            "method_tier1.jadx_done",
-            extracted=len(method_sources),
-            missing=len(unique_methods) - len(method_sources),
+            "method_tier1.extract_done",
+            jadx=jadx_count,
+            jimple_only=jimple_only_count,
+            jadx_with_jimple=jadx_with_jimple_count,
+            not_found=not_found_count,
         )
 
     # Setup cache directory
@@ -2386,28 +2420,26 @@ def run_method_tier1_pipeline(
         event_logger=event_logger,
     )
 
-    # Phase 0.7: Analyze methods
+    # Phase 0.7: Analyze methods with dual JADX+Jimple sources
+    methods_with_source = sum(1 for e in extraction_results.values() if e.has_any_source)
     if event_logger:
-        event_logger.log("method_tier1.analyze_start", methods=len(method_sources))
+        event_logger.log("method_tier1.analyze_start", methods=methods_with_source)
 
-    method_cache = analyze_methods_sync(
-        methods_with_sources=method_sources,
-        agent=agent,
-        cache=cache,
-        cfgs=None,  # TODO: Extract per-method CFGs if available
-    )
+    method_cache = analyze_methods_with_sources(extraction_results, agent, cache)
 
-    # Add placeholders for methods without JADX
+    # Add placeholders for methods without any source (neither JADX nor Jimple)
     for method_sig in unique_methods:
         if method_sig not in method_cache:
             method_cache[method_sig] = MethodAnalysis.placeholder(method_sig)
 
     if event_logger:
         analyzed_with_jadx = sum(1 for m in method_cache.values() if m.jadx_available)
+        analyzed_with_jimple = sum(1 for m in method_cache.values() if m.jimple_available)
         event_logger.log(
             "method_tier1.analyze_done",
             analyzed=len(method_cache),
             with_jadx=analyzed_with_jadx,
+            with_jimple=analyzed_with_jimple,
         )
 
     # Save method analyses to artifacts

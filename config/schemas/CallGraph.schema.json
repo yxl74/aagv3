@@ -24,7 +24,10 @@
           "caller": {"type": "string"},
           "callee": {"type": "string"},
           "callsite": {"type": "object"},
-          "edge_source": {"type": "string"}
+          "edge_source": {"type": "string"},
+          "edge_layer": {"type": "string"},
+          "pattern": {"type": "string"},
+          "confidence": {"type": "string"}
         }
       }
     },

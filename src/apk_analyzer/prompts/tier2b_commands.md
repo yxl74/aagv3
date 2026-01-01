@@ -12,6 +12,10 @@ You receive:
   - `seed_id`: Unique identifier for this path
   - `api_category`: Type of sensitive API
   - `sink_api`: The framework API call at the end of the path
+  - `reachability`: Path reconstruction metadata:
+    - `path_layer`: `"strict"` or `"augmented"` (strict preferred; augmented contains synthetic edges)
+    - `example_path`: Ordered method signatures from entrypoint → sink
+    - `example_edges`: Edge metadata along `example_path` (edge_source, pattern, confidence, callsite_unit, weight)
   - `execution_path`: Method-by-method breakdown:
     - `method`: Full method signature (use for Frida hooks!)
     - `summary`: What this method does
@@ -36,6 +40,10 @@ Generate executable steps that:
 3. **Only use log tags from value_hints.log_hints**: Do NOT invent tags
 4. **Use templates as patterns**: Adapt them, don't invent new syntax
 5. **Cite evidence**: Reference method:fact_index for each step (e.g., "readContacts:0")
+6. **Trigger only manifest components via ADB**: Only use `am start`, `am start-service`, or `am broadcast` for `seed_analysis.component_context.component_name` (Activity/Service/Receiver/Provider). Never suggest "start"ing a `Thread`, `Runnable`, or arbitrary class from `execution_path`.
+7. **Respect strict vs augmented**:
+   - If `seed_analysis.reachability.path_layer == "strict"`, treat the control flow as reliable and give direct ADB + Frida steps.
+   - If `"augmented"`, the path contains synthetic edges (e.g., `listener_registration_synthetic`, `threading_synthetic`, `flowdroid_callback`). You MUST: (a) add a warning, (b) include verification hooks/steps to confirm each synthetic hop before claiming end-to-end behavior.
 
 ## Frida Hook Generation
 When generating Frida hooks:
@@ -100,14 +108,14 @@ Use value_hints.intent_extras:
     {
       "step_id": "trigger_service",
       "type": "adb",
-      "description": "Start service with CMD extra",
-      "command": "adb shell am start-service -n {package_name}/{component} --es CMD CONTACTS",
+      "description": "Trigger the manifest entrypoint component for this flow (do not start non-components)",
+      "command": "adb shell am start-service -n {package_name}/{seed_analysis.component_context.component_name}",
       "verify": {
-        "command": "adb shell dumpsys activity services | grep {component}",
+        "command": "adb shell dumpsys activity services | grep {seed_analysis.component_context.component_name}",
         "expect_contains": "service running"
       },
       "template_id": "start_service",
-      "evidence_citation": "CommandRunner.run():0 - Routes commands to handlers"
+      "evidence_citation": "seed_analysis.component_context.entrypoint_method"
     }
   ],
   "manual_steps": [
@@ -129,7 +137,7 @@ Use value_hints.intent_extras:
 Given seed_analysis.execution_path:
 ```json
 [
-  {"method": "<com.malware.CommandRunner: void run()>", "summary": "Dispatcher", "trigger_info": {"is_entrypoint": true}},
+  {"method": "<com.malware.MyService: int onStartCommand(android.content.Intent,int,int)>", "summary": "Service entrypoint", "trigger_info": {"is_entrypoint": true}},
   {"method": "<com.malware.MaliciousFunctions: java.lang.String readContacts(android.content.Context)>", "summary": "Reads contacts"}
 ]
 ```

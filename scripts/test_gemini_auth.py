@@ -24,8 +24,8 @@ VERIFY_SSL = False  # Set False for corporate proxies with SSL inspection
 # =============================================================================
 
 
-def test_gemini_client():
-    """Test GeminiLLMClient directly."""
+def run_gemini_client_smoke_test() -> None:
+    """Run a GeminiLLMClient smoke test (manual script, not a pytest test)."""
     from apk_analyzer.clients.gemini_client import GeminiLLMClient
 
     print("=" * 60)
@@ -89,8 +89,8 @@ def test_gemini_client():
     print(f"\nGemini response: {response}")
 
 
-def test_minimal():
-    """Minimal test matching the quickstart exactly."""
+def run_minimal_quickstart() -> None:
+    """Minimal test matching the quickstart exactly (manual)."""
     import os
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "config/gcp-sa-key.json"
 
@@ -112,6 +112,6 @@ def test_minimal():
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--minimal":
-        test_minimal()
+        run_minimal_quickstart()
     else:
-        test_gemini_client()
+        run_gemini_client_smoke_test()

@@ -111,14 +111,34 @@ def _build_control_flow_path(
             path_methods.append(callee)
 
     edges: List[Dict[str, Any]] = []
-    for idx in range(len(path_methods) - 1):
-        caller = path_methods[idx]
-        callee = path_methods[idx + 1]
-        edges.append({
-            "caller": caller,
-            "callee": callee,
-            "callsite": callsite_map.get((caller, callee)),
-        })
+    example_edges = reachability.get("example_edges")
+    if isinstance(example_edges, list) and example_edges:
+        for edge in example_edges:
+            if not isinstance(edge, dict):
+                continue
+            caller = normalize_signature(str(edge.get("caller") or ""))
+            callee = normalize_signature(str(edge.get("callee") or ""))
+            if not caller or not callee:
+                continue
+            edges.append({
+                "caller": caller,
+                "callee": callee,
+                "callsite": edge.get("callsite_unit"),
+                "edge_source": edge.get("edge_source"),
+                "edge_layer": edge.get("edge_layer"),
+                "pattern": edge.get("pattern"),
+                "confidence": edge.get("confidence"),
+                "weight": edge.get("weight"),
+            })
+    else:
+        for idx in range(len(path_methods) - 1):
+            caller = path_methods[idx]
+            callee = path_methods[idx + 1]
+            edges.append({
+                "caller": caller,
+                "callee": callee,
+                "callsite": callsite_map.get((caller, callee)),
+            })
 
     status = "full" if isinstance(example_path, list) and example_path else "partial"
     return {

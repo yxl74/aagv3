@@ -24,8 +24,8 @@ VERIFY_SSL = False  # Set False for corporate proxies with SSL inspection
 # =============================================================================
 
 
-def test_claude_client():
-    """Test ClaudeLLMClient directly."""
+def run_claude_client_smoke_test() -> None:
+    """Run a ClaudeLLMClient smoke test (manual script, not a pytest test)."""
     from apk_analyzer.clients.claude_client import ClaudeLLMClient
 
     print("=" * 60)
@@ -96,4 +96,4 @@ def test_claude_client():
 
 
 if __name__ == "__main__":
-    test_claude_client()
+    run_claude_client_smoke_test()

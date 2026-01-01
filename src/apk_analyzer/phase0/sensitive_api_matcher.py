@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import re
 from collections import deque
@@ -96,10 +97,24 @@ ENTRYPOINT_METHODS: Dict[str, set[str]] = {
     },
     "Service": {"onCreate", "onStartCommand", "onBind", "onHandleIntent", "onDestroy"},
     "Receiver": {"onReceive"},
-    "Provider": {"onCreate", "query", "insert", "update", "delete"},
+    "Provider": {"onCreate", "query", "insert", "update", "delete", "call"},
 }
 
 PRIORITY_RANK = {"CRITICAL": 1, "HIGH": 2, "MEDIUM": 3, "LOW": 4}
+
+_ACCESSIBILITY_SERVICE_SUPERTYPE = "android.accessibilityservice.AccessibilityService"
+_ACCESSIBILITY_SERVICE_ENTRYPOINTS = {"onAccessibilityEvent", "onInterrupt", "onServiceConnected"}
+
+# FlowDroid callback graphs often contain "parent -> override" edges for lifecycle methods
+# (e.g., android.app.Service.onCreate -> com.example.MyService.onCreate). These are useful
+# as a *relationship* signal but are not true registration-site edges, and they can create
+# spurious reachability for non-manifest components. We treat such edges as non-edges for
+# reachability/path reconstruction.
+_LIFECYCLE_ENTRYPOINT_METHOD_NAMES: set[str] = set().union(*ENTRYPOINT_METHODS.values(), _ACCESSIBILITY_SERVICE_ENTRYPOINTS)
+
+
+def _is_component_lifecycle_signature(method_sig: str) -> bool:
+    return method_name_from_signature(method_sig) in _LIFECYCLE_ENTRYPOINT_METHOD_NAMES
 
 # =============================================================================
 # Investigability Scoring (for prioritizing analyzable seeds)
@@ -264,11 +279,29 @@ def build_sensitive_api_hits(
 ) -> Dict[str, Any]:
     component_map = _extract_component_map(manifest)
     app_prefixes = _build_app_prefixes(manifest, component_map)
-    entrypoints = entrypoints_override or _entrypoints_from_callgraph(callgraph, component_map)
-    entrypoints_source = "soot" if entrypoints_override else "manifest"
-    adjacency = _build_adjacency(callgraph.get("edges", []))
-    distances, predecessors = _bfs_from_entrypoints(adjacency, entrypoints)
     hierarchy_map = _build_hierarchy_map(class_hierarchy)
+    entrypoints = entrypoints_override or _entrypoints_from_callgraph(callgraph, component_map)
+    entrypoints = _filter_valid_entrypoints(entrypoints, component_map, hierarchy_map)
+    entrypoints_source = "soot" if entrypoints_override else "manifest"
+    edges = callgraph.get("edges", []) or []
+    strict_adjacency, strict_edge_info = _build_weighted_adjacency(
+        edges,
+        include_synthetic=False,
+        weight_fn=_strict_edge_weight,
+    )
+    strict_distances, strict_predecessors, strict_pred_edges = _dijkstra_from_entrypoints(
+        strict_adjacency,
+        entrypoints,
+    )
+    augmented_adjacency, augmented_edge_info = _build_weighted_adjacency(
+        edges,
+        include_synthetic=True,
+        weight_fn=_augmented_edge_weight,
+    )
+    augmented_distances, augmented_predecessors, augmented_pred_edges = _dijkstra_from_entrypoints(
+        augmented_adjacency,
+        entrypoints,
+    )
     compat_index = _build_compat_index(catalog) if hierarchy_map else {}
     method_is_framework = _build_framework_index(callgraph)
 
@@ -276,7 +309,7 @@ def build_sensitive_api_hits(
     filtered_framework = 0
     filtered_common_library = 0
     filtered_non_app = 0
-    for edge in callgraph.get("edges", []) or []:
+    for edge in edges:
         caller_sig = normalize_signature(edge.get("caller", ""))
         callee_sig = normalize_signature(edge.get("callee", ""))
         if not caller_sig or not callee_sig:
@@ -317,15 +350,29 @@ def build_sensitive_api_hits(
             continue
         for category in categories:
             hit_id = _hit_id(category.category_id, caller_sig, callee_sig)
-            # Compute reachability first (needed for investigability)
-            example_path, reachable, path_len = _reachability_path(
-                caller_sig,
-                callee_sig,
-                distances,
-                predecessors,
-                max_example_path,
+            # Compute reachability (strict preferred; augmented fallback)
+            reachability = _compute_strict_preferred_reachability(
+                caller_sig=caller_sig,
+                callee_sig=callee_sig,
+                strict_distances=strict_distances,
+                strict_predecessors=strict_predecessors,
+                strict_pred_edges=strict_pred_edges,
+                strict_edge_info=strict_edge_info,
+                augmented_distances=augmented_distances,
+                augmented_predecessors=augmented_predecessors,
+                augmented_pred_edges=augmented_pred_edges,
+                augmented_edge_info=augmented_edge_info,
+                max_example_path=max_example_path,
             )
+            example_path = reachability["example_path"]
+            reachable = reachability["reachable_from_entrypoint"]
+            path_len = reachability["shortest_path_len"]
             # Enhanced component resolution with ancestor walking
+            predecessors = (
+                strict_predecessors
+                if reachability.get("path_layer") == "strict"
+                else augmented_predecessors
+            )
             component_context = _component_context(
                 caller_class,
                 caller_sig,
@@ -360,11 +407,7 @@ def build_sensitive_api_hits(
                 },
                 "caller_is_app": caller_is_app,
                 "component_context": component_context,
-                "reachability": {
-                    "reachable_from_entrypoint": reachable,
-                    "shortest_path_len": path_len,
-                    "example_path": example_path,
-                },
+                "reachability": reachability,
                 "requires_slice": category.requires_slice,
                 "slice_hints": _slice_hints(category),
                 # Investigability scoring for triaging
@@ -510,12 +553,44 @@ def _entrypoints_from_callgraph(callgraph: Dict[str, Any], component_map: Dict[s
         allowed = ENTRYPOINT_METHODS.get(component["component_type"], set())
         if method_name in allowed:
             entrypoints.append(method_sig)
-    callbacks = callgraph.get("callbacks", []) or []
-    for callback in callbacks:
-        method_sig = normalize_signature(callback.get("method", ""))
-        if method_sig:
-            entrypoints.append(method_sig)
     return sorted(set(entrypoints))
+
+
+def _filter_valid_entrypoints(
+    entrypoints: List[str],
+    component_map: Dict[str, Dict[str, str]],
+    hierarchy_map: Optional[Dict[str, set[str]]] = None,
+) -> List[str]:
+    """
+    Keep only manifest-startable component lifecycle methods.
+
+    This protects reachability/path reconstruction from polluted entrypoint lists
+    (e.g., callback methods, threads, or arbitrary app methods).
+    """
+    filtered: List[str] = []
+    for method_sig in entrypoints or []:
+        method_sig = normalize_signature(method_sig)
+        if not method_sig:
+            continue
+        class_name = _class_name_from_signature(method_sig)
+        component = component_map.get(class_name)
+        if not component:
+            continue
+        method_name = method_name_from_signature(method_sig)
+        allowed = set(ENTRYPOINT_METHODS.get(component.get("component_type", "Unknown"), set()))
+        # AccessibilityService is declared as a Service in the manifest, but has additional
+        # OS-delivered entrypoints that are crucial for malware analysis.
+        if (
+            component.get("component_type") == "Service"
+            and method_name in _ACCESSIBILITY_SERVICE_ENTRYPOINTS
+            and hierarchy_map
+            and _ACCESSIBILITY_SERVICE_SUPERTYPE in hierarchy_map.get(class_name, set())
+        ):
+            filtered.append(method_sig)
+            continue
+        if method_name in allowed:
+            filtered.append(method_sig)
+    return sorted(set(filtered))
 
 
 def _build_adjacency(edges: Iterable[Dict[str, Any]]) -> Dict[str, List[str]]:
@@ -549,6 +624,295 @@ def _bfs_from_entrypoints(
             predecessors[callee] = current
             queue.append(callee)
     return distances, predecessors
+
+
+def _is_synthetic_edge(edge: Dict[str, Any]) -> bool:
+    return edge.get("edge_layer") == "synthetic"
+
+
+def _edge_source_tiebreak(edge_source: str) -> int:
+    """
+    Lower is better.
+
+    Prefer more precise sources when weights are equal.
+    """
+    if edge_source == "soot_cg":
+        return 0
+    if edge_source == "jimple_invoke":
+        return 1
+    return 5
+
+
+def _strict_edge_weight(edge: Dict[str, Any]) -> float:
+    """
+    Weight model for strict edges only (non-synthetic).
+
+    - `soot_cg`: more precise dispatch
+    - `jimple_invoke`: syntactic invoke, less precise
+    """
+    edge_source = str(edge.get("edge_source") or "")
+    if edge_source == "soot_cg":
+        return 1.0
+    if edge_source == "jimple_invoke":
+        return 2.0
+    return 3.0
+
+
+def _augmented_edge_weight(edge: Dict[str, Any]) -> float:
+    """
+    Weight model for augmented graph.
+
+    Strict preferred behavior is implemented by first attempting strict reachability,
+    then falling back to this augmented search when strict fails.
+    """
+    if not _is_synthetic_edge(edge):
+        return _strict_edge_weight(edge)
+
+    edge_source = str(edge.get("edge_source") or "")
+    confidence = str(edge.get("confidence") or "").lower()
+
+    # Prefer high-confidence synthetic edges; penalize speculative relations.
+    if edge_source == "threading_synthetic":
+        return {"high": 3.0, "medium": 5.0, "low": 8.0}.get(confidence, 8.0)
+    if edge_source == "listener_registration_synthetic":
+        return {"high": 4.0, "medium": 6.0, "low": 10.0}.get(confidence, 10.0)
+    if edge_source == "flowdroid_callback":
+        # FlowDroid's parent-method edges are not registration-site edges; treat as very speculative.
+        return 25.0
+
+    return 20.0
+
+
+def _callsite_unit(edge: Dict[str, Any]) -> Optional[str]:
+    callsite = edge.get("callsite")
+    if isinstance(callsite, dict):
+        unit = callsite.get("unit")
+        return str(unit) if unit is not None else None
+    if isinstance(callsite, str):
+        return callsite
+    return None
+
+
+def _build_weighted_adjacency(
+    edges: Iterable[Dict[str, Any]],
+    *,
+    include_synthetic: bool,
+    weight_fn,
+) -> Tuple[Dict[str, List[Tuple[str, float]]], Dict[Tuple[str, str], Dict[str, Any]]]:
+    """
+    Build adjacency lists and a best-edge lookup for (caller, callee).
+
+    The lookup chooses the minimum-weight edge between the same method pair,
+    with a deterministic tie-breaker favoring `soot_cg` over `jimple_invoke`.
+    """
+    best: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    best_weight: Dict[Tuple[str, str], float] = {}
+    for edge in edges:
+        if not include_synthetic and _is_synthetic_edge(edge):
+            continue
+        if include_synthetic and str(edge.get("edge_source") or "") == "flowdroid_callback":
+            callee_sig = normalize_signature(edge.get("callee", ""))
+            if callee_sig and _is_component_lifecycle_signature(callee_sig):
+                continue
+        caller = normalize_signature(edge.get("caller", ""))
+        callee = normalize_signature(edge.get("callee", ""))
+        if not caller or not callee:
+            continue
+        w = float(weight_fn(edge))
+        key = (caller, callee)
+        if key not in best_weight:
+            best_weight[key] = w
+            best[key] = {
+                "caller": caller,
+                "callee": callee,
+                "edge_source": edge.get("edge_source"),
+                "edge_layer": edge.get("edge_layer"),
+                "pattern": edge.get("pattern"),
+                "confidence": edge.get("confidence"),
+                "callsite_unit": _callsite_unit(edge),
+                "weight": w,
+            }
+            continue
+
+        current_weight = best_weight[key]
+        if w < current_weight:
+            best_weight[key] = w
+            best[key] = {
+                "caller": caller,
+                "callee": callee,
+                "edge_source": edge.get("edge_source"),
+                "edge_layer": edge.get("edge_layer"),
+                "pattern": edge.get("pattern"),
+                "confidence": edge.get("confidence"),
+                "callsite_unit": _callsite_unit(edge),
+                "weight": w,
+            }
+            continue
+        if w == current_weight:
+            new_source = str(edge.get("edge_source") or "")
+            old_source = str(best[key].get("edge_source") or "")
+            if _edge_source_tiebreak(new_source) < _edge_source_tiebreak(old_source):
+                best[key] = {
+                    "caller": caller,
+                    "callee": callee,
+                    "edge_source": edge.get("edge_source"),
+                    "edge_layer": edge.get("edge_layer"),
+                    "pattern": edge.get("pattern"),
+                    "confidence": edge.get("confidence"),
+                    "callsite_unit": _callsite_unit(edge),
+                    "weight": w,
+                }
+
+    adjacency: Dict[str, List[Tuple[str, float]]] = {}
+    for (caller, callee), info in best.items():
+        adjacency.setdefault(caller, []).append((callee, float(info["weight"])))
+    return adjacency, best
+
+
+def _dijkstra_from_entrypoints(
+    adjacency: Dict[str, List[Tuple[str, float]]],
+    entrypoints: List[str],
+) -> Tuple[Dict[str, float], Dict[str, Optional[str]], Dict[str, Optional[Dict[str, Any]]]]:
+    distances: Dict[str, float] = {}
+    predecessors: Dict[str, Optional[str]] = {}
+    pred_edges: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    heap: List[Tuple[float, str]] = []
+    for entry in entrypoints:
+        distances[entry] = 0.0
+        predecessors[entry] = None
+        pred_edges[entry] = None
+        heap.append((0.0, entry))
+    heapq.heapify(heap)
+
+    while heap:
+        dist_u, u = heapq.heappop(heap)
+        if dist_u != distances.get(u):
+            continue
+        for v, w in adjacency.get(u, []):
+            nd = dist_u + w
+            if nd < distances.get(v, float("inf")):
+                distances[v] = nd
+                predecessors[v] = u
+                # Edge metadata is resolved lazily from the edge lookup at reconstruction time.
+                pred_edges[v] = None
+                heapq.heappush(heap, (nd, v))
+    return distances, predecessors, pred_edges
+
+
+def _reconstruct_method_path(
+    target: str,
+    predecessors: Dict[str, Optional[str]],
+    max_example_path: int,
+) -> List[str]:
+    path: List[str] = []
+    cursor: Optional[str] = target
+    while cursor is not None:
+        path.append(cursor)
+        cursor = predecessors.get(cursor)
+    path.reverse()
+    if max_example_path and len(path) > max_example_path:
+        return path[:max_example_path]
+    return path
+
+
+def _compute_reachability_for_graph(
+    *,
+    caller_sig: str,
+    callee_sig: str,
+    distances: Dict[str, float],
+    predecessors: Dict[str, Optional[str]],
+    edge_info: Dict[Tuple[str, str], Dict[str, Any]],
+    max_example_path: int,
+) -> Dict[str, Any]:
+    if caller_sig not in distances:
+        return {
+            "reachable_from_entrypoint": False,
+            "shortest_path_len": None,
+            "path_cost": None,
+            "example_path": [],
+            "example_edges": [],
+        }
+
+    method_path = _reconstruct_method_path(caller_sig, predecessors, max_example_path)
+    if not method_path:
+        return {
+            "reachable_from_entrypoint": True,
+            "shortest_path_len": 1,
+            "path_cost": 0.0,
+            "example_path": [callee_sig],
+            "example_edges": [],
+        }
+
+    example_path = list(method_path)
+    example_edges: List[Dict[str, Any]] = []
+    total_cost = float(distances.get(caller_sig, 0.0))
+
+    # Edges along entrypoint->...->caller
+    for idx in range(len(method_path) - 1):
+        caller = method_path[idx]
+        callee = method_path[idx + 1]
+        info = edge_info.get((caller, callee))
+        if info:
+            example_edges.append(info)
+
+    # Append sink edge (caller -> sensitive API)
+    if example_path[-1] != callee_sig:
+        example_path.append(callee_sig)
+        sink_info = edge_info.get((caller_sig, callee_sig))
+        if sink_info:
+            example_edges.append(sink_info)
+            total_cost += float(sink_info.get("weight") or 0.0)
+
+    if max_example_path and len(example_path) > max_example_path:
+        example_path = example_path[:max_example_path]
+        example_edges = example_edges[: max(0, len(example_path) - 1)]
+
+    return {
+        "reachable_from_entrypoint": True,
+        "shortest_path_len": len(example_path) - 1,
+        "path_cost": total_cost,
+        "example_path": example_path,
+        "example_edges": example_edges,
+    }
+
+
+def _compute_strict_preferred_reachability(
+    *,
+    caller_sig: str,
+    callee_sig: str,
+    strict_distances: Dict[str, float],
+    strict_predecessors: Dict[str, Optional[str]],
+    strict_pred_edges: Dict[str, Optional[Dict[str, Any]]],
+    strict_edge_info: Dict[Tuple[str, str], Dict[str, Any]],
+    augmented_distances: Dict[str, float],
+    augmented_predecessors: Dict[str, Optional[str]],
+    augmented_pred_edges: Dict[str, Optional[Dict[str, Any]]],
+    augmented_edge_info: Dict[Tuple[str, str], Dict[str, Any]],
+    max_example_path: int,
+) -> Dict[str, Any]:
+    strict = _compute_reachability_for_graph(
+        caller_sig=caller_sig,
+        callee_sig=callee_sig,
+        distances=strict_distances,
+        predecessors=strict_predecessors,
+        edge_info=strict_edge_info,
+        max_example_path=max_example_path,
+    )
+    if strict["reachable_from_entrypoint"]:
+        strict["path_layer"] = "strict"
+        return strict
+
+    augmented = _compute_reachability_for_graph(
+        caller_sig=caller_sig,
+        callee_sig=callee_sig,
+        distances=augmented_distances,
+        predecessors=augmented_predecessors,
+        edge_info=augmented_edge_info,
+        max_example_path=max_example_path,
+    )
+    augmented["path_layer"] = "augmented" if augmented["reachable_from_entrypoint"] else None
+    return augmented
 
 
 def _reachability_path(
@@ -692,13 +1056,38 @@ def _build_app_prefixes(manifest: Dict[str, Any], component_map: Dict[str, Dict[
     if package_name:
         prefixes.append(package_name)
         prefixes.append(f"{package_name}.")
-        return list(dict.fromkeys([p for p in prefixes if p]))
+
+    # Also derive prefixes from manifest component classes. Some apps (especially test fixtures)
+    # use an applicationId / APK package_name that does not match the Java package of the
+    # implementation classes. Relying solely on manifest.package_name causes app code to be
+    # treated as "third-party" and can reduce investigability or filtering accuracy.
+    component_classes: List[str] = []
     for class_name in component_map.keys():
-        if not class_name or class_name.startswith(_LIBRARY_PREFIXES):
+        if not class_name:
             continue
-        prefixes.append(class_name)
-        if "." in class_name:
-            prefixes.append(class_name.rsplit(".", 1)[0] + ".")
+        if class_name.startswith(_LIBRARY_PREFIXES) or class_name.startswith(_COMMON_LIBRARY_PREFIXES):
+            continue
+        component_classes.append(class_name)
+
+    # Pick dominant component package prefix(es) to avoid whitelisting one-off SDK components as app code.
+    # This is used primarily when allow_third_party_callers=False.
+    package_prefix_counts: Dict[str, int] = {}
+    for class_name in component_classes:
+        if "." not in class_name:
+            continue
+        package_prefix = class_name.rsplit(".", 1)[0] + "."
+        package_prefix_counts[package_prefix] = package_prefix_counts.get(package_prefix, 0) + 1
+
+    if package_prefix_counts:
+        max_count = max(package_prefix_counts.values())
+        for prefix, count in package_prefix_counts.items():
+            if count == max_count:
+                prefixes.append(prefix)
+
+    # Always include component class names themselves so callers inside the same component
+    # (including inner classes) are treated as app code.
+    prefixes.extend(component_classes)
+
     return list(dict.fromkeys([p for p in prefixes if p]))
 
 

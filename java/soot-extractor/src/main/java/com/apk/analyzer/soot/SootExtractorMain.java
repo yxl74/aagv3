@@ -4,11 +4,25 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import soot.FastHierarchy;
 import soot.G;
+import soot.Local;
 import soot.PackManager;
+import soot.RefType;
 import soot.Scene;
 import soot.SootClass;
+import soot.SootField;
 import soot.SootMethod;
+import soot.Type;
 import soot.Unit;
+import soot.Value;
+import soot.jimple.AssignStmt;
+import soot.jimple.CastExpr;
+import soot.jimple.DefinitionStmt;
+import soot.jimple.FieldRef;
+import soot.jimple.InstanceFieldRef;
+import soot.jimple.InstanceInvokeExpr;
+import soot.jimple.InvokeExpr;
+import soot.jimple.NewExpr;
+import soot.jimple.SpecialInvokeExpr;
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.Edge;
 import soot.jimple.Stmt;
@@ -42,6 +56,8 @@ public class SootExtractorMain {
         AndroidJarSelection jarSelection = configureSoot(apkPath, androidPlatforms, cgAlgo, targetSdkRaw, explicitJar);
 
         Scene.v().loadNecessaryClasses();
+        // Entrypoints are strict: manifest-startable component lifecycle methods only.
+        // Callbacks (FlowDroid) are connected via synthetic edges, not treated as roots.
         List<SootMethod> entryPoints = buildEntryPoints();
         FlowDroidCallbackExtractor.Prepared callbackPrepared = null;
         if (flowdroidCallbacksEnabled) {
@@ -67,7 +83,6 @@ public class SootExtractorMain {
                 System.err.println("FlowDroid callback read failed, using lifecycle entrypoints only: " + e);
             }
         }
-        entryPoints = mergeEntryPoints(entryPoints, callbackResult != null ? callbackResult.callbackMethods : null);
 
         File out = new File(outDir);
         if (!out.exists()) {
@@ -168,6 +183,9 @@ public class SootExtractorMain {
         }
 
         jimpleEdges = appendInvokeEdges(edges, edgeKeys, methodSet);
+        int callbackEdges = appendCallbackEdges(edges, edgeKeys, methodSet, callbacks, entryPoints);
+        int threadingEdges = appendThreadingEdges(edges, edgeKeys, methodSet);
+        int listenerEdges = appendListenerRegistrationEdges(edges, edgeKeys, methodSet);
 
         List<Map<String, Object>> nodes = new ArrayList<>();
         for (String sig : methodSet) {
@@ -201,6 +219,10 @@ public class SootExtractorMain {
         metadata.put("flowdroid_callbacks_enabled", flowdroidCallbacksEnabled);
         metadata.put("cg_edge_count", cgEdges);
         metadata.put("jimple_edge_count", jimpleEdges);
+        metadata.put("callback_edge_count", callbackEdges);
+        metadata.put("threading_edge_count", threadingEdges);
+        metadata.put("listener_edge_count", listenerEdges);
+        metadata.put("synthetic_edge_count", callbackEdges + threadingEdges + listenerEdges);
         metadata.put("edge_total", edges.size());
         List<String> entrypointSources = new ArrayList<>();
         entrypointSources.add("lifecycle");
@@ -217,6 +239,1088 @@ public class SootExtractorMain {
         payload.put("callbacks", callbacks);
 
         writeJson(outputFile, payload);
+    }
+
+    private static int appendCallbackEdges(
+            List<Map<String, Object>> edges,
+            Set<String> edgeKeys,
+            Set<String> methodSet,
+            List<FlowDroidCallbackExtractor.CallbackInfo> callbacks,
+            List<SootMethod> entryPoints
+    ) {
+        if (callbacks == null || callbacks.isEmpty()) {
+            return 0;
+        }
+        Map<String, List<String>> entrypointsByComponent = new HashMap<>();
+        if (entryPoints != null) {
+            for (SootMethod ep : entryPoints) {
+                if (ep == null) {
+                    continue;
+                }
+                String cls = ep.getDeclaringClass() != null ? ep.getDeclaringClass().getName() : null;
+                if (cls == null || cls.isEmpty()) {
+                    continue;
+                }
+                entrypointsByComponent.computeIfAbsent(cls, k -> new ArrayList<>()).add(ep.getSignature());
+            }
+        }
+
+        int added = 0;
+        for (FlowDroidCallbackExtractor.CallbackInfo cb : callbacks) {
+            if (cb == null || cb.method == null || cb.method.isEmpty()) {
+                continue;
+            }
+            String callee = cb.method;
+            String registration = cb.registrationSite;
+            if (registration != null && !registration.isEmpty()) {
+                added += addSyntheticEdge(
+                        edges,
+                        edgeKeys,
+                        methodSet,
+                        registration,
+                        callee,
+                        "flowdroid_callback",
+                        "callback_registration",
+                        "medium",
+                        "FLOWDROID_CALLBACK registrationSite=" + registration
+                );
+                continue;
+            }
+            String component = cb.component;
+            if (component == null || component.isEmpty()) {
+                continue;
+            }
+            List<String> componentEntrypoints = entrypointsByComponent.get(component);
+            if (componentEntrypoints == null || componentEntrypoints.isEmpty()) {
+                continue;
+            }
+            for (String ep : componentEntrypoints) {
+                added += addSyntheticEdge(
+                        edges,
+                        edgeKeys,
+                        methodSet,
+                        ep,
+                        callee,
+                        "flowdroid_callback",
+                        "callback_orphan",
+                        "low",
+                        "FLOWDROID_CALLBACK orphan component=" + component
+                );
+            }
+        }
+        return added;
+    }
+
+    private static int appendListenerRegistrationEdges(
+            List<Map<String, Object>> edges,
+            Set<String> edgeKeys,
+            Set<String> methodSet
+    ) {
+        FastHierarchy hierarchy = Scene.v().getOrMakeFastHierarchy();
+
+        SootClass onClickListener = Scene.v().getSootClassUnsafe("android.view.View$OnClickListener");
+        SootClass primaryClipListener = Scene.v().getSootClassUnsafe("android.content.ClipboardManager$OnPrimaryClipChangedListener");
+        SootClass imageAvailableListener = Scene.v().getSootClassUnsafe("android.media.ImageReader$OnImageAvailableListener");
+        SootClass broadcastReceiver = Scene.v().getSootClassUnsafe("android.content.BroadcastReceiver");
+
+        if (onClickListener == null && primaryClipListener == null && imageAvailableListener == null && broadcastReceiver == null) {
+            return 0;
+        }
+
+        int added = 0;
+        List<SootClass> classes = new ArrayList<>(Scene.v().getApplicationClasses());
+        for (SootClass cls : classes) {
+            for (SootMethod method : new ArrayList<>(cls.getMethods())) {
+                if (method == null || !method.isConcrete()) {
+                    continue;
+                }
+                try {
+                    Map<Local, Value> localDefs = new HashMap<>();
+                    for (Unit unit : method.retrieveActiveBody().getUnits()) {
+                        if (unit instanceof DefinitionStmt) {
+                            DefinitionStmt def = (DefinitionStmt) unit;
+                            if (def.getLeftOp() instanceof Local) {
+                                localDefs.put((Local) def.getLeftOp(), def.getRightOp());
+                            }
+                        }
+                        if (!(unit instanceof Stmt)) {
+                            continue;
+                        }
+                        Stmt stmt = (Stmt) unit;
+                        if (!stmt.containsInvokeExpr()) {
+                            continue;
+                        }
+                        InvokeExpr invoke = stmt.getInvokeExpr();
+                        ListenerRegistration reg = matchListenerRegistration(invoke, onClickListener, primaryClipListener, imageAvailableListener, broadcastReceiver);
+                        if (reg == null) {
+                            continue;
+                        }
+                        if (invoke.getArgCount() <= reg.listenerArgIndex) {
+                            continue;
+                        }
+                        Value listenerArg = invoke.getArg(reg.listenerArgIndex);
+                        if (listenerArg == null) {
+                            continue;
+                        }
+                        ListenerTargets targets = resolveListenerTargets(
+                                listenerArg,
+                                localDefs,
+                                hierarchy,
+                                reg.listenerBaseClass,
+                                reg.callbackSubSignatures,
+                                method.getDeclaringClass().getName(),
+                                packageName(method.getDeclaringClass().getName()),
+                                MAX_FALLBACK_RUNNABLE_TARGETS
+                        );
+                        if (targets.targets.isEmpty()) {
+                            continue;
+                        }
+                        String caller = method.getSignature();
+                        String callsite = stmt.toString();
+                        for (SootMethod cb : targets.targets) {
+                            added += addSyntheticEdge(
+                                    edges,
+                                    edgeKeys,
+                                    methodSet,
+                                    caller,
+                                    cb.getSignature(),
+                                    "listener_registration_synthetic",
+                                    reg.pattern,
+                                    targets.confidence,
+                                    callsite
+                            );
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // best effort
+                }
+            }
+        }
+        return added;
+    }
+
+    private static final class ListenerRegistration {
+        private final String pattern;
+        private final SootClass listenerBaseClass;
+        private final List<String> callbackSubSignatures;
+        private final int listenerArgIndex;
+
+        private ListenerRegistration(String pattern, SootClass listenerBaseClass, List<String> callbackSubSignatures, int listenerArgIndex) {
+            this.pattern = pattern;
+            this.listenerBaseClass = listenerBaseClass;
+            this.callbackSubSignatures = callbackSubSignatures;
+            this.listenerArgIndex = listenerArgIndex;
+        }
+    }
+
+    private static final class ListenerTargets {
+        private final List<SootMethod> targets;
+        private final String confidence;
+
+        private ListenerTargets(List<SootMethod> targets, String confidence) {
+            this.targets = targets;
+            this.confidence = confidence;
+        }
+    }
+
+    private static ListenerRegistration matchListenerRegistration(
+            InvokeExpr invoke,
+            SootClass onClickListener,
+            SootClass primaryClipListener,
+            SootClass imageAvailableListener,
+            SootClass broadcastReceiver
+    ) {
+        if (invoke == null || invoke.getMethod() == null) {
+            return null;
+        }
+        SootMethod invoked = invoke.getMethod();
+        String name = invoked.getName();
+
+        // android.view.View.setOnClickListener(View$OnClickListener)
+        if ("setOnClickListener".equals(name)
+                && onClickListener != null
+                && invoked.getParameterCount() == 1
+                && invoked.getParameterType(0) instanceof RefType
+                && onClickListener.getName().equals(((RefType) invoked.getParameterType(0)).getClassName())) {
+            return new ListenerRegistration(
+                    "setOnClickListener",
+                    onClickListener,
+                    Collections.singletonList("void onClick(android.view.View)"),
+                    0
+            );
+        }
+
+        // android.content.ClipboardManager.addPrimaryClipChangedListener(OnPrimaryClipChangedListener)
+        if ("addPrimaryClipChangedListener".equals(name)
+                && primaryClipListener != null
+                && invoked.getParameterCount() == 1
+                && invoked.getParameterType(0) instanceof RefType
+                && primaryClipListener.getName().equals(((RefType) invoked.getParameterType(0)).getClassName())) {
+            return new ListenerRegistration(
+                    "addPrimaryClipChangedListener",
+                    primaryClipListener,
+                    Collections.singletonList("void onPrimaryClipChanged()"),
+                    0
+            );
+        }
+
+        // android.media.ImageReader.setOnImageAvailableListener(OnImageAvailableListener, Handler)
+        if ("setOnImageAvailableListener".equals(name)
+                && imageAvailableListener != null
+                && invoked.getParameterCount() >= 1
+                && invoked.getParameterType(0) instanceof RefType
+                && imageAvailableListener.getName().equals(((RefType) invoked.getParameterType(0)).getClassName())) {
+            return new ListenerRegistration(
+                    "setOnImageAvailableListener",
+                    imageAvailableListener,
+                    Collections.singletonList("void onImageAvailable(android.media.ImageReader)"),
+                    0
+            );
+        }
+
+        // android.content.Context.registerReceiver(BroadcastReceiver, ...)
+        if ("registerReceiver".equals(name)
+                && broadcastReceiver != null
+                && invoked.getParameterCount() >= 1
+                && invoked.getParameterType(0) instanceof RefType
+                && broadcastReceiver.getName().equals(((RefType) invoked.getParameterType(0)).getClassName())) {
+            return new ListenerRegistration(
+                    "registerReceiver",
+                    broadcastReceiver,
+                    Collections.singletonList("void onReceive(android.content.Context,android.content.Intent)"),
+                    0
+            );
+        }
+
+        return null;
+    }
+
+    private static ListenerTargets resolveListenerTargets(
+            Value listenerValue,
+            Map<Local, Value> localDefs,
+            FastHierarchy hierarchy,
+            SootClass listenerBaseClass,
+            List<String> callbackSubSignatures,
+            String callerClassName,
+            String callerPackage,
+            int maxFallbackTargets
+    ) {
+        if (listenerValue == null || listenerBaseClass == null || callbackSubSignatures == null || callbackSubSignatures.isEmpty()) {
+            return new ListenerTargets(Collections.emptyList(), "low");
+        }
+        List<SootMethod> targets = new ArrayList<>();
+
+        Value resolved = resolveValue(listenerValue, localDefs, 6);
+        if (resolved instanceof NewExpr) {
+            SootClass cls = sootClassFromType(((NewExpr) resolved).getType());
+            if (cls != null && hierarchy.canStoreClass(cls, listenerBaseClass)) {
+                for (String subSig : callbackSubSignatures) {
+                    SootMethod m = lookupMethodInHierarchy(cls, subSig);
+                    if (m != null && m.isConcrete() && m.getDeclaringClass().isApplicationClass()) {
+                        targets.add(m);
+                    }
+                }
+                if (!targets.isEmpty()) {
+                    return new ListenerTargets(targets, "high");
+                }
+            }
+        }
+
+        Type t = resolved != null ? resolved.getType() : null;
+        if (t instanceof RefType) {
+            SootClass cls = sootClassFromType(t);
+            if (cls != null && cls.isApplicationClass() && hierarchy.canStoreClass(cls, listenerBaseClass)) {
+                for (String subSig : callbackSubSignatures) {
+                    SootMethod m = lookupMethodInHierarchy(cls, subSig);
+                    if (m != null && m.isConcrete() && m.getDeclaringClass().isApplicationClass()) {
+                        targets.add(m);
+                    }
+                }
+                if (!targets.isEmpty()) {
+                    return new ListenerTargets(targets, "medium");
+                }
+            }
+        }
+
+        // Fuzzy fallback (bounded): prefer inner classes of the caller class, then same-package implementors.
+        if (maxFallbackTargets <= 0) {
+            return new ListenerTargets(Collections.emptyList(), "low");
+        }
+
+        String callerPrefix = callerClassName != null ? (callerClassName + "$") : null;
+        List<SootClass> appClasses = new ArrayList<>(Scene.v().getApplicationClasses());
+
+        for (SootClass cls : appClasses) {
+            if (targets.size() >= maxFallbackTargets) {
+                break;
+            }
+            if (cls == null || cls.isPhantom() || !cls.isApplicationClass()) {
+                continue;
+            }
+            if (callerPrefix != null && !callerPrefix.isEmpty() && !cls.getName().startsWith(callerPrefix)) {
+                continue;
+            }
+            if (!hierarchy.canStoreClass(cls, listenerBaseClass)) {
+                continue;
+            }
+            for (String subSig : callbackSubSignatures) {
+                SootMethod m = lookupMethodInHierarchy(cls, subSig);
+                if (m != null && m.isConcrete() && m.getDeclaringClass().isApplicationClass()) {
+                    targets.add(m);
+                }
+            }
+        }
+
+        if (targets.isEmpty() && callerPackage != null && !callerPackage.isEmpty()) {
+            for (SootClass cls : appClasses) {
+                if (targets.size() >= maxFallbackTargets) {
+                    break;
+                }
+                if (cls == null || cls.isPhantom() || !cls.isApplicationClass()) {
+                    continue;
+                }
+                if (!callerPackage.equals(packageName(cls.getName()))) {
+                    continue;
+                }
+                if (!hierarchy.canStoreClass(cls, listenerBaseClass)) {
+                    continue;
+                }
+                for (String subSig : callbackSubSignatures) {
+                    SootMethod m = lookupMethodInHierarchy(cls, subSig);
+                    if (m != null && m.isConcrete() && m.getDeclaringClass().isApplicationClass()) {
+                        targets.add(m);
+                    }
+                }
+            }
+        }
+
+        if (targets.isEmpty()) {
+            return new ListenerTargets(Collections.emptyList(), "low");
+        }
+        return new ListenerTargets(targets, "low");
+    }
+
+    private static int addSyntheticEdge(
+            List<Map<String, Object>> edges,
+            Set<String> edgeKeys,
+            Set<String> methodSet,
+            String caller,
+            String callee,
+            String edgeSource,
+            String pattern,
+            String confidence,
+            String callsiteUnit
+    ) {
+        if (caller == null || caller.isEmpty() || callee == null || callee.isEmpty()) {
+            return 0;
+        }
+        Map<String, Object> edgeObj = new HashMap<>();
+        edgeObj.put("caller", caller);
+        edgeObj.put("callee", callee);
+        edgeObj.put("callsite", Collections.singletonMap("unit", callsiteUnit));
+        edgeObj.put("edge_source", edgeSource);
+        edgeObj.put("edge_layer", "synthetic");
+        edgeObj.put("pattern", pattern);
+        edgeObj.put("confidence", confidence);
+        String key = edgeKey(edgeObj);
+        if (edgeKeys.add(key)) {
+            edges.add(edgeObj);
+            methodSet.add(caller);
+            methodSet.add(callee);
+            return 1;
+        }
+        return 0;
+    }
+
+    private static final int MAX_FALLBACK_RUNNABLE_TARGETS = 20;
+
+    private static int appendThreadingEdges(
+            List<Map<String, Object>> edges,
+            Set<String> edgeKeys,
+            Set<String> methodSet
+    ) {
+        FastHierarchy hierarchy = Scene.v().getOrMakeFastHierarchy();
+        SootClass threadClass = Scene.v().getSootClassUnsafe("java.lang.Thread");
+        SootClass runnableClass = Scene.v().getSootClassUnsafe("java.lang.Runnable");
+        if (threadClass == null || runnableClass == null) {
+            return 0;
+        }
+
+        int added = 0;
+        List<SootClass> classes = new ArrayList<>(Scene.v().getApplicationClasses());
+        for (SootClass cls : classes) {
+            List<SootMethod> methods = new ArrayList<>(cls.getMethods());
+            for (SootMethod method : methods) {
+                if (method == null || !method.isConcrete()) {
+                    continue;
+                }
+                try {
+                    Map<Local, Value> localDefs = new HashMap<>();
+                    Map<Local, Value> threadRunnableArgs = new HashMap<>();
+
+                    for (Unit unit : method.retrieveActiveBody().getUnits()) {
+                        if (unit instanceof DefinitionStmt) {
+                            DefinitionStmt def = (DefinitionStmt) unit;
+                            if (def.getLeftOp() instanceof Local) {
+                                localDefs.put((Local) def.getLeftOp(), def.getRightOp());
+                            }
+                        }
+                        if (!(unit instanceof Stmt)) {
+                            continue;
+                        }
+                        Stmt stmt = (Stmt) unit;
+                        if (!stmt.containsInvokeExpr()) {
+                            continue;
+                        }
+                        InvokeExpr invoke = stmt.getInvokeExpr();
+
+                        // Capture "new Thread(runnable)" and "new ThreadSubclass(runnable)" constructor args
+                        captureThreadConstructorRunnableArg(invoke, threadRunnableArgs, hierarchy, threadClass, runnableClass);
+
+                        if (isThreadStartInvoke(invoke, hierarchy, threadClass)) {
+                            InstanceInvokeExpr iie = (InstanceInvokeExpr) invoke;
+                            Value base = iie.getBase();
+                            if (!(base instanceof Local)) {
+                                continue;
+                            }
+                            Local threadLocal = (Local) base;
+                            Value resolvedThreadValue = resolveValue(threadLocal, localDefs, 6);
+                            ThreadResolution resolution = resolveThreadInstance(
+                                    resolvedThreadValue,
+                                    threadLocal,
+                                    localDefs,
+                                    hierarchy,
+                                    threadClass
+                            );
+
+                            String caller = method.getSignature();
+                            String callsite = stmt.toString();
+
+                            boolean hasAppRun = false;
+                            if (resolution.threadClass != null) {
+                                SootMethod runMethod = lookupMethodInHierarchy(resolution.threadClass, "void run()");
+                                if (runMethod != null
+                                        && runMethod.isConcrete()
+                                        && runMethod.getDeclaringClass() != null
+                                        && runMethod.getDeclaringClass().isApplicationClass()) {
+                                    hasAppRun = true;
+                                    added += addSyntheticEdge(
+                                            edges,
+                                            edgeKeys,
+                                            methodSet,
+                                            caller,
+                                            runMethod.getSignature(),
+                                            "threading_synthetic",
+                                            "thread_start",
+                                            resolution.confidence,
+                                            callsite
+                                    );
+                                }
+                            }
+
+                            Value runnableArg = findThreadRunnableArg(threadLocal, localDefs, threadRunnableArgs);
+                            // Only synthesize a direct caller -> runnable.run edge when the Thread does not have an
+                            // app-defined run() implementation. For Thread subclasses, prefer the (caller -> run())
+                            // edge and let the call graph connect run() -> runnable.run().
+                            boolean wantsRunnableEdge = runnableArg != null && !hasAppRun;
+                            if (wantsRunnableEdge) {
+                                RunnableTargets targets = resolveRunnableTargets(
+                                        runnableArg,
+                                        localDefs,
+                                        hierarchy,
+                                        runnableClass,
+                                        method.getDeclaringClass().getName(),
+                                        packageName(method.getDeclaringClass().getName()),
+                                        MAX_FALLBACK_RUNNABLE_TARGETS
+                                );
+                                String pattern = "thread_runnable";
+                                for (SootMethod targetRun : targets.targets) {
+                                    added += addSyntheticEdge(
+                                            edges,
+                                            edgeKeys,
+                                            methodSet,
+                                            caller,
+                                            targetRun.getSignature(),
+                                            "threading_synthetic",
+                                            pattern,
+                                            targets.confidence,
+                                            callsite
+                                    );
+                                }
+                            }
+                        }
+
+                        if (isHandlerPostInvoke(invoke)) {
+                            String caller = method.getSignature();
+                            String callsite = stmt.toString();
+                            Value runnableArg = invoke.getArgCount() > 0 ? invoke.getArg(0) : null;
+                            if (runnableArg == null) {
+                                continue;
+                            }
+                            RunnableTargets targets = resolveRunnableTargets(
+                                    runnableArg,
+                                    localDefs,
+                                    hierarchy,
+                                    runnableClass,
+                                    method.getDeclaringClass().getName(),
+                                    packageName(method.getDeclaringClass().getName()),
+                                    MAX_FALLBACK_RUNNABLE_TARGETS
+                            );
+                            for (SootMethod targetRun : targets.targets) {
+                                added += addSyntheticEdge(
+                                        edges,
+                                        edgeKeys,
+                                        methodSet,
+                                        caller,
+                                        targetRun.getSignature(),
+                                        "threading_synthetic",
+                                        "handler_post",
+                                        targets.confidence,
+                                        callsite
+                                );
+                            }
+                        }
+
+                        if (isHandlerSendMessageInvoke(invoke)) {
+                            String caller = method.getSignature();
+                            String callsite = stmt.toString();
+                            Value msgArg = invoke.getArgCount() > 0 ? invoke.getArg(0) : null;
+                            if (msgArg == null) {
+                                continue;
+                            }
+                            Value resolvedMsg = resolveValue(msgArg, localDefs, 6);
+                            Value callbackRunnable = extractRunnableFromMessageObtain(resolvedMsg);
+                            if (callbackRunnable == null) {
+                                continue;
+                            }
+                            RunnableTargets targets = resolveRunnableTargets(
+                                    callbackRunnable,
+                                    localDefs,
+                                    hierarchy,
+                                    runnableClass,
+                                    method.getDeclaringClass().getName(),
+                                    packageName(method.getDeclaringClass().getName()),
+                                    MAX_FALLBACK_RUNNABLE_TARGETS
+                            );
+                            for (SootMethod targetRun : targets.targets) {
+                                added += addSyntheticEdge(
+                                        edges,
+                                        edgeKeys,
+                                        methodSet,
+                                        caller,
+                                        targetRun.getSignature(),
+                                        "threading_synthetic",
+                                        "handler_message",
+                                        targets.confidence,
+                                        callsite
+                                );
+                            }
+                        }
+
+                        if (isExecutorExecuteInvoke(invoke)) {
+                            String caller = method.getSignature();
+                            String callsite = stmt.toString();
+                            Value runnableArg = invoke.getArgCount() > 0 ? invoke.getArg(0) : null;
+                            if (runnableArg == null) {
+                                continue;
+                            }
+                            RunnableTargets targets = resolveRunnableTargets(
+                                    runnableArg,
+                                    localDefs,
+                                    hierarchy,
+                                    runnableClass,
+                                    method.getDeclaringClass().getName(),
+                                    packageName(method.getDeclaringClass().getName()),
+                                    MAX_FALLBACK_RUNNABLE_TARGETS
+                            );
+                            for (SootMethod targetRun : targets.targets) {
+                                added += addSyntheticEdge(
+                                        edges,
+                                        edgeKeys,
+                                        methodSet,
+                                        caller,
+                                        targetRun.getSignature(),
+                                        "threading_synthetic",
+                                        "executor_execute",
+                                        targets.confidence,
+                                        callsite
+                                );
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // best effort; skip methods without bodies or with soot failures
+                }
+            }
+        }
+        return added;
+    }
+
+    private static boolean isThreadStartInvoke(InvokeExpr invoke, FastHierarchy hierarchy, SootClass threadClass) {
+        if (!(invoke instanceof InstanceInvokeExpr)) {
+            return false;
+        }
+        SootMethod invoked = invoke.getMethod();
+        if (invoked == null) {
+            return false;
+        }
+        if (!"start".equals(invoked.getName())) {
+            return false;
+        }
+        if (invoked.getParameterCount() != 0) {
+            return false;
+        }
+        if (!"void start()".equals(invoked.getSubSignature())) {
+            return false;
+        }
+        SootClass declaring = invoked.getDeclaringClass();
+        if (declaring != null && "java.lang.Thread".equals(declaring.getName())) {
+            return true;
+        }
+        Value base = ((InstanceInvokeExpr) invoke).getBase();
+        if (base == null) {
+            return false;
+        }
+        Type type = base.getType();
+        if (!(type instanceof RefType)) {
+            return false;
+        }
+        SootClass baseClass;
+        try {
+            baseClass = ((RefType) type).getSootClass();
+        } catch (Exception e) {
+            baseClass = Scene.v().getSootClassUnsafe(((RefType) type).getClassName());
+        }
+        return baseClass != null && hierarchy.canStoreClass(baseClass, threadClass);
+    }
+
+    private static boolean isHandlerPostInvoke(InvokeExpr invoke) {
+        SootMethod invoked = invoke.getMethod();
+        if (invoked == null) {
+            return false;
+        }
+        if (!"android.os.Handler".equals(invoked.getDeclaringClass().getName())) {
+            return false;
+        }
+        String name = invoked.getName();
+        if (!name.startsWith("post")) {
+            return false;
+        }
+        return invoked.getParameterCount() >= 1
+                && invoked.getParameterType(0) instanceof RefType
+                && "java.lang.Runnable".equals(((RefType) invoked.getParameterType(0)).getClassName());
+    }
+
+    private static boolean isHandlerSendMessageInvoke(InvokeExpr invoke) {
+        SootMethod invoked = invoke.getMethod();
+        if (invoked == null) {
+            return false;
+        }
+        if (!"android.os.Handler".equals(invoked.getDeclaringClass().getName())) {
+            return false;
+        }
+        String name = invoked.getName();
+        if (name == null || !name.startsWith("sendMessage")) {
+            return false;
+        }
+        if (invoked.getParameterCount() < 1) {
+            return false;
+        }
+        Type first = invoked.getParameterType(0);
+        return first instanceof RefType
+                && "android.os.Message".equals(((RefType) first).getClassName());
+    }
+
+    private static Value extractRunnableFromMessageObtain(Value messageValue) {
+        if (!(messageValue instanceof InvokeExpr)) {
+            return null;
+        }
+        InvokeExpr invoke = (InvokeExpr) messageValue;
+        SootMethod invoked = invoke.getMethod();
+        if (invoked == null) {
+            return null;
+        }
+        if (!"obtain".equals(invoked.getName())) {
+            return null;
+        }
+        if (!"android.os.Message".equals(invoked.getDeclaringClass().getName())) {
+            return null;
+        }
+        int argCount = Math.min(invoke.getArgCount(), invoked.getParameterCount());
+        for (int i = 0; i < argCount; i++) {
+            Type paramType = invoked.getParameterType(i);
+            if (!(paramType instanceof RefType)) {
+                continue;
+            }
+            if (!"java.lang.Runnable".equals(((RefType) paramType).getClassName())) {
+                continue;
+            }
+            return invoke.getArg(i);
+        }
+        return null;
+    }
+
+    private static boolean isExecutorExecuteInvoke(InvokeExpr invoke) {
+        SootMethod invoked = invoke.getMethod();
+        if (invoked == null) {
+            return false;
+        }
+        String name = invoked.getName();
+        if (!"execute".equals(name) && !"submit".equals(name)) {
+            return false;
+        }
+        return invoked.getParameterCount() >= 1
+                && invoked.getParameterType(0) instanceof RefType
+                && "java.lang.Runnable".equals(((RefType) invoked.getParameterType(0)).getClassName());
+    }
+
+    private static void captureThreadConstructorRunnableArg(
+            InvokeExpr invoke,
+            Map<Local, Value> threadRunnableArgs,
+            FastHierarchy hierarchy,
+            SootClass threadClass,
+            SootClass runnableClass
+    ) {
+        if (!(invoke instanceof SpecialInvokeExpr)) {
+            return;
+        }
+        SpecialInvokeExpr sie = (SpecialInvokeExpr) invoke;
+        SootMethod invoked = sie.getMethod();
+        if (invoked == null || !"<init>".equals(invoked.getName())) {
+            return;
+        }
+        Value base = sie.getBase();
+        if (!(base instanceof Local)) {
+            return;
+        }
+        Local threadLocal = (Local) base;
+
+        // Only record for Thread instances (or subclasses).
+        Type threadType = threadLocal.getType();
+        if (!(threadType instanceof RefType)) {
+            return;
+        }
+        SootClass threadLocalClass;
+        try {
+            threadLocalClass = ((RefType) threadType).getSootClass();
+        } catch (Exception e) {
+            threadLocalClass = Scene.v().getSootClassUnsafe(((RefType) threadType).getClassName());
+        }
+        if (threadLocalClass == null || !hierarchy.canStoreClass(threadLocalClass, threadClass)) {
+            return;
+        }
+
+        for (int i = 0; i < sie.getArgCount(); i++) {
+            Value arg = sie.getArg(i);
+            if (arg == null) {
+                continue;
+            }
+            Type argType = arg.getType();
+            if (!(argType instanceof RefType)) {
+                continue;
+            }
+            SootClass argClass;
+            try {
+                argClass = ((RefType) argType).getSootClass();
+            } catch (Exception e) {
+                argClass = Scene.v().getSootClassUnsafe(((RefType) argType).getClassName());
+            }
+            if (argClass != null && hierarchy.canStoreClass(argClass, runnableClass)) {
+                threadRunnableArgs.put(threadLocal, arg);
+                return;
+            }
+        }
+    }
+
+    private static Value findThreadRunnableArg(
+            Local threadLocal,
+            Map<Local, Value> localDefs,
+            Map<Local, Value> threadRunnableArgs
+    ) {
+        if (threadRunnableArgs.containsKey(threadLocal)) {
+            return threadRunnableArgs.get(threadLocal);
+        }
+        // Follow simple aliases: t2 = t1; t2.start()
+        Value def = localDefs.get(threadLocal);
+        if (def instanceof Local) {
+            return threadRunnableArgs.get(def);
+        }
+        return null;
+    }
+
+    private static Value resolveValue(Value value, Map<Local, Value> localDefs, int maxDepth) {
+        Value current = value;
+        int depth = 0;
+        while (depth < maxDepth) {
+            depth += 1;
+            if (current instanceof CastExpr) {
+                current = ((CastExpr) current).getOp();
+                continue;
+            }
+            if (current instanceof Local) {
+                Value next = localDefs.get(current);
+                if (next == null || next == current) {
+                    return current;
+                }
+                current = next;
+                continue;
+            }
+            return current;
+        }
+        return current;
+    }
+
+    private static ThreadResolution resolveThreadInstance(
+            Value resolvedThreadValue,
+            Local threadLocal,
+            Map<Local, Value> localDefs,
+            FastHierarchy hierarchy,
+            SootClass threadClass
+    ) {
+        // Default: use declared type.
+        SootClass typeClass = null;
+        Type t = threadLocal.getType();
+        if (t instanceof RefType) {
+            try {
+                typeClass = ((RefType) t).getSootClass();
+            } catch (Exception e) {
+                typeClass = Scene.v().getSootClassUnsafe(((RefType) t).getClassName());
+            }
+        }
+        ThreadResolution out = new ThreadResolution(typeClass, "low");
+
+        if (resolvedThreadValue instanceof NewExpr) {
+            Type newType = ((NewExpr) resolvedThreadValue).getType();
+            if (newType instanceof RefType) {
+                SootClass allocated = ((RefType) newType).getSootClass();
+                if (allocated != null && hierarchy.canStoreClass(allocated, threadClass)) {
+                    return new ThreadResolution(allocated, "high");
+                }
+            }
+            return out;
+        }
+
+        if (resolvedThreadValue instanceof FieldRef) {
+            FieldRef fr = (FieldRef) resolvedThreadValue;
+            SootField field = fr.getField();
+            if (field != null) {
+                ThreadResolution fieldRes = resolveThreadFromField(field, hierarchy, threadClass);
+                if (fieldRes != null) {
+                    return fieldRes;
+                }
+            }
+        }
+        return out;
+    }
+
+    private static ThreadResolution resolveThreadFromField(
+            SootField field,
+            FastHierarchy hierarchy,
+            SootClass threadClass
+    ) {
+        if (field == null) {
+            return null;
+        }
+        SootClass declaring = field.getDeclaringClass();
+        if (declaring == null) {
+            return null;
+        }
+        List<String> initializerNames = Arrays.asList("<init>", "onCreate", "onStartCommand", "onReceive");
+        for (SootMethod m : declaring.getMethods()) {
+            if (m == null || !m.isConcrete()) {
+                continue;
+            }
+            if (!initializerNames.contains(m.getName())) {
+                continue;
+            }
+            try {
+                Map<Local, Value> localDefs = new HashMap<>();
+                for (Unit u : m.retrieveActiveBody().getUnits()) {
+                    if (u instanceof DefinitionStmt) {
+                        DefinitionStmt def = (DefinitionStmt) u;
+                        if (def.getLeftOp() instanceof Local) {
+                            localDefs.put((Local) def.getLeftOp(), def.getRightOp());
+                        }
+                    }
+                    if (u instanceof AssignStmt) {
+                        AssignStmt as = (AssignStmt) u;
+                        Value left = as.getLeftOp();
+                        if (!(left instanceof InstanceFieldRef)) {
+                            continue;
+                        }
+                        InstanceFieldRef ifr = (InstanceFieldRef) left;
+                        if (ifr.getField() == null || !ifr.getField().equals(field)) {
+                            continue;
+                        }
+                        Value rhs = as.getRightOp();
+                        Value resolved = resolveValue(rhs, localDefs, 6);
+                        if (resolved instanceof NewExpr) {
+                            Type newType = ((NewExpr) resolved).getType();
+                            if (newType instanceof RefType) {
+                                SootClass allocated = ((RefType) newType).getSootClass();
+                                if (allocated != null && hierarchy.canStoreClass(allocated, threadClass)) {
+                                    return new ThreadResolution(allocated, "medium");
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // best effort
+            }
+        }
+        return null;
+    }
+
+    private static SootMethod lookupMethodInHierarchy(SootClass cls, String subSignature) {
+        if (cls == null || subSignature == null) {
+            return null;
+        }
+        SootClass current = cls;
+        int depth = 0;
+        while (current != null && depth < 25) {
+            depth += 1;
+            SootMethod m = current.getMethodUnsafe(subSignature);
+            if (m != null) {
+                return m;
+            }
+            try {
+                if (!current.hasSuperclass()) {
+                    break;
+                }
+                current = current.getSuperclass();
+            } catch (Exception e) {
+                break;
+            }
+        }
+        return null;
+    }
+
+    private static RunnableTargets resolveRunnableTargets(
+            Value runnableValue,
+            Map<Local, Value> localDefs,
+            FastHierarchy hierarchy,
+            SootClass runnableClass,
+            String callerClassName,
+            String callerPackage,
+            int maxFallbackTargets
+    ) {
+        List<SootMethod> targets = new ArrayList<>();
+
+        Value resolved = resolveValue(runnableValue, localDefs, 6);
+        if (resolved instanceof NewExpr) {
+            SootClass cls = sootClassFromType(((NewExpr) resolved).getType());
+            SootMethod run = (cls != null) ? lookupMethodInHierarchy(cls, "void run()") : null;
+            if (run != null && run.isConcrete() && run.getDeclaringClass().isApplicationClass()) {
+                targets.add(run);
+                return new RunnableTargets(targets, "high");
+            }
+        }
+
+        Type t = resolved != null ? resolved.getType() : null;
+        if (t instanceof RefType) {
+            SootClass cls;
+            try {
+                cls = ((RefType) t).getSootClass();
+            } catch (Exception e) {
+                cls = Scene.v().getSootClassUnsafe(((RefType) t).getClassName());
+            }
+            if (cls != null && cls.isApplicationClass()) {
+                SootMethod run = lookupMethodInHierarchy(cls, "void run()");
+                if (run != null && run.isConcrete() && run.getDeclaringClass().isApplicationClass()) {
+                    targets.add(run);
+                    return new RunnableTargets(targets, "medium");
+                }
+            }
+        }
+
+        // Fuzzy fallback (bounded): prefer inner classes of the caller, then same-package implementors.
+        if (maxFallbackTargets > 0) {
+            String callerPrefix = callerClassName != null ? (callerClassName + "$") : null;
+            List<SootClass> appClasses = new ArrayList<>(Scene.v().getApplicationClasses());
+
+            if (callerPrefix != null && !callerPrefix.isEmpty()) {
+                for (SootClass cls : appClasses) {
+                    if (targets.size() >= maxFallbackTargets) {
+                        break;
+                    }
+                    if (cls == null || cls.isPhantom()) {
+                        continue;
+                    }
+                    if (!cls.getName().startsWith(callerPrefix)) {
+                        continue;
+                    }
+                    if (!hierarchy.canStoreClass(cls, runnableClass)) {
+                        continue;
+                    }
+                    SootMethod run = lookupMethodInHierarchy(cls, "void run()");
+                    if (run != null && run.isConcrete() && run.getDeclaringClass().isApplicationClass()) {
+                        targets.add(run);
+                    }
+                }
+            }
+
+            if (targets.isEmpty() && callerPackage != null && !callerPackage.isEmpty()) {
+                for (SootClass cls : appClasses) {
+                    if (targets.size() >= maxFallbackTargets) {
+                        break;
+                    }
+                    if (cls == null || cls.isPhantom()) {
+                        continue;
+                    }
+                    if (!callerPackage.equals(packageName(cls.getName()))) {
+                        continue;
+                    }
+                    if (!hierarchy.canStoreClass(cls, runnableClass)) {
+                        continue;
+                    }
+                    SootMethod run = lookupMethodInHierarchy(cls, "void run()");
+                    if (run != null && run.isConcrete() && run.getDeclaringClass().isApplicationClass()) {
+                        targets.add(run);
+                    }
+                }
+            }
+        }
+        return new RunnableTargets(targets, targets.isEmpty() ? "low" : "low");
+    }
+
+    private static SootClass sootClassFromType(Type type) {
+        if (!(type instanceof RefType)) {
+            return null;
+        }
+        try {
+            return ((RefType) type).getSootClass();
+        } catch (Exception e) {
+            return Scene.v().getSootClassUnsafe(((RefType) type).getClassName());
+        }
+    }
+
+    private static String packageName(String className) {
+        if (className == null) {
+            return "";
+        }
+        int idx = className.lastIndexOf('.');
+        return idx >= 0 ? className.substring(0, idx) : "";
+    }
+
+    private static final class ThreadResolution {
+        private final SootClass threadClass;
+        private final String confidence;
+
+        private ThreadResolution(SootClass threadClass, String confidence) {
+            this.threadClass = threadClass;
+            this.confidence = confidence;
+        }
+    }
+
+    private static final class RunnableTargets {
+        private final List<SootMethod> targets;
+        private final String confidence;
+
+        private RunnableTargets(List<SootMethod> targets, String confidence) {
+            this.targets = targets;
+            this.confidence = confidence;
+        }
     }
 
     private static List<SootMethod> buildEntryPoints() {
